@@ -1,0 +1,10 @@
+label: "WASD"
+grub2:
+  timeout: 5
+  entries:
+    - name: "Start WASD"
+      linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=WASD enforcing=0 rd.live.image systemd.hostname=wasd"
+      initrd: "/images/pxeboot/initrd.img"
+    - name: "Start WASD (basic graphics)"
+      linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=WASD enforcing=0 rd.live.image systemd.hostname=wasd nomodeset"
+      initrd: "/images/pxeboot/initrd.img"

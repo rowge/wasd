@@ -1,0 +1,94 @@
+name: Build live ISO
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - installer/**
+      - .github/workflows/build-iso.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wasd-live-iso
+  cancel-in-progress: false
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          tool-cache: true
+
+      - name: Install podman
+        run: sudo apt-get update && sudo apt-get install -y podman btrfs-progs
+
+      - name: Mount container storage
+        run: |
+          set -euxo pipefail
+          sudo truncate -s 110G /mnt/podman-storage.img
+          sudo mkfs.btrfs -f -m single -d single /mnt/podman-storage.img
+          sudo podman system reset --force || true
+          sudo systemctl stop podman.service || true
+          LOOP=$(sudo losetup --find --show --direct-io=on /mnt/podman-storage.img)
+          sudo mkdir -p /mnt/podman-storage
+          sudo mount -o compress-force=zstd:2,discard=async,noatime "$LOOP" /mnt/podman-storage
+          sudo mkdir -p /mnt/podman-storage/storage /mnt/podman-storage/tmp
+          sudo mount --bind /mnt/podman-storage/storage /var/lib/containers/storage
+          sudo systemctl start podman.service || true
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Build the live system
+        run: |
+          set -euxo pipefail
+          sudo env TMPDIR=/mnt/podman-storage/tmp podman build \
+            --cap-add sys_admin \
+            --security-opt label=disable \
+            --build-arg BASE_IMAGE=ghcr.io/rowge/wasd:latest \
+            --build-arg INSTALL_IMAGE_PAYLOAD=ghcr.io/rowge/wasd:latest \
+            --build-arg FLATPAK_DIR_SHORTNAME=kde_flatpaks \
+            -t localhost/wasd-live:latest installer/
+
+      - name: Build the ISO
+        run: |
+          set -euxo pipefail
+          mkdir -p output
+          sudo podman run --rm -i \
+            --cap-add sys_admin \
+            --security-opt label=disable \
+            -v "$PWD/installer/build_iso.sh":/src/build_iso.sh:ro \
+            --mount type=image,source=localhost/wasd-live:latest,dst=/rootfs \
+            -v "$PWD/output":/output \
+            quay.io/fedora/fedora:latest /src/build_iso.sh
+          sudo chown "$(id -u):$(id -g)" output/WASD.iso
+          ls -lh output/WASD.iso
+
+      - name: Split the ISO for the release
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          # GitHub release files stop at 2GB. The ISO is larger.
+          split -b 1800M -d --additional-suffix=.part output/WASD.iso dist/WASD-live.iso.
+          sha256sum output/WASD.iso | tee dist/WASD-live.iso.sha256
+          ls -lh dist
+
+      - name: Publish the ISO parts
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
+        with:
+          tag_name: live
+          name: WASD live USB
+          prerelease: true
+          make_latest: false
+          body: |
+            Live ISO for the WASD USB stick. The file is split so it can sit on a release.
+            Join the parts with: cat WASD-live.iso.*.part > WASD-live.iso
+            Then check WASD-live.iso.sha256.
+          files: dist/*
+          overwrite: true
+          fail_on_unmatched_files: true
