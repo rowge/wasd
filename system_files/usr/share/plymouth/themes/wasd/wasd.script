@@ -1,0 +1,50 @@
+# Keys stay at the top of the sketch. The bar runs along the bottom.
+wallpaper_image = Image("background.png");
+track_image = Image("progress_track.png");
+fill_image = Image("progress_fill.png");
+
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+wallpaper_ratio = wallpaper_image.GetWidth() / wallpaper_image.GetHeight();
+screen_ratio = screen_width / screen_height;
+
+if (screen_ratio >= wallpaper_ratio) {
+    scaled_width = screen_width;
+    scaled_height = screen_width / wallpaper_ratio;
+} else {
+    scaled_height = screen_height;
+    scaled_width = screen_height * wallpaper_ratio;
+}
+
+wallpaper_sprite = Sprite(wallpaper_image.Scale(scaled_width, scaled_height));
+wallpaper_sprite.SetPosition((screen_width - scaled_width) / 2, (screen_height - scaled_height) / 2, -10000);
+
+bar_width = screen_width * 0.62;
+bar_height = screen_height * 0.012;
+if (bar_height < 8) {
+    bar_height = 8;
+}
+bar_x = (screen_width - bar_width) / 2;
+bar_y = screen_height * 0.90;
+
+track_sprite = Sprite(track_image.Scale(bar_width, bar_height));
+track_sprite.SetPosition(bar_x, bar_y, 0);
+
+fill_sprite = Sprite();
+fill_sprite.SetPosition(bar_x, bar_y, 1);
+
+progress = 0;
+
+fun refresh_callback() {
+    if (progress > 0) {
+        fill_sprite.SetImage(fill_image.Scale(bar_width * progress, bar_height));
+    }
+}
+
+fun progress_callback(duration, progress_in) {
+    progress = progress_in;
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);
+Plymouth.SetBootProgressFunction(progress_callback);

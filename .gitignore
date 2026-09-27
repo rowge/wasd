@@ -1,0 +1,27 @@
+# Build artifacts
+*.iso
+*.img
+*.qcow2
+*.raw
+*.tar
+*.tar.gz
+output/
+build/
+.cache/
+
+# Signing material (never commit the private key)
+cosign.key
+
+# image-template build scratch
+_build_*
+*_chunkah_*
+*_rpm-ostree_*
+previous.manifest.json
+changelog.md
+output.env
+
+# Local scratch
+*.log
+.DS_Store
+__pycache__/
+*.pyc

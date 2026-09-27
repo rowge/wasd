@@ -1,0 +1,17 @@
+com.brave.Browser
+org.kde.gwenview
+org.kde.okular
+org.kde.kcalc
+org.kde.haruna
+io.github.DenysMb.Kontainer
+com.github.tchx84.Flatseal
+com.github.Matoking.protontricks
+io.github.flattool.Warehouse
+com.vysp3r.ProtonPlus
+org.gnome.Firmware
+com.obsproject.Studio.Plugin.OBSVkCapture
+com.obsproject.Studio.Plugin.Gstreamer
+com.obsproject.Studio.Plugin.GStreamerVaapi
+org.freedesktop.Platform.VulkanLayer.MangoHud//25.08
+org.freedesktop.Platform.VulkanLayer.vkBasalt//25.08
+org.freedesktop.Platform.VulkanLayer.OBSVkCapture//25.08
