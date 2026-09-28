@@ -72,8 +72,11 @@ if ! lsinitrd -f usr/share/plymouth/themes/wasd/wasd.script "$img" >/dev/null \
     lsinitrd "$img" | grep -i plymouth >&2 || true
     exit 1
 fi
-conf_path=$(lsinitrd "$img" | awk '/plymouthd.conf$/ { print $NF; exit }')
-if [[ -z $conf_path ]] || ! lsinitrd -f "$conf_path" "$img" | grep -q '^Theme= *wasd$'; then
+# awk must read the whole listing. Exiting early closes the pipe and
+# lsinitrd dies with SIGPIPE, which fails the build under pipefail.
+conf_path=$(lsinitrd "$img" | awk '/plymouthd.conf$/ { path = $NF } END { print path }')
+theme_line=$(lsinitrd -f "$conf_path" "$img" | awk '/^Theme=/ { line = $0 } END { print line }')
+if [[ -z $conf_path || $theme_line != Theme=wasd && $theme_line != "Theme= wasd" ]]; then
     echo "live initramfs is not set to the WASD plymouth theme" >&2
     lsinitrd "$img" | grep -i plymouth >&2 || true
     exit 1
