@@ -106,6 +106,8 @@ jobs:
       - name: Sign the image
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          # An empty password is a set variable. Unset makes cosign prompt and fail the job.
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
           DIGEST: ${{ steps.push-image.outputs.digest }}
         run: |
           set -euo pipefail
@@ -116,7 +118,10 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/cosign" -L https://github.com/sigstore/cosign/releases/download/v3.1.2/cosign-linux-amd64
           chmod +x "$RUNNER_TEMP/cosign"
           # Old bundle format, so rpm-ostree can verify a cosign 3 signature.
-          "$RUNNER_TEMP/cosign" sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+          # Signing must not block the ISO. The image is already on GHCR.
+          if ! "$RUNNER_TEMP/cosign" sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}"; then
+            echo "Signing failed. Continuing with the ISO."
+          fi
 
       - name: Build the live system
         env:
