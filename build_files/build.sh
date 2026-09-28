@@ -53,6 +53,9 @@ python3 /ctx/patch.py
 # Theme files are already in place. The base image's initramfs still has
 # Bazzite's splash baked in, so the installed system needs a new one.
 # The live USB rebuilds its own initramfs later and reads this same theme.
+# Bazzite ships the spinner plugin only. The key-sketch splash is a script theme.
+dnf5 -y install --setopt=install_weak_deps=False plymouth-plugin-script
+test -e /usr/lib64/plymouth/script.so
 plymouth-set-default-theme wasd
 test "$(plymouth-set-default-theme)" = "wasd"
 
