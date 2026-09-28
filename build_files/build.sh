@@ -90,8 +90,10 @@ kver="${kvers[0]}"
     -f "/usr/lib/modules/${kver}/initramfs.img"
 chmod 0600 "/usr/lib/modules/${kver}/initramfs.img"
 img="/usr/lib/modules/${kver}/initramfs.img"
-if ! lsinitrd "$img" | grep -q 'themes/wasd/wasd.script'; then
+if ! lsinitrd -f usr/share/plymouth/themes/wasd/wasd.script "$img" >/dev/null \
+    && ! lsinitrd -f /usr/share/plymouth/themes/wasd/wasd.script "$img" >/dev/null; then
     echo "WASD plymouth theme missing from the image initramfs" >&2
+    lsinitrd "$img" | grep -i plymouth >&2 || true
     exit 1
 fi
 conf_path=$(lsinitrd "$img" | awk '/plymouthd.conf$/ { print $NF; exit }')
