@@ -36,10 +36,34 @@ done
 
 cp -avT /rootfs/boot/efi/EFI /work/EFI
 
-# moon2.jpg is black on the left, where the menu text sits.
-if [[ -f /rootfs/usr/share/wasd/wallpapers/moon2.jpg ]]; then
-    cp -av /rootfs/usr/share/wasd/wallpapers/moon2.jpg /work/iso-root/moon2.jpg
+# GRUB does not decode the progressive JPEG this photo started as.
+# The PNG is baseline color and the cdboot GRUB image already knows PNG.
+moon_png=/rootfs/usr/share/wasd/wallpapers/moon2.png
+if [[ ! -s $moon_png ]]; then
+    echo >&2 "ERROR: missing $moon_png"
+    exit 1
 fi
+cp -av "$moon_png" /work/iso-root/moon2.png
+
+grub_font=""
+for candidate in \
+    /rootfs/usr/share/grub/unicode.pf2 \
+    /rootfs/usr/share/grub2/unicode.pf2
+do
+    if [[ -s $candidate ]]; then
+        grub_font=$candidate
+        break
+    fi
+done
+if [[ -z $grub_font ]]; then
+    grub_font=$(find /rootfs/usr -name 'unicode.pf2' -print -quit)
+fi
+if [[ ! -s ${grub_font:-} ]]; then
+    echo >&2 "ERROR: GRUB unicode font not found; the menu cannot show the moon"
+    exit 1
+fi
+mkdir -p /work/iso-root/boot/grub2/fonts
+cp -av "$grub_font" /work/iso-root/boot/grub2/fonts/unicode.pf2
 
 { grub_cfg="$(</dev/stdin)"; } <<EOF
 set timeout=$(yq '.grub2.timeout // 10' <$iso_config_file)
@@ -52,18 +76,22 @@ function load_video {
 
 load_video
 set gfxpayload=keep
-set gfxmode=auto
 insmod gzio
 insmod part_gpt
 insmod chain
-insmod jpeg
+insmod png
+insmod iso9660
 insmod gfxterm
 
 search --no-floppy --set=root -l '$iso_label'
 
-if [ -f /moon2.jpg ]; then
+# moon2.png is black on the left, where the menu text sits.
+if loadfont /boot/grub2/fonts/unicode.pf2; then
+  set gfxmode=auto
   terminal_output gfxterm
-  background_image /moon2.jpg
+fi
+if [ -f /moon2.png ]; then
+  background_image /moon2.png
   set color_normal=white/black
   set color_highlight=black/white
 fi

@@ -6,6 +6,7 @@ cp -avf /ctx/system_files/. /
 
 install -d /usr/share/wasd/wallpapers
 install -m 0644 /ctx/wasd-wallpapers/moon2.jpg /usr/share/wasd/wallpapers/moon2.jpg
+install -m 0644 /ctx/wasd-wallpapers/moon2.png /usr/share/wasd/wallpapers/moon2.png
 install -m 0644 /ctx/wasd-wallpapers/keysketch.jpg /usr/share/wasd/wallpapers/keysketch.jpg
 install -m 0644 /ctx/wasd-wallpapers/wasdsketch.png /usr/share/wasd/wallpapers/wasdsketch.png
 install -m 0644 /ctx/wasd-wallpapers/wasd-camp.png /usr/share/wasd/wallpapers/wasd-camp.png
@@ -49,21 +50,61 @@ grep -q '^PRETTY_NAME="WASD"$' /usr/lib/os-release
 # Point it at the list in this image or Firefox comes back.
 python3 /ctx/patch.py
 
-# Theme files are already in place. Point Plymouth at them.
-# The initramfs already baked into this base image still carries Bazzite's
-# splash. The live USB rebuilds the initramfs and picks this theme up then.
-ln -sfn wasd/wasd.plymouth /usr/share/plymouth/themes/default.plymouth
-install -d /etc/plymouth
-if [[ -f /etc/plymouth/plymouthd.conf ]] && grep -q '^Theme=' /etc/plymouth/plymouthd.conf; then
-    sed -i 's/^Theme=.*/Theme=wasd/' /etc/plymouth/plymouthd.conf
+# Theme files are already in place. The base image's initramfs still has
+# Bazzite's splash baked in, so the installed system needs a new one.
+# The live USB rebuilds its own initramfs later and reads this same theme.
+plymouth-set-default-theme wasd
+test "$(plymouth-set-default-theme)" = "wasd"
+
+# Bazzite's menu button is these SVGs. A PNG of the same name loses to them.
+rm -f \
+    /usr/share/icons/hicolor/scalable/places/distributor-logo.svg \
+    /usr/share/icons/hicolor/scalable/places/distributor-logo-white.svg \
+    /usr/share/icons/hicolor/scalable/places/distributor-logo-steamdeck.svg \
+    /usr/share/icons/hicolor/scalable/places/bazzite-logo.svg \
+    /usr/share/icons/hicolor/scalable/places/bazzite-logo-white.svg \
+    /usr/share/icons/hicolor/scalable/places/bazzite-logo-le.svg
+shopt -s nullglob
+rm -f /usr/share/icons/hicolor/*/bazzite-logo-icon.png
+rm -f /usr/share/icons/hicolor/*/*/bazzite-logo-icon.png
+shopt -u nullglob
+if command -v gtk-update-icon-cache >/dev/null; then
+    gtk-update-icon-cache -f /usr/share/icons/hicolor
+elif command -v gtk4-update-icon-cache >/dev/null; then
+    gtk4-update-icon-cache -f /usr/share/icons/hicolor
 else
-    printf '[Daemon]\nTheme=wasd\n' >>/etc/plymouth/plymouthd.conf
+    echo "gtk-update-icon-cache is not installed" >&2
+    exit 1
+fi
+
+mapfile -t kvers < <(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
+if [[ ${#kvers[@]} -ne 1 ]]; then
+    echo "expected one kernel, found: ${kvers[*]}" >&2
+    exit 1
+fi
+kver="${kvers[0]}"
+/usr/bin/dracut --no-hostonly --kver "$kver" --reproducible --zstd --add ostree --add fido2 \
+    -f "/usr/lib/modules/${kver}/initramfs.img"
+chmod 0600 "/usr/lib/modules/${kver}/initramfs.img"
+img="/usr/lib/modules/${kver}/initramfs.img"
+if ! lsinitrd "$img" | grep -q 'themes/wasd/wasd.script'; then
+    echo "WASD plymouth theme missing from the image initramfs" >&2
+    exit 1
+fi
+conf_path=$(lsinitrd "$img" | awk '/plymouthd.conf$/ { print $NF; exit }')
+if [[ -z $conf_path ]] || ! lsinitrd -f "$conf_path" "$img" | grep -q '^Theme= *wasd$'; then
+    echo "image initramfs is not set to the WASD plymouth theme" >&2
+    lsinitrd "$img" | grep -i plymouth >&2 || true
+    exit 1
 fi
 
 test -s /usr/share/wasd/wallpapers/wasdsketch.png
 test -s /usr/share/wasd/wallpapers/wasd-camp.png
 test -s /usr/share/wasd/wasd-logo.png
 test -s /usr/share/plymouth/themes/wasd/background.png
+test -s /usr/share/wasd/wallpapers/moon2.png
+test -s /usr/share/icons/hicolor/48x48/apps/wasd-logo.png
+test ! -e /usr/share/icons/hicolor/scalable/places/bazzite-logo.svg
 grep -q '^app/com.brave.Browser/' /usr/share/wasd/flatpaks
 if grep -q 'org.mozilla.firefox' /usr/share/wasd/flatpaks /usr/share/ublue-os/bazzite/flatpak/install; then
     echo "Firefox is still in a flatpak list" >&2

@@ -51,12 +51,31 @@ fi
 # Run the preinitramfs hook
 "$SCRIPT_DIR/titanoboa_hook_preinitramfs.sh"
 
-# Install dracut-live and regenerate the initramfs
+# Install dracut-live and regenerate the initramfs.
+# This initramfs is what the USB boots. The image one still has to be
+# rebuilt here, and Plymouth copies whichever theme is default at this moment.
 dnf install -y dracut-live
+if [[ ! -f /usr/share/plymouth/themes/wasd/wasd.script ]]; then
+    echo "WASD plymouth theme is not in the image" >&2
+    exit 1
+fi
+plymouth-set-default-theme wasd
+test "$(plymouth-set-default-theme)" = "wasd"
 kernel=$(kernel-install list --json pretty | jq -r '.[] | select(.has_kernel == true) | .version')
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --reproducible --no-hostonly \
     --add "dmsquash-live dmsquash-live-autooverlay" \
     "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"
+img="/usr/lib/modules/${kernel}/initramfs.img"
+if ! lsinitrd "$img" | grep -q 'themes/wasd/wasd.script'; then
+    echo "WASD plymouth theme missing from the live initramfs" >&2
+    exit 1
+fi
+conf_path=$(lsinitrd "$img" | awk '/plymouthd.conf$/ { print $NF; exit }')
+if [[ -z $conf_path ]] || ! lsinitrd -f "$conf_path" "$img" | grep -q '^Theme= *wasd$'; then
+    echo "live initramfs is not set to the WASD plymouth theme" >&2
+    lsinitrd "$img" | grep -i plymouth >&2 || true
+    exit 1
+fi
 
 # Install livesys-scripts and configure them
 dnf install -y livesys-scripts
