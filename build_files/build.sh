@@ -4,12 +4,29 @@ set -ouex pipefail
 
 cp -avf /ctx/system_files/. /
 
-install -d /usr/share/wasd/wallpapers
-install -m 0644 /ctx/wasd-wallpapers/moon2.jpg /usr/share/wasd/wallpapers/moon2.jpg
-install -m 0644 /ctx/wasd-wallpapers/moon2.png /usr/share/wasd/wallpapers/moon2.png
-install -m 0644 /ctx/wasd-wallpapers/keysketch.jpg /usr/share/wasd/wallpapers/keysketch.jpg
-install -m 0644 /ctx/wasd-wallpapers/wasdsketch.png /usr/share/wasd/wallpapers/wasdsketch.png
-install -m 0644 /ctx/wasd-wallpapers/wasd-camp.png /usr/share/wasd/wallpapers/wasd-camp.png
+# Plasma's wallpaper gallery scans /usr/share/wallpapers, including folders
+# under it. Symlinks are ignored, so these are real copies. Every image in
+# wasd-wallpapers/ shows up as a choice. The default desktop is set elsewhere.
+install -d /usr/share/wallpapers/wasd
+shopt -s nullglob
+wallpaper_count=0
+for src in /ctx/wasd-wallpapers/*; do
+    [[ -f $src ]] || continue
+    case ${src##*.} in
+        jpg | jpeg | png | webp | JPG | JPEG | PNG | WEBP) ;;
+        *)
+            echo "skipping non-image in wasd-wallpapers: ${src##*/}" >&2
+            continue
+            ;;
+    esac
+    install -m 0644 "$src" "/usr/share/wallpapers/wasd/${src##*/}"
+    wallpaper_count=$((wallpaper_count + 1))
+done
+shopt -u nullglob
+if [[ $wallpaper_count -lt 1 ]]; then
+    echo "no wallpapers installed from wasd-wallpapers" >&2
+    exit 1
+fi
 install -m 0644 /ctx/wasd-icons/wasd-logo.png /usr/share/wasd/wasd-logo.png
 
 # Keep shared libraries. Only the Waydroid packages themselves go.
@@ -139,11 +156,12 @@ if [[ -z $conf_path || $theme_line != Theme=wasd && $theme_line != "Theme= wasd"
     exit 1
 fi
 
-test -s /usr/share/wasd/wallpapers/wasdsketch.png
-test -s /usr/share/wasd/wallpapers/wasd-camp.png
+test -s /usr/share/wallpapers/wasd/wasdsketch.png
+test -s /usr/share/wallpapers/wasd/wasd-camp.png
+test -s /usr/share/wallpapers/wasd/moon2.png
+test -s /usr/share/wallpapers/wasd/keysketch.jpg
 test -s /usr/share/wasd/wasd-logo.png
 test -s /usr/share/plymouth/themes/wasd/background.png
-test -s /usr/share/wasd/wallpapers/moon2.png
 test -s /usr/share/icons/hicolor/48x48/apps/wasd-logo.png
 test ! -e /usr/share/icons/hicolor/scalable/places/bazzite-logo.svg
 vapor_splash=/usr/share/plasma/look-and-feel/com.valve.vapor.desktop/contents/splash
@@ -154,6 +172,26 @@ if grep -q 'images/bazzite_logo.svgz' /usr/share/plasma/look-and-feel/*/contents
     exit 1
 fi
 grep -q '^app/com.brave.Browser/' /usr/share/wasd/flatpaks
+for app in \
+    app/com.discordapp.Discord/ \
+    app/im.riot.Riot/ \
+    app/com.heroicgameslauncher.hgl/ \
+    app/com.usebottles.bottles/ \
+    app/com.obsproject.Studio/ \
+    app/io.github.benjamimgois.goverlay/ \
+    app/com.github.wwmm.easyeffects/ \
+    app/org.freedesktop.Piper/ \
+    app/org.openrgb.OpenRGB/ \
+    app/io.github.ilya_zlobintsev.LACT/
+do
+    grep -q "^${app}" /usr/share/wasd/flatpaks
+    grep -q "^${app}" /usr/share/ublue-os/bazzite/flatpak/install || {
+        # The install list uses the short id, app/id/arch/branch.
+        short=${app#app/}
+        short=${short%/}
+        grep -q "^${short}$" /usr/share/ublue-os/bazzite/flatpak/install
+    }
+done
 if grep -q 'org.mozilla.firefox' /usr/share/wasd/flatpaks /usr/share/ublue-os/bazzite/flatpak/install; then
     echo "Firefox is still in a flatpak list" >&2
     exit 1

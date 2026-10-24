@@ -30,14 +30,11 @@ The E keys and the extra "ee" in the wordmark were removed in place. Blank keys 
 | `wasd-wallpapers/keysketchrgb.jpg` | New neon drawing. Cyan W, magenta A, red S, green D. Smooth dark background. |
 | `wasd-wallpapers/wasdsketch-800x600.jpg` | Same cluster as `wasdsketch.png`, E key removed. |
 
-## Personal / off-brand photos that were used as wallpapers
+## Photos in the wallpaper gallery
 
-These were in the wallpaper folders. They are personal photos (aquarium light, camera, moon, kydex, tubes). Fine as *your* desktop. Wrong as the default distro wallpaper pack unless we decide they are part of the identity.
+Every image in `wasd-wallpapers/` is installed for the Plasma wallpaper picker. The default desktop is still `wasdsketch.png`. The camp picture is still the login screen. The moon and the key sketch still have their boot jobs too.
 
-- `kydex.jpg`, `tubes.jpg`, `legocamera.jpg`, `kessil.jpg`
-- `moon1.jpg`, `moon2.jpg`
-
-Same set exists in both:
+Older copies of this set also sit on the NAS:
 
 - `backup/wasdee-gg/wasdee-wallpapers/`
 - `backup/wasd-gg/wasd-wallpapers/`

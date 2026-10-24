@@ -38,7 +38,7 @@ cp -avT /rootfs/boot/efi/EFI /work/EFI
 
 # GRUB does not decode the progressive JPEG this photo started as.
 # The PNG is baseline color and the cdboot GRUB image already knows PNG.
-moon_png=/rootfs/usr/share/wasd/wallpapers/moon2.png
+moon_png=/rootfs/usr/share/wallpapers/wasd/moon2.png
 if [[ ! -s $moon_png ]]; then
     echo >&2 "ERROR: missing $moon_png"
     exit 1

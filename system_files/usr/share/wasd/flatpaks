@@ -1,4 +1,14 @@
 app/com.brave.Browser/x86_64/stable
+app/com.discordapp.Discord/x86_64/stable
+app/im.riot.Riot/x86_64/stable
+app/com.heroicgameslauncher.hgl/x86_64/stable
+app/com.usebottles.bottles/x86_64/stable
+app/com.obsproject.Studio/x86_64/stable
+app/io.github.benjamimgois.goverlay/x86_64/stable
+app/com.github.wwmm.easyeffects/x86_64/stable
+app/org.freedesktop.Piper/x86_64/stable
+app/org.openrgb.OpenRGB/x86_64/stable
+app/io.github.ilya_zlobintsev.LACT/x86_64/stable
 app/org.kde.gwenview/x86_64/stable
 app/org.kde.okular/x86_64/stable
 app/org.kde.kcalc/x86_64/stable

@@ -7,7 +7,7 @@ Count: 2512
 WASD changes on top of this list:
 - Remove RPM packages: waydroid, waydroid-selinux
 - Do not install the Firefox Flatpak (app/org.mozilla.firefox)
-- Install the Brave Flatpak (com.brave.Browser) and make it the default browser
+- Install the Flatpaks in system_files/usr/share/wasd/flatpaks. Brave is the default browser. Discord, Element, Heroic, Bottles, OBS Studio, GOverlay, EasyEffects, Piper, OpenRGB, and LACT are on that list too.
 - mozilla-openh264 stays. That is a video codec, not Firefox.
 
 7zip

@@ -47,13 +47,15 @@ Decide these as we go. Bold items block a first bootable ISO.
 
 What is "everything included" for an FPS PC?
 
-- Steam: yes
-- Proton-GE / MangoHud / GameMode / GOverlay: probably
-- Lutris / Heroic / Bottles for Epic/GOG/Battle.net: ?
-- Discord: last attempt had it as a Flatpak
-- GPU overlay / reflex / frame-gen helpers
+- Steam: yes, from the Bazzite base
+- Lutris: yes, from the Bazzite base
+- Heroic and Bottles: yes, Flatpaks
+- Discord and Element: yes, Flatpaks, next to each other
+- OBS Studio, GOverlay, EasyEffects, Piper, OpenRGB, and LACT: yes, Flatpaks
+- Browser: Brave
+- Proton-GE and GameMode: not added yet
+- GPU overlay / reflex / frame-gen helpers: GOverlay is the settings window. The rest of this line is still open.
 - Kernel / scheduler: inherit Bazzite, or pick (BORE, etc.)
-- Browser: ?
 - What we refuse to ship (the last package dump had a lot of unrelated desktop cruft)
 
 ## Art
