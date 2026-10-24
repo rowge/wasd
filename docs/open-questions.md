@@ -23,7 +23,7 @@ Decide these as we go. Bold items block a first bootable ISO.
 ## Product
 
 - **Desktop environment.** Plasma is the default lean (Bazzite desktop + last attempt). Steam Gaming Mode as a session, or desktop-only?
-- **GPU variants.** Two images, one workflow. NVIDIA open is `ghcr.io/rowge/wasd`, from `bazzite-nvidia-open`. AMD/Intel is `ghcr.io/rowge/wasd-amd`, from `bazzite`. Pins are in `images.env`.
+- **GPU variants.** Two images, one workflow. AMD/Intel is the default, `ghcr.io/rowge/wasd`, from `bazzite`. NVIDIA open is `ghcr.io/rowge/wasd-nvidia`, from `bazzite-nvidia-open`. Pins are in `images.env`. The plain ISO is AMD/Intel. The NVIDIA ISO is named `WASD-nvidia`.
 - Handheld / deck images: no for v1?
 - Dual-boot with Windows as a first-class installer path?
 - Secure Boot: ship and sign, or document a manual enroll like Bazzite?
@@ -66,7 +66,7 @@ What is "everything included" for an FPS PC?
 ## Out of scope for v1 (unless we change our minds)
 
 - Own package repo / COPR
-- The public site is `site/` and lives at wasd.run. The USB images are not linked there until they have a public download.
+- The public site is `site/`. The front page links AMD and Intel, then NVIDIA, at the GitHub release files `WASD.iso` and `WASD-nvidia.iso`. Those files are uploaded only when asked. ISOs are not attached to GitHub on every build.
 - Official support forum
 - ARM / handheld images
 - Shipping games themselves

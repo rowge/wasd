@@ -228,8 +228,10 @@ if [[ $imageref == *-nvidia* ]]; then
     echo "GSK_RENDERER=gl" >>/etc/skel/.config/environment.d/99-nvidia-fix.conf
 fi
 
-# Reenable nouveau
-if [[ $imageref == *-nvidia* ]]; then
+# Reenable nouveau on Bazzite's legacy NVIDIA image. WASD's NVIDIA
+# image is named wasd-nvidia and uses the open driver, which has no
+# nouveau Vulkan ICD. Matching it here fails the ISO build.
+if [[ $imageref == *-nvidia* && $imageref != *wasd-nvidia* ]]; then
     for pkg in nvidia-gpu-firmware mesa-vulkan-drivers; do
         dnf -yq reinstall --allowerasing $pkg ||
             dnf -yq install --allowerasing $pkg

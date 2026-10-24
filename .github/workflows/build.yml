@@ -49,10 +49,10 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - variant: nvidia
-            image_name: wasd
           - variant: amd
-            image_name: wasd-amd
+            image_name: wasd
+          - variant: nvidia
+            image_name: wasd-nvidia
     env:
       IMAGE_NAME: ${{ matrix.image_name }}
       VARIANT: ${{ matrix.variant }}
@@ -177,20 +177,21 @@ jobs:
           set -euo pipefail
           short_sha=$(git rev-parse --short HEAD)
           stamp=$(date -u +%Y%m%d)
-          name="WASD-${VARIANT}-${stamp}-${short_sha}.iso"
+          if [[ $VARIANT == nvidia ]]; then
+            name="WASD-nvidia-${stamp}-${short_sha}.iso"
+            latest_link="WASD-nvidia-latest.iso"
+          else
+            name="WASD-${stamp}-${short_sha}.iso"
+            latest_link="WASD-latest.iso"
+          fi
           install -m 0644 output/WASD.iso "/mnt/wasd/${name}"
           sha256sum "/mnt/wasd/${name}" | tee "/mnt/wasd/${name}.sha256"
-          ln -sfn "${name}" "/mnt/wasd/WASD-${VARIANT}-latest.iso"
-          cp "/mnt/wasd/${name}.sha256" "/mnt/wasd/WASD-${VARIANT}-latest.iso.sha256"
+          ln -sfn "${name}" "/mnt/wasd/${latest_link}"
+          cp "/mnt/wasd/${name}.sha256" "/mnt/wasd/${latest_link}.sha256"
           printf '%s\n' "${name}" > "/mnt/wasd/LATEST-${VARIANT}.txt"
-          # The old single name stays on the NVIDIA disc.
-          if [[ $VARIANT == nvidia ]]; then
-            ln -sfn "${name}" /mnt/wasd/WASD-latest.iso
-            cp "/mnt/wasd/${name}.sha256" /mnt/wasd/WASD-latest.iso.sha256
-          fi
           {
-            [[ -f /mnt/wasd/LATEST-nvidia.txt ]] && cat /mnt/wasd/LATEST-nvidia.txt
             [[ -f /mnt/wasd/LATEST-amd.txt ]] && cat /mnt/wasd/LATEST-amd.txt
+            [[ -f /mnt/wasd/LATEST-nvidia.txt ]] && cat /mnt/wasd/LATEST-nvidia.txt
             true
           } > /mnt/wasd/LATEST.txt
           {

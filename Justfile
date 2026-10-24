@@ -93,7 +93,7 @@ sudoif command *args:
 #
 
 # Build the image using the specified parameters
-build $target_image=image_name $tag=default_tag $variant="nvidia":
+build $target_image=image_name $tag=default_tag $variant="amd":
     #!/usr/bin/env bash
 
     set -euox pipefail
