@@ -1,0 +1,130 @@
+:root {
+  color-scheme: dark;
+  --ink: #f6ead8;
+  --muted: #e7d3b6;
+  --quiet: #cbb89a;
+  --line: rgba(246, 226, 196, 0.28);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  color: var(--ink);
+  background: #24160e;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  font-size: 1.05rem;
+  line-height: 1.45;
+}
+
+.wood {
+  display: block;
+  width: 100%;
+  height: min(68vh, 56.25vw);
+  object-fit: cover;
+  object-position: center center;
+  background: #c4a574;
+}
+
+.plaque {
+  width: min(46rem, calc(100% - 2.4rem));
+  margin: 0 auto;
+  padding: 1.5rem 0 2.2rem;
+}
+
+.eyebrow {
+  margin: 0;
+  letter-spacing: 0.28em;
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
+  font-size: 0.95rem;
+}
+
+h1 {
+  margin: 0.35rem 0 0;
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
+  font-size: 2.4rem;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.plaque > p { margin: 0.9rem 0 0; }
+
+.editions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.4rem;
+  margin-top: 1.15rem;
+}
+
+.editions section {
+  margin: 0;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+}
+
+h2 {
+  margin: 0;
+  font-family: Palatino, "Palatino Linotype", Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.editions p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+ol {
+  margin: 1rem 0 0;
+  padding-left: 1.15rem;
+  color: var(--muted);
+}
+
+li + li { margin-top: 0.35rem; }
+
+.mono {
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-size: 0.92em;
+  color: var(--ink);
+}
+
+.pending {
+  color: var(--quiet);
+  font-size: 0.92rem;
+}
+
+.foot {
+  margin-top: 1rem;
+  font-size: 0.92rem;
+}
+
+a {
+  color: var(--ink);
+  text-underline-offset: 0.18em;
+}
+
+a:hover { color: #fff8ee; }
+
+a:focus-visible {
+  outline: 2px solid #f3e0c4;
+  outline-offset: 3px;
+}
+
+@media (max-width: 860px) {
+  .wood { height: 52vh; }
+  .plaque { width: min(46rem, calc(100% - 1.6rem)); }
+  h1 { font-size: 1.85rem; }
+}
+
+@media (max-width: 520px) {
+  .editions { grid-template-columns: 1fr; }
+}

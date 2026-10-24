@@ -5,7 +5,6 @@ Decide these as we go. Bold items block a first bootable ISO.
 ## Locked
 
 - Written name: **WASD** (never "wasdee" in UI or art)
-- Spoken name: wazdee
 - Live username: `player`
 - Live hostname: `wasd`
 - Live prompt lands as `player@wasd`
@@ -67,7 +66,7 @@ What is "everything included" for an FPS PC?
 ## Out of scope for v1 (unless we change our minds)
 
 - Own package repo / COPR
-- Own website beyond a README
+- The public site is `site/` and lives at wasd.run. The USB images are not linked there until they have a public download.
 - Official support forum
 - ARM / handheld images
 - Shipping games themselves

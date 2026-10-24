@@ -1,6 +1,6 @@
 # Artwork inventory
 
-Spelling rule: every mark we ship says **WASD**. Not "wasdee". Not an extra E key as a pronunciation gag. Spoken name can still be wazdee; it never appears in the art.
+Spelling rule: every mark we ship says **WASD**. Not "wasdee". Not an extra E key.
 
 Nothing from the old projects is copied into this repo. These are pointers so we can pull specific files later.
 

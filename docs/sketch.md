@@ -40,7 +40,6 @@ If we derive from Bazzite, the relationship is: Bazzite is the engine. WASD is t
 | | |
 |---|---|
 | Written name | WASD |
-| Spoken name | wazdee, long E |
 | Live username | `player` |
 | Live hostname | `wasd` |
 | Live prompt (implied) | `player@wasd` |
@@ -51,7 +50,6 @@ The live session is `player` on host `wasd`. The person who installs gets to pic
 ## Brand
 
 - **Written:** WASD (four letters). Never "wasdee" on screen, in `os-release`, in the installer, or in art.
-- **Spoken:** wazdee, long E. That's pronunciation only.
 
 There is already a visual language from earlier art (see [`artwork.md`](artwork.md)):
 
