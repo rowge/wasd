@@ -25,8 +25,8 @@ The E keys and the extra "ee" in the wordmark were removed in place. Blank keys 
 |---|---|
 | `wasd-wallpapers/wasdee-login-bg.png` | Deleted. The wordmark cut left a blunt D. |
 | `wasd-wallpapers/wasdsketch.png` | Pencil cluster. Trailing E key removed. Blank key beside W stays. |
-| `wasd-wallpapers/keysketch.jpg` | Top row is W A S D. The two E keys underneath are removed. |
-| `wasd-wallpapers/keysketch2.jpg` | Blank, W, A, S, D. The two light E keys on the right are removed. A faint patch remains in that spot. |
+| `wasd-wallpapers/keysketch.jpg` | Four keys in a row: W A S D. Pencil ground. This is the loading splash. |
+| `wasd-wallpapers/keysketch2.jpg` | Blank key and W on the top row, A S D below. Not used on a screen. |
 | `wasd-wallpapers/keysketchrgb.jpg` | New neon drawing. Cyan W, magenta A, red S, green D. Smooth dark background. |
 | `wasd-wallpapers/wasdsketch-800x600.jpg` | Same cluster as `wasdsketch.png`, E key removed. |
 
@@ -47,7 +47,7 @@ Same set exists in both:
 | Screen | File | Notes |
 |---|---|---|
 | USB boot menu | `wasd-wallpapers/moon2.jpg` | Menu text sits on the black, left of the moon. |
-| Loading splash | `wasd-wallpapers/keysketch.jpg` | Keys stay up top. A loading bar runs along the bottom. The theme ships a PNG copy at `system_files/usr/share/plymouth/themes/wasd/background.png`, made from this file. |
+| Loading splash | `wasd-wallpapers/keysketch.jpg` | A loading bar runs along the bottom. Plymouth loads a PNG copy at `system_files/usr/share/plymouth/themes/wasd/background.png`, made from this file. |
 | Live desktop | `wasd-wallpapers/wasdsketch.png` | |
 | Welcome window logo | `wasd-icons/wasd-logo.png` | Renamed from `wasdee-logo.png`. Checkerboard removed so the background is actually transparent. |
 | Login wallpaper (installed system, not the live USB) | `wasd-wallpapers/wasd-camp.png` | |

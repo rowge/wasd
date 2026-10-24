@@ -32,9 +32,9 @@ rm -f \
     /usr/share/ublue-os/just/82-bazzite-waydroid.just
 rm -rf /usr/share/applications/Waydroid
 
-# The name on screen is WASD. Leave ID=bazzite so the NVIDIA and desktop
-# scripts that match on it keep working. image-info.json stays as shipped
-# for the same reason: its image-name still contains "nvidia".
+# The name on screen is WASD. Leave ID=bazzite so Bazzite's own scripts keep
+# matching. image-info.json stays as the base image shipped it, so the NVIDIA
+# build still says nvidia and the AMD build does not.
 sed -i 's/^NAME=.*/NAME="WASD"/' /usr/lib/os-release
 sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="WASD"/' /usr/lib/os-release
 if grep -q '^BOOTLOADER_NAME=' /usr/lib/os-release; then
@@ -58,6 +58,39 @@ dnf5 -y install --setopt=install_weak_deps=False plymouth-plugin-script
 test -e /usr/lib64/plymouth/script.so
 plymouth-set-default-theme wasd
 test "$(plymouth-set-default-theme)" = "wasd"
+
+# Plymouth quits when the bar hits the end. Plasma then paints its own
+# splash, a black screen with Bazzite's logo in the middle, while the
+# session starts. The live desktop and the installed one both use it.
+shopt -s nullglob
+splash_qmls=(/usr/share/plasma/look-and-feel/*/contents/splash/Splash.qml)
+shopt -u nullglob
+replaced=0
+for qml in "${splash_qmls[@]}"; do
+    if ! grep -q 'images/bazzite_logo.svgz' "$qml"; then
+        continue
+    fi
+    images="${qml%/Splash.qml}/images"
+    install -d "$images"
+    install -m 0644 /ctx/wasd-icons/wasd-logo.png "${images}/wasd_logo.png"
+    sed -i 's|images/bazzite_logo.svgz|images/wasd_logo.png|' "$qml"
+    # Bazzite's glyph is drawn at gridUnit * 8. The slab W needs more
+    # pixels than that or the stacks blur into a blob.
+    if grep -q 'gridUnit \* 8' "$qml"; then
+        sed -i 's|gridUnit \* 8|gridUnit * 16|' "$qml"
+    fi
+    if grep -q 'images/bazzite_logo.svgz' "$qml"; then
+        echo "Bazzite logo still referenced in $qml" >&2
+        exit 1
+    fi
+    grep -q 'images/wasd_logo.png' "$qml"
+    test -s "${images}/wasd_logo.png"
+    replaced=$((replaced + 1))
+done
+if [[ $replaced -lt 1 ]]; then
+    echo "did not find the Plasma splash that shows the Bazzite logo" >&2
+    exit 1
+fi
 
 # Bazzite's menu button is these SVGs. A PNG of the same name loses to them.
 rm -f \
@@ -113,6 +146,13 @@ test -s /usr/share/plymouth/themes/wasd/background.png
 test -s /usr/share/wasd/wallpapers/moon2.png
 test -s /usr/share/icons/hicolor/48x48/apps/wasd-logo.png
 test ! -e /usr/share/icons/hicolor/scalable/places/bazzite-logo.svg
+vapor_splash=/usr/share/plasma/look-and-feel/com.valve.vapor.desktop/contents/splash
+grep -q 'images/wasd_logo.png' "${vapor_splash}/Splash.qml"
+test -s "${vapor_splash}/images/wasd_logo.png"
+if grep -q 'images/bazzite_logo.svgz' /usr/share/plasma/look-and-feel/*/contents/splash/Splash.qml; then
+    echo "a Plasma splash still shows the Bazzite logo" >&2
+    exit 1
+fi
 grep -q '^app/com.brave.Browser/' /usr/share/wasd/flatpaks
 if grep -q 'org.mozilla.firefox' /usr/share/wasd/flatpaks /usr/share/ublue-os/bazzite/flatpak/install; then
     echo "Firefox is still in a flatpak list" >&2

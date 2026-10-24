@@ -12,6 +12,7 @@ on:
       - installer/**
       - Justfile
       - image-template.env
+      - images.env
       - .github/workflows/build.yml
   workflow_dispatch:
     inputs:
@@ -37,11 +38,24 @@ concurrency:
 
 jobs:
   build:
-    name: Image and live ISO
+    name: Image and live ISO (${{ matrix.variant }})
     runs-on: [self-hosted, hammerite]
     permissions:
       contents: read
       packages: write
+    strategy:
+      # One variant at a time. The two images do not fit on the builder together.
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - variant: nvidia
+            image_name: wasd
+          - variant: amd
+            image_name: wasd-amd
+    env:
+      IMAGE_NAME: ${{ matrix.image_name }}
+      VARIANT: ${{ matrix.variant }}
 
     steps:
       - name: Checkout
@@ -66,12 +80,12 @@ jobs:
       - name: Image name and tag
         run: |
           set -euo pipefail
-          echo "IMAGE_NAME=$(just image_name)" >> "$GITHUB_ENV"
+          echo "Building ${VARIANT} as ${IMAGE_NAME}"
           echo "DEFAULT_TAG=$(just generate-default-tag)" >> "$GITHUB_ENV"
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> "$GITHUB_ENV"
 
       - name: Build the image
-        run: just build "$IMAGE_NAME" "$DEFAULT_TAG"
+        run: just build "$IMAGE_NAME" "$DEFAULT_TAG" "$VARIANT"
 
       - name: Rechunk for smaller updates
         run: just ostree-rechunk "$IMAGE_NAME" "$DEFAULT_TAG"
@@ -134,7 +148,7 @@ jobs:
             --build-arg "BASE_IMAGE=${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}" \
             --build-arg "INSTALL_IMAGE_PAYLOAD=${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}" \
             --build-arg FLATPAK_DIR_SHORTNAME=kde_flatpaks \
-            -t localhost/wasd-live:latest \
+            -t "localhost/wasd-live:${VARIANT}" \
             installer/
 
       - name: Build the ISO
@@ -151,7 +165,7 @@ jobs:
             --security-opt label=disable \
             -e "SQUASHFS_COMPRESSION_LEVEL=${level}" \
             -v "$PWD/installer/build_iso.sh":/src/build_iso.sh:ro \
-            --mount type=image,source=localhost/wasd-live:latest,dst=/rootfs \
+            --mount type=image,source=localhost/wasd-live:${VARIANT},dst=/rootfs \
             -v "$PWD/output":/output \
             quay.io/fedora/fedora:latest \
             /src/build_iso.sh
@@ -163,14 +177,24 @@ jobs:
           set -euo pipefail
           short_sha=$(git rev-parse --short HEAD)
           stamp=$(date -u +%Y%m%d)
-          name="WASD-${stamp}-${short_sha}.iso"
+          name="WASD-${VARIANT}-${stamp}-${short_sha}.iso"
           install -m 0644 output/WASD.iso "/mnt/wasd/${name}"
           sha256sum "/mnt/wasd/${name}" | tee "/mnt/wasd/${name}.sha256"
-          ln -sfn "${name}" /mnt/wasd/WASD-latest.iso
-          cp "/mnt/wasd/${name}.sha256" /mnt/wasd/WASD-latest.iso.sha256
-          printf '%s\n' "${name}" > /mnt/wasd/LATEST.txt
+          ln -sfn "${name}" "/mnt/wasd/WASD-${VARIANT}-latest.iso"
+          cp "/mnt/wasd/${name}.sha256" "/mnt/wasd/WASD-${VARIANT}-latest.iso.sha256"
+          printf '%s\n' "${name}" > "/mnt/wasd/LATEST-${VARIANT}.txt"
+          # The old single name stays on the NVIDIA disc.
+          if [[ $VARIANT == nvidia ]]; then
+            ln -sfn "${name}" /mnt/wasd/WASD-latest.iso
+            cp "/mnt/wasd/${name}.sha256" /mnt/wasd/WASD-latest.iso.sha256
+          fi
           {
-            echo "### Live ISO"
+            [[ -f /mnt/wasd/LATEST-nvidia.txt ]] && cat /mnt/wasd/LATEST-nvidia.txt
+            [[ -f /mnt/wasd/LATEST-amd.txt ]] && cat /mnt/wasd/LATEST-amd.txt
+            true
+          } > /mnt/wasd/LATEST.txt
+          {
+            echo "### Live ISO (${VARIANT})"
             echo
             echo "\`/mnt/wasd/${name}\` on angelwatch (\`main/wasd\`)."
             echo
@@ -178,3 +202,22 @@ jobs:
             cat "/mnt/wasd/${name}.sha256"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Free builder disk
+        if: always()
+        run: |
+          set -u
+          base=$(awk -F= -v key="${VARIANT}_base" '$1 == key { print substr($0, index($0, "=") + 1); exit }' images.env)
+          podman rmi -f "localhost/wasd-live:${VARIANT}" || true
+          while read -r ref; do
+            [[ -n $ref ]] || continue
+            repo=${ref%:*}
+            if [[ ${repo##*/} == "$IMAGE_NAME" ]]; then
+              podman rmi -f "$ref" || true
+            fi
+          done < <(podman images --format '{{.Repository}}:{{.Tag}}')
+          if [[ -n $base ]]; then
+            podman rmi -f "$base" || true
+          fi
+          podman image prune -f || true
+          rm -rf output

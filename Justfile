@@ -93,12 +93,26 @@ sudoif command *args:
 #
 
 # Build the image using the specified parameters
-build $target_image=image_name $tag=default_tag:
+build $target_image=image_name $tag=default_tag $variant="nvidia":
     #!/usr/bin/env bash
 
     set -euox pipefail
 
-    BUILD_ARGS=()
+    case "$variant" in
+        nvidia | amd) ;;
+        *)
+            echo "variant must be nvidia or amd, got: ${variant}" >&2
+            exit 1
+            ;;
+    esac
+    base=$(awk -F= -v key="${variant}_base" '$1 == key { print substr($0, index($0, "=") + 1); exit }' images.env)
+    if [[ ! $base =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]; then
+        echo "images.env has no pin for ${variant}" >&2
+        exit 1
+    fi
+    echo "Building ${target_image} from ${base}"
+
+    BUILD_ARGS=("--build-arg" "BASE_IMAGE=${base}")
     LABELS=()
     if [[ -z "$(git status -s)" ]]; then
         GIT_SHA=$(git rev-parse --short HEAD)

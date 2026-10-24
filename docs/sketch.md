@@ -131,7 +131,7 @@ Branding belongs **in the image**, not patched onto an already-built ISO. That i
 
 ## Package changes
 
-The image starts from Bazzite's NVIDIA desktop and keeps that package set, with three edits.
+Each image starts from the matching Bazzite desktop and keeps that package set, with three edits.
 
 - `waydroid` and `waydroid-selinux` are removed in the build. They are an Android container, and they are not part of this desktop.
 - Firefox is not installed. It is only a first-boot Flatpak in Bazzite's KDE list, so it comes off that list.
@@ -141,13 +141,13 @@ The image starts from Bazzite's NVIDIA desktop and keeps that package set, with 
 
 ## First image
 
-The recipe is in this repo. It builds from `ghcr.io/ublue-os/bazzite-nvidia-open:stable` (digest pinned in the Containerfile).
+The recipe is in this repo. It builds two images. NVIDIA open comes from `ghcr.io/ublue-os/bazzite-nvidia-open:stable`. AMD/Intel comes from `ghcr.io/ublue-os/bazzite:stable`. Both digests are pinned in `images.env`. The workflow builds NVIDIA first, then AMD.
 
 - `waydroid` and `waydroid-selinux` are removed, along with the launcher, policy, and the Waydroid entry in the welcome screen.
 - Brave replaces Firefox. Bazzite's install command downloads their Flatpak list from GitHub, so the build points that command at `/usr/share/wasd/flatpaks` in the image. The list is Bazzite's current KDE installer list with Brave in Firefox's place.
 - The desktop wallpaper is `wasdsketch.png`. The login screen wallpaper is `wasd-camp.png`. The logo is installed for the welcome window. The Plymouth theme uses `keysketch.jpg` (as a PNG) with a bar along the bottom, and the USB menu background `moon2.jpg` is in the image for the ISO build.
 - The kernel and initramfs are still Bazzite's. The sketch splash shows once the live USB rebuilds the initramfs. The boot menu picture is part of that ISO, not this container.
-- Steam, Lutris, Proton tools, GameMode, MangoHud, the NVIDIA driver, and Plasma stay.
+- Steam, Lutris, Proton tools, GameMode, MangoHud, and Plasma stay. The NVIDIA image also keeps the NVIDIA open driver. The AMD image uses the AMD/Intel desktop's Mesa stack.
 - The on-screen name is WASD. The internal id stays `bazzite` so the NVIDIA scripts keep matching.
 
 ## Agent

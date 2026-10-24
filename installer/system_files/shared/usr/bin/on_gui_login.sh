@@ -148,7 +148,10 @@ nvidia_hardware_helper() {
             correct_image="<b>Nvidia (RTX Series | GTX 16xx Series+)</b>"
         fi
         # parse image information
-        if [[ $image_name == *wasd* || $image_name == *-nvidia-open* ]]; then
+        if [[ $image_name == *wasd-amd* ]]; then
+            echo "AMD/Intel image detected!"
+            image="amd_intel"
+        elif [[ $image_name == *wasd* || $image_name == *-nvidia-open* ]]; then
             echo "modern nvidia desktop image detected"
             image="nvidia-desktop"
         elif [[ $image_name == *-deck-nvidia* ]]; then

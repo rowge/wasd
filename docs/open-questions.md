@@ -24,7 +24,7 @@ Decide these as we go. Bold items block a first bootable ISO.
 ## Product
 
 - **Desktop environment.** Plasma is the default lean (Bazzite desktop + last attempt). Steam Gaming Mode as a session, or desktop-only?
-- **GPU variants.** Bazzite ships separate AMD/Intel vs NVIDIA images. One ISO that detects, or two downloads?
+- **GPU variants.** Two images, one workflow. NVIDIA open is `ghcr.io/rowge/wasd`, from `bazzite-nvidia-open`. AMD/Intel is `ghcr.io/rowge/wasd-amd`, from `bazzite`. Pins are in `images.env`.
 - Handheld / deck images: no for v1?
 - Dual-boot with Windows as a first-class installer path?
 - Secure Boot: ship and sign, or document a manual enroll like Bazzite?
