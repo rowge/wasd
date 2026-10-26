@@ -102,7 +102,7 @@ inte representerar den installerade upplevelsen."
         _RETVAL=$?
         case $_RETVAL in
         10)
-            liveinst &
+            wasd-install &
             disown $!
             _EXITLOCK=0
             ;;

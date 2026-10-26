@@ -1,0 +1,32 @@
+#!/bin/bash
+# Open Install WASD. The window is Qt 6 QML.
+# On a live USB, a local helper can connect to a network. It is stopped
+# when this window closes. The preview on a normal computer does not start it.
+
+set -euo pipefail
+
+net_pid=""
+cleanup() {
+    if [[ -n $net_pid ]]; then
+        kill "$net_pid" 2>/dev/null || true
+        wait "$net_pid" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+live=0
+if [[ -r /proc/cmdline ]] && grep -qw rd.live.image /proc/cmdline; then
+    live=1
+elif [[ -d /run/initramfs/live ]] && [[ -n $(ls -A /run/initramfs/live 2>/dev/null || true) ]]; then
+    live=1
+fi
+if [[ $live -eq 1 && -x /usr/libexec/wasd-network ]]; then
+    /usr/libexec/wasd-network --serve &
+    net_pid=$!
+fi
+
+if command -v qml6 >/dev/null 2>&1; then
+    qml6 /usr/share/wasd/install/Main.qml
+else
+    qml /usr/share/wasd/install/Main.qml
+fi

@@ -6,13 +6,150 @@
 set -euo pipefail
 
 names_only=0
+current=0
+clear_avatar=0
+avatar_set=0
 login=""
 loading=""
+avatar=""
+
+current_avatar() {
+    python3 - << 'PY'
+import hashlib
+import os
+from pathlib import Path
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+icons = Path("/usr/share/wasd/icons")
+user = os.environ.get("USER") or ""
+home = Path(os.environ.get("HOME") or "")
+found = None
+for candidate in (Path("/var/lib/AccountsService/icons") / user, home / ".face"):
+    if user and candidate.is_file():
+        found = candidate
+        break
+if found is None or not icons.is_dir():
+    print("")
+    raise SystemExit
+target = digest(found)
+match = ""
+for icon in sorted(icons.iterdir()):
+    if not icon.is_file() or icon.name == "wasd-logo.png":
+        continue
+    if icon.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+        continue
+    if digest(icon) == target:
+        match = icon.name
+        break
+print(match)
+PY
+}
+
+apply_avatar() {
+    local uid user home src dest face users
+    uid=${PKEXEC_UID:-}
+    if [[ -z $uid || $uid == 0 ]]; then
+        echo "The user picture was not changed." >&2
+        return 1
+    fi
+    user=$(id -nu "$uid")
+    if [[ ! $user =~ ^[a-z][a-z0-9-]{0,31}$ || $user == root ]]; then
+        echo "The user picture was not changed." >&2
+        return 1
+    fi
+    home=$(getent passwd "$user" | cut -d: -f6)
+    if [[ -z $home || $home != /* || ! -d $home ]]; then
+        echo "The user picture was not changed." >&2
+        return 1
+    fi
+    install -d -m 0755 /var/lib/AccountsService/icons /var/lib/AccountsService/users
+    dest=/var/lib/AccountsService/icons/$user
+    face=$home/.face
+    users=/var/lib/AccountsService/users/$user
+    if [[ -n $avatar ]]; then
+        src=${root}/icons/${avatar}
+        if [[ ! -f $src ]]; then
+            echo "That picture is not installed." >&2
+            return 1
+        fi
+        install -m 0644 "$src" "$dest"
+        install -m 0644 "$src" "$face"
+        chown "$user:$user" "$face"
+        rm -f "$home/.face.icon"
+    else
+        rm -f "$dest" "$face" "$home/.face.icon"
+    fi
+    python3 - "$users" "$user" "$avatar" << 'PY'
+import sys
+from pathlib import Path
+path, user, avatar = sys.argv[1:]
+icon = f"/var/lib/AccountsService/icons/{user}" if avatar else ""
+file = Path(path)
+text = file.read_text() if file.is_file() else ""
+out = []
+saw_user = False
+in_user = False
+inserted = False
+for line in text.splitlines():
+    stripped = line.strip()
+    if stripped == "[User]":
+        saw_user = True
+        in_user = True
+        out.append(line)
+        continue
+    if stripped.startswith("[") and stripped.endswith("]"):
+        if in_user and icon and not inserted:
+            out.append(f"Icon={icon}")
+            inserted = True
+        in_user = False
+    if in_user and line.startswith("Icon="):
+        continue
+    if in_user and line.startswith("SystemAccount="):
+        out.append("SystemAccount=false")
+        continue
+    out.append(line)
+if not saw_user:
+    if out and out[-1] != "":
+        out.append("")
+    out.append("[User]")
+    out.append("SystemAccount=false")
+if icon and not inserted:
+    out.append(f"Icon={icon}")
+file.write_text("\n".join(out).rstrip() + "\n")
+PY
+    chmod 0644 "$users"
+    if [[ -f /etc/wasd/choices.json ]]; then
+        python3 - "$avatar" << 'PY'
+import json
+import sys
+from pathlib import Path
+path = Path("/etc/wasd/choices.json")
+try:
+    data = json.loads(path.read_text())
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+if isinstance(data, dict):
+    data["avatar"] = sys.argv[1]
+    path.write_text(json.dumps(data, indent=2) + "\n")
+PY
+    fi
+}
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --names-only)
             names_only=1
+            shift
+            ;;
+        --current)
+            current=1
+            shift
+            ;;
+        --clear-avatar)
+            clear_avatar=1
+            avatar_set=1
             shift
             ;;
         --login)
@@ -23,6 +160,11 @@ while [[ $# -gt 0 ]]; do
             loading=${2-}
             shift 2
             ;;
+        --avatar)
+            avatar=${2-}
+            avatar_set=1
+            shift 2
+            ;;
         *)
             echo "Unknown argument." >&2
             exit 2
@@ -30,8 +172,21 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ $current -eq 1 ]]; then
+    current_avatar
+    exit 0
+fi
+
 name_ok='^[A-Za-z0-9._-]+$'
 if [[ ! $login =~ $name_ok || ! $loading =~ $name_ok ]]; then
+    echo "Use a picture from the list." >&2
+    exit 2
+fi
+if [[ $clear_avatar -eq 1 && -n $avatar ]]; then
+    echo "Use one picture." >&2
+    exit 2
+fi
+if [[ $avatar_set -eq 1 && $clear_avatar -eq 0 && ( ! $avatar =~ $name_ok || $avatar == wasd-logo.png ) ]]; then
     echo "Use a picture from the list." >&2
     exit 2
 fi
@@ -48,10 +203,18 @@ if [[ ! -f $login_src || ! -f $loading_src ]]; then
     echo "That picture is not installed." >&2
     exit 1
 fi
+if [[ -n $avatar && ! -f ${root}/icons/${avatar} ]]; then
+    echo "That picture is not installed." >&2
+    exit 1
+fi
 
 if [[ $names_only -eq 1 ]]; then
     printf '%s\n%s\n' "$login_src" "$loading_src"
     exit 0
+fi
+
+if [[ $avatar_set -eq 1 ]] && ! apply_avatar; then
+    exit 1
 fi
 
 install -d -m 0755 /etc/wasd
@@ -153,8 +316,16 @@ rebuild_loading() {
 }
 
 if ! rebuild_loading; then
-    echo "The login screen is saved. The loading screen waits for the next system update, then a restart." 
+    if [[ $avatar_set -eq 1 ]]; then
+        echo "The user picture and the login screen are saved. The loading screen waits for the next system update, then a restart."
+    else
+        echo "The login screen is saved. The loading screen waits for the next system update, then a restart."
+    fi
     exit 0
 fi
 
-echo "The login screen changes at the next login. The loading screen changes on the next boot."
+if [[ $avatar_set -eq 1 ]]; then
+    echo "The user picture and the login screen change at the next login. The loading screen changes on the next boot."
+else
+    echo "The login screen changes at the next login. The loading screen changes on the next boot."
+fi

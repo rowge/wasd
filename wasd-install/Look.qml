@@ -37,9 +37,12 @@ Window {
     property int page: 0
     property string lookOpen: ""
     property string loadingChoice: "stained-glass.jpg"
-    property string loginChoice: "camp.png"
+    property string loginChoice: "throne.jpg"
     property string themeChoice: "We10XOS-dark"
     property string wallpaperChoice: "stained-glass.jpg"
+    property string avatarChoice: "knight.jpg"
+    property bool avatarTouched: false
+    property bool avatarReady: false
     property var themes: []
     property string savedLine: ""
     property bool applying: false
@@ -52,6 +55,7 @@ Window {
     readonly property color brass: "#c4a574"
     readonly property color danger: "#ff5c5c"
     readonly property color line: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.22)
+    readonly property var iconFiles: files.icons || []
     readonly property var loadingFiles: files.loading || []
     readonly property var loginFiles: files.login || []
     readonly property var wallpaperFiles: files.wallpapers || []
@@ -83,6 +87,12 @@ Window {
         }
         titleFont = pickFont(["Palatino Linotype", "Palatino", "TeX Gyre Pagella", "Liberation Serif", "Noto Serif", "FreeSerif"], titleFont)
         bodyFont = pickFont(["Segoe UI", "Liberation Sans", "Noto Sans", "DejaVu Sans"], bodyFont)
+        if (bridge) {
+            avatarReady = true
+        } else {
+            avatarChoice = ""
+            avatarProbe.active = true
+        }
         if (!files.loading)
             lister.active = true
     }
@@ -93,7 +103,7 @@ Window {
         if (shareRoot)
             return "file://" + shareRoot + "/" + folder + "/" + fileName
         if (folder === "wasd-icons")
-            return "file:///usr/share/wasd/wasd-logo.png"
+            return "file:///usr/share/wasd/icons/" + fileName
         if (folder === "wasd-loading-screens")
             return "file:///usr/share/wasd/loading/" + fileName
         if (folder === "wasd-login-screens")
@@ -118,13 +128,20 @@ Window {
             savedLine = "Use a picture from the list."
             return
         }
-        const payload = JSON.stringify({
+        if (avatarChoice && !safeName(avatarChoice)) {
+            savedLine = "Use a picture from the list."
+            return
+        }
+        const payload = {
             loading: loadingChoice,
             login: loginChoice,
             wallpaper: wallpaperChoice
-        })
+        }
+        if (avatarTouched)
+            payload.avatar = avatarChoice
+        const encoded = JSON.stringify(payload)
         if (bridge) {
-            bridge.applyLook(payload)
+            bridge.applyLook(encoded)
             savedLine = "Saved your choices. This computer was not changed."
             return
         }
@@ -132,15 +149,21 @@ Window {
         savedLine = "Applying."
         applyLoader.active = true
         if (applyLoader.item)
-            applyLoader.item.start(wallpaperChoice, loginChoice, loadingChoice)
+            applyLoader.item.start(wallpaperChoice, loginChoice, loadingChoice, avatarTouched ? avatarChoice : null)
     }
 
-    function listsReady(loading, login, wallpapers) {
+    function listsReady(icons, loading, login, wallpapers) {
         files = {
+            icons: icons,
             loading: loading,
             login: login,
             wallpapers: wallpapers
         }
+    }
+
+    function avatarFound(name) {
+        avatarChoice = /^[A-Za-z0-9._-]+$/.test(name) ? name : ""
+        avatarReady = true
     }
 
     Loader {
@@ -154,12 +177,19 @@ Window {
     }
 
     Loader {
+        id: avatarProbe
+        active: false
+        source: "AvatarProbe.qml"
+        onLoaded: item.current.connect(look.avatarFound)
+    }
+
+    Loader {
         id: applyLoader
         active: false
         source: "ApplyHost.qml"
         onLoaded: {
             if (look.applying)
-                item.start(look.wallpaperChoice, look.loginChoice, look.loadingChoice)
+                item.start(look.wallpaperChoice, look.loginChoice, look.loadingChoice, look.avatarTouched ? look.avatarChoice : null)
         }
     }
 

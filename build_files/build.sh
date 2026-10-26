@@ -58,10 +58,21 @@ copy_wasd_images /ctx/wasd-loading-screens /usr/share/wasd/loading wasd-loading-
 copy_wasd_images /ctx/wasd-login-screens /usr/share/wasd/login wasd-login-screens
 copy_wasd_images /ctx/wasd-icons /usr/share/wasd/icons wasd-icons
 install -d /usr/share/wasd/look
-for qml in Look.qml LookPage.qml PageFooter.qml ApplyHost.qml Lister.qml; do
+for qml in Look.qml LookPage.qml PageFooter.qml ApplyHost.qml Lister.qml AvatarProbe.qml; do
     install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/look/${qml}"
 done
 chmod 0755 /usr/bin/wasd-look /usr/libexec/wasd-apply-look
+install -d /usr/share/wasd/install
+for qml in Main.qml DiskPage.qml UserPage.qml LookPage.qml AppsPage.qml SystemPage.qml PageFooter.qml Complete.qml LiveHost.qml; do
+    install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/install/${qml}"
+done
+install -m 0644 /ctx/wasd-install/disks.py /usr/libexec/disks.py
+install -m 0755 /ctx/wasd-install/liveinfo.py /usr/libexec/wasd-live-info
+install -m 0755 /ctx/wasd-install/erase.py /usr/libexec/wasd-erase
+install -m 0755 /ctx/wasd-install/set_password.py /usr/libexec/wasd-set-password
+install -m 0755 /ctx/wasd-install/network.py /usr/libexec/wasd-network
+install -m 0755 /ctx/wasd-install/complete.py /usr/bin/wasd-complete
+chmod 0755 /usr/bin/wasd-install
 
 # Keep shared libraries. Only the Waydroid packages themselves go.
 dnf5 -y remove --setopt=clean_requirements_on_remove=False waydroid waydroid-selinux
@@ -200,14 +211,28 @@ test -s /usr/share/icons/hicolor/48x48/apps/wasd-logo.png
 test -s /usr/share/wasd/loading/stained-glass.jpg
 test -s /usr/share/wasd/loading/keysketch.jpg
 test -s /usr/share/wasd/login/camp.png
-test -s /usr/share/wasd/login/camp.png
+test -s /usr/share/wasd/login/throne.jpg
+test -s /etc/skel/Desktop/Welcome.txt
 test -s /usr/share/wasd/icons/wasd-logo.png
 test -s /usr/share/wasd/look/Look.qml
 test -s /usr/share/wasd/look/ApplyHost.qml
+test -s /usr/share/wasd/look/AvatarProbe.qml
 test -x /usr/bin/wasd-look
 test -x /usr/libexec/wasd-apply-look
 test -s /usr/share/applications/wasd-look.desktop
 test -s /usr/share/polkit-1/actions/org.wasd.look.policy
+test -s /usr/share/wasd/install/Main.qml
+test -s /usr/share/wasd/install/Complete.qml
+test -s /usr/share/wasd/install/UserPage.qml
+test -s /usr/share/wasd/install/LiveHost.qml
+test -x /usr/bin/wasd-install
+test -x /usr/bin/wasd-complete
+test -x /usr/libexec/wasd-erase
+test -x /usr/libexec/wasd-live-info
+test -x /usr/libexec/wasd-set-password
+test -x /usr/libexec/wasd-network
+test -s /usr/share/wasd/install/SystemPage.qml
+test -s /usr/share/polkit-1/actions/org.wasd.password.policy
 test ! -e /usr/share/icons/hicolor/scalable/places/bazzite-logo.svg
 vapor_splash=/usr/share/plasma/look-and-feel/com.valve.vapor.desktop/contents/splash
 grep -q 'images/wasd_logo.png' "${vapor_splash}/Splash.qml"

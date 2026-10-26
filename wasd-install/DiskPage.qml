@@ -41,50 +41,6 @@ Item {
                 font.pixelSize: 17
             }
 
-            Text {
-                width: parent.width
-                topPadding: 18
-                bottomPadding: 8
-                text: "Give your computer a name."
-                color: host.muted
-                font.family: host.bodyFont
-                font.pixelSize: 14
-            }
-
-            Rectangle {
-                width: Math.min(420, parent.width)
-                height: 48
-                color: Qt.rgba(0, 0, 0, 0.28)
-                border.width: 1
-                border.color: host.hostnameOk ? host.line : host.danger
-
-                TextInput {
-                    id: hostName
-                    anchors.fill: parent
-                    anchors.leftMargin: 14
-                    anchors.rightMargin: 14
-                    verticalAlignment: TextInput.AlignVCenter
-                    color: host.ink
-                    font.pixelSize: 18
-                    font.family: host.bodyFont
-                    selectByMouse: true
-                    clip: true
-                    selectionColor: host.brass
-                    selectedTextColor: "#24160e"
-                    onTextEdited: host.hostname = text
-                }
-            }
-
-            Text {
-                width: parent.width
-                visible: !host.hostnameOk
-                topPadding: 6
-                text: "Use letters, numbers, and hyphens."
-                color: host.danger
-                font.family: host.bodyFont
-                font.pixelSize: 14
-            }
-
             Column {
                 width: parent.width
                 topPadding: 16
@@ -241,10 +197,10 @@ Item {
         anchors.rightMargin: 40
         anchors.bottomMargin: 16
         host: page.host
-        nextText: "Next"
-        onBack: if (host.page > 0) host.page = host.page - 1
-        onGo: host.page = 1
+        nextText: host.eraseLabel
+        nextEnabled: !host.installBlocked && host.diskIndex >= 0 && !host.erasing
+        note: host.savedLine
+        onBack: host.page = 3
+        onGo: host.saveChoices()
     }
-
-    Component.onCompleted: hostName.text = host.hostname
 }

@@ -9,10 +9,17 @@ Item {
     property string applyCommand: ""
     property bool wallpaperDone: false
 
-    function start(wallpaper, login, loading) {
+    function start(wallpaper, login, loading, avatar) {
         wallpaperDone = false
         wallpaperCommand = "/usr/bin/plasma-apply-wallpaperimage /usr/share/wallpapers/wasd/" + wallpaper
-        applyCommand = "pkexec /usr/libexec/wasd-apply-look --login " + login + " --loading " + loading
+        let picture = ""
+        if (avatar === null || avatar === undefined)
+            picture = ""
+        else if (avatar)
+            picture = " --avatar " + avatar
+        else
+            picture = " --clear-avatar"
+        applyCommand = "pkexec /usr/libexec/wasd-apply-look --login " + login + " --loading " + loading + picture
         exec.connectSource(wallpaperCommand)
     }
 

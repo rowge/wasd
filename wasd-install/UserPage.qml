@@ -103,7 +103,7 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: host.avatar = modelData
+                            onClicked: host.avatar = host.avatar === modelData ? "" : modelData
                         }
                     }
                 }
@@ -159,78 +159,25 @@ Item {
                 font.pixelSize: 16
             }
 
-            Column {
-                width: Math.min(420, parent.width)
+            Text {
+                width: parent.width
+                topPadding: 8
+                wrapMode: Text.WordWrap
+                text: "Setting a password will secure the login screen, and an administrative command will ask for it. Not setting a password will not prompt for one."
+                color: host.ink
+                font.family: host.bodyFont
+                font.pixelSize: 16
+            }
+
+            Text {
+                width: parent.width
                 visible: host.setPassword
-                topPadding: 14
-                spacing: 10
-
-                Rectangle {
-                    width: parent.width
-                    height: 48
-                    color: Qt.rgba(0, 0, 0, 0.28)
-                    border.width: 1
-                    border.color: host.line
-
-                    TextInput {
-                        id: passwordField
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        verticalAlignment: TextInput.AlignVCenter
-                        color: host.ink
-                        font.pixelSize: 18
-                        font.family: host.bodyFont
-                        echoMode: TextInput.Password
-                        selectByMouse: true
-                        selectionColor: host.brass
-                        selectedTextColor: "#24160e"
-                        onTextEdited: host.password = text
-                    }
-                }
-
-                Rectangle {
-                    width: parent.width
-                    height: 48
-                    color: Qt.rgba(0, 0, 0, 0.28)
-                    border.width: 1
-                    border.color: host.line
-
-                    TextInput {
-                        id: againField
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        verticalAlignment: TextInput.AlignVCenter
-                        color: host.ink
-                        font.pixelSize: 18
-                        font.family: host.bodyFont
-                        echoMode: TextInput.Password
-                        selectByMouse: true
-                        selectionColor: host.brass
-                        selectedTextColor: "#24160e"
-                        onTextEdited: host.passwordAgain = text
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    visible: host.passwordAgain.length > 0 && host.password !== host.passwordAgain
-                    wrapMode: Text.WordWrap
-                    text: "Type the same password in both boxes."
-                    color: host.danger
-                    font.family: host.bodyFont
-                    font.pixelSize: 16
-                }
-
-                Text {
-                    width: parent.width
-                    wrapMode: Text.WordWrap
-                    text: "This password is also the administrator password."
-                    color: host.muted
-                    font.family: host.bodyFont
-                    font.pixelSize: 15
-                }
+                topPadding: 8
+                wrapMode: Text.WordWrap
+                text: "You will choose it the first time this computer starts."
+                color: host.ink
+                font.family: host.bodyFont
+                font.pixelSize: 16
             }
         }
     }
@@ -245,12 +192,8 @@ Item {
         host: page.host
         nextText: "Next"
         onBack: host.page = 0
-        onGo: host.page = 2
+        onGo: host.page = 1
     }
 
-    Component.onCompleted: {
-        nameField.text = host.userName
-        passwordField.text = host.password
-        againField.text = host.passwordAgain
-    }
+    Component.onCompleted: nameField.text = host.userName
 }

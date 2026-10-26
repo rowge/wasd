@@ -11,9 +11,19 @@ Window {
     color: bg
     flags: Qt.Window | Qt.FramelessWindowHint
 
-    property string shareRoot: ""
+    function initialRoot() {
+        try {
+            if (typeof WasdRepo !== "undefined" && WasdRepo)
+                return WasdRepo
+        } catch (e) {
+        }
+        return ""
+    }
+
+    property string shareRoot: initialRoot()
     property bool tool: false
     property bool applying: false
+    property bool avatarReady: true
     property var bridge: null
     property string titleFont: "Liberation Serif"
     property string bodyFont: "Liberation Sans"
@@ -23,11 +33,12 @@ Window {
     property string userName: ""
     property string avatar: "knight.jpg"
     property bool setPassword: false
-    property string password: ""
-    property string passwordAgain: ""
+    property bool liveSession: false
+    property bool erasing: false
+    property string encodedChoices: ""
     property string lookOpen: ""
     property string loadingChoice: "stained-glass.jpg"
-    property string loginChoice: "camp.png"
+    property string loginChoice: "throne.jpg"
     property string themeChoice: "We10XOS-dark"
     property string wallpaperChoice: "stained-glass.jpg"
     property string appsOpen: "apps"
@@ -89,17 +100,35 @@ Window {
     readonly property var wallpaperFiles: files.wallpapers || []
     readonly property bool hostnameOk: /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(hostname)
     readonly property bool userOk: userName.trim() === "" || (/^[a-z][a-z0-9-]{0,31}$/.test(userName.trim()) && userName.trim() !== "root")
-    readonly property bool passwordOk: !setPassword || (password.length > 0 && password === passwordAgain)
     readonly property string eraseLabel: diskIndex >= 0 && diskIndex < disks.count && disks.get(diskIndex).windows
             ? "Erase Windows and install WASD"
             : "Erase the selected disk and install WASD"
     readonly property string appSummary: appCount() + " selected"
     readonly property string agentSummary: selectedAgentNames().join(", ") || "None selected"
+    property bool networkConnected: true
+    property string networkDetail: "Wired"
+    property bool networkOpen: false
+    property bool networkBusy: false
+    property string networkLine: ""
+    property string wifiSsid: ""
+    property string wifiPass: ""
+    property string tcpMode: "auto"
+    property string tcpAddress: ""
+    property string tcpNetmask: ""
+    property string tcpGateway: ""
+    property string tcpDns: ""
+    property var wifiNetworks: [
+        { ssid: "Home", signal: 84, security: "WPA2" },
+        { ssid: "Shop", signal: 42, security: "WPA2" }
+    ]
+    readonly property string networkStatus: networkConnected
+            ? ("Connected." + (networkDetail ? " " + networkDetail + "." : ""))
+            : "No connection detected, expand to configure."
 
     ListModel {
         id: disks
-        ListElement { name: "Samsung 990"; kind: ""; size: "2 TB"; windows: false; occupied: false }
-        ListElement { name: "WD Black"; kind: "Windows. This drive stays"; size: "1 TB"; windows: true; occupied: true }
+        ListElement { name: "Samsung 990"; kind: ""; size: "2 TB"; windows: false; occupied: false; device: "" }
+        ListElement { name: "WD Black"; kind: "Windows. This drive stays"; size: "1 TB"; windows: true; occupied: true; device: "" }
     }
     property alias diskModel: disks
 
@@ -122,9 +151,16 @@ Window {
         } catch (e) {
         }
         try {
-            if (typeof WasdBridge !== "undefined")
+            if (typeof WasdBridge !== "undefined" && WasdBridge)
                 bridge = WasdBridge
         } catch (e) {
+        }
+        if (!bridge) {
+            liveSession = true
+            installBlocked = true
+            diskIndex = -1
+            disks.clear()
+            warnings = ["Reading the disks."]
         }
         try {
             if (typeof WasdFilesJson !== "undefined" && WasdFilesJson)
@@ -144,12 +180,133 @@ Window {
         }
         agentOn = agents
         refreshShown()
+        if (liveSession) {
+            networkConnected = false
+            networkDetail = ""
+            wifiNetworks = []
+            refreshNetwork(false)
+        }
+    }
+
+    function refreshNetwork(rescan) {
+        networkRequest("GET", rescan ? "/status?rescan=1" : "/status", "")
+    }
+
+    function connectWifi() {
+        const ssid = wifiSsid.trim()
+        const passphrase = wifiPass
+        wifiPass = ""
+        if (!ssid) {
+            networkLine = "Type the network name."
+            return
+        }
+        if (!liveSession) {
+            networkConnected = true
+            networkDetail = ssid
+            networkLine = "This computer was not changed."
+            return
+        }
+        let listed = false
+        for (let i = 0; i < wifiNetworks.length; i++) {
+            if (wifiNetworks[i].ssid === ssid)
+                listed = true
+        }
+        networkBusy = true
+        networkLine = "Connecting."
+        networkRequest("POST", "/wifi", JSON.stringify({
+            ssid: ssid,
+            passphrase: passphrase,
+            hidden: !listed
+        }))
+    }
+
+    function applyTcp() {
+        if (tcpMode === "manual" && (!tcpAddress.trim() || !tcpNetmask.trim() || !tcpGateway.trim() || !tcpDns.trim())) {
+            networkLine = "Fill in the address, netmask, gateway, and DNS."
+            return
+        }
+        if (!liveSession) {
+            networkLine = "This computer was not changed."
+            return
+        }
+        networkBusy = true
+        networkLine = "Applying."
+        networkRequest("POST", "/tcp", JSON.stringify({
+            mode: tcpMode,
+            address: tcpAddress.trim(),
+            netmask: tcpNetmask.trim(),
+            gateway: tcpGateway.trim(),
+            dns: tcpDns.trim()
+        }))
+    }
+
+    function networkRequest(method, path, body) {
+        const xhr = new XMLHttpRequest()
+        xhr.timeout = 25000
+        xhr.open(method, "http://127.0.0.1:8765" + path)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return
+            win.networkBusy = false
+            if (xhr.status === 200) {
+                let data = {}
+                try {
+                    data = JSON.parse(xhr.responseText || "{}")
+                } catch (e) {
+                    win.networkLine = "The network helper is not available."
+                    return
+                }
+                win.networkConnected = !!data.connected
+                win.networkDetail = data.detail || ""
+                if (data.networks && data.networks.length)
+                    win.wifiNetworks = data.networks
+                if (path.indexOf("/status") !== 0)
+                    win.networkLine = data.connected ? "Connected." : win.networkLine
+                return
+            }
+            const detail = (xhr.responseText || "").trim()
+            win.networkLine = detail || "The network helper is not available."
+        }
+        xhr.send(body)
     }
 
     function art(folder, fileName) {
-        if (!shareRoot || !fileName)
+        if (!fileName)
             return ""
-        return "file://" + shareRoot + "/" + folder + "/" + fileName
+        if (shareRoot)
+            return "file://" + shareRoot + "/" + folder + "/" + fileName
+        if (folder === "wasd-icons")
+            return "file:///usr/share/wasd/icons/" + fileName
+        if (folder === "wasd-loading-screens")
+            return "file:///usr/share/wasd/loading/" + fileName
+        if (folder === "wasd-login-screens")
+            return "file:///usr/share/wasd/login/" + fileName
+        if (folder === "wasd-wallpapers")
+            return "file:///usr/share/wallpapers/wasd/" + fileName
+        return ""
+    }
+
+    function utf8Base64(str) {
+        const bytes = []
+        for (let i = 0; i < str.length; i++) {
+            let code = str.charCodeAt(i)
+            if (code >= 0xd800 && code <= 0xdbff && i + 1 < str.length) {
+                const next = str.charCodeAt(++i)
+                code = 0x10000 + ((code & 0x3ff) << 10) + (next & 0x3ff)
+                bytes.push(0xf0 | (code >> 18), 0x80 | ((code >> 12) & 0x3f), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f))
+            } else if (code < 0x80) {
+                bytes.push(code)
+            } else if (code < 0x800) {
+                bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f))
+            } else {
+                bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f))
+            }
+        }
+        return Qt.btoa(bytes)
+    }
+
+    function encodeChoices() {
+        encodedChoices = utf8Base64(choicesJson())
     }
 
     function diskLine(index) {
@@ -209,6 +366,35 @@ Window {
         agentOn = copy
     }
 
+    function selectAllApps() {
+        const copy = Object.assign({}, appOn)
+        for (let i = 0; i < appNames.length; i++)
+            copy[appNames[i]] = true
+        appOn = copy
+    }
+
+    function selectNoneApps() {
+        const copy = Object.assign({}, appOn)
+        for (let i = 0; i < appNames.length; i++)
+            copy[appNames[i]] = false
+        appOn = copy
+        pickedExtras = []
+    }
+
+    function selectAllAgents() {
+        const copy = {}
+        for (let i = 0; i < agentNames.length; i++)
+            copy[agentNames[i]] = true
+        agentOn = copy
+    }
+
+    function selectNoneAgents() {
+        const copy = {}
+        for (let i = 0; i < agentNames.length; i++)
+            copy[agentNames[i]] = false
+        agentOn = copy
+    }
+
     function appCount() {
         let count = pickedExtras.length
         for (let i = 0; i < appNames.length; i++) {
@@ -263,10 +449,14 @@ Window {
             apps.push(pickedExtras[j])
         const agents = selectedAgentNames()
         let diskName = ""
-        if (diskIndex >= 0 && diskIndex < disks.count)
+        let device = ""
+        if (diskIndex >= 0 && diskIndex < disks.count) {
             diskName = disks.get(diskIndex).name
+            device = disks.get(diskIndex).device || ""
+        }
         return JSON.stringify({
             disk: diskName,
+            device: device,
             hostname: hostname.toLowerCase(),
             user: userName.trim(),
             avatar: avatar,
@@ -285,22 +475,37 @@ Window {
             return
         if (!hostnameOk) {
             savedLine = ""
+            page = 3
+            return
+        }
+        if (userName.trim() === "") {
+            savedLine = "Choose a username first."
             page = 0
             return
         }
         if (!userOk) {
             savedLine = ""
-            page = 1
+            page = 0
             return
         }
-        if (!passwordOk) {
-            savedLine = ""
-            page = 1
+        if (bridge || !liveSession) {
+            savedLine = "Saved your choices. Nothing was erased."
+            if (bridge)
+                bridge.save(choicesJson())
             return
         }
-        savedLine = "Saved your choices. Nothing was erased."
-        if (bridge)
-            bridge.save(choicesJson())
+        const device = disks.get(diskIndex).device || ""
+        if (!/^(nvme[0-9]+n[0-9]+|sd[a-z]+|vd[a-z]+|mmcblk[0-9]+|hd[a-z]+)$/.test(device)) {
+            savedLine = "Choose a disk again. Nothing was erased."
+            return
+        }
+        if (!liveLoader.item) {
+            savedLine = "The installer is not ready. Nothing was erased."
+            return
+        }
+        erasing = true
+        savedLine = "Starting the install."
+        liveLoader.item.erase(utf8Base64(choicesJson()))
     }
 
     function applyLive(payload) {
@@ -318,7 +523,8 @@ Window {
                 kind: row.kind || "",
                 size: row.size || "",
                 windows: !!row.windows,
-                occupied: !!row.occupied
+                occupied: !!row.occupied,
+                device: row.device || ""
             })
             if (pick < 0 && !row.occupied)
                 pick = i
@@ -330,7 +536,7 @@ Window {
         const rows = []
         for (let i = 0; i < disks.count; i++) {
             const row = disks.get(i)
-            rows.push({ name: row.name, windows: !!row.windows, occupied: !!row.occupied })
+            rows.push({ name: row.name, windows: !!row.windows, occupied: !!row.occupied, device: row.device || "" })
         }
         return JSON.stringify({ index: diskIndex, blocked: installBlocked, rows: rows })
     }
@@ -440,7 +646,7 @@ Window {
                 spacing: 6
 
                 Repeater {
-                    model: ["Disk", "User", "Look", "Apps & Agents"]
+                    model: ["User", "Look", "Apps & Agents", "System", "Disk"]
                     delegate: Rectangle {
                         required property string modelData
                         required property int index
@@ -478,7 +684,7 @@ Window {
 
             Loader {
                 anchors.fill: parent
-                sourceComponent: win.page === 0 ? diskComp : win.page === 1 ? userComp : win.page === 2 ? lookComp : appsComp
+                sourceComponent: win.page === 0 ? userComp : win.page === 1 ? lookComp : win.page === 2 ? appsComp : win.page === 3 ? systemComp : diskComp
             }
         }
     }
@@ -498,5 +704,36 @@ Window {
     Component {
         id: appsComp
         AppsPage { host: win }
+    }
+    Component {
+        id: systemComp
+        SystemPage { host: win }
+    }
+
+    Loader {
+        id: liveLoader
+        active: win.liveSession
+        source: "LiveHost.qml"
+        onLoaded: item.probe()
+    }
+
+    Connections {
+        target: liveLoader.item
+        enabled: liveLoader.item !== null
+        function onDisks(payload) {
+            if (!payload) {
+                win.installBlocked = true
+                win.warnings = ["The disks could not be read."]
+                return
+            }
+            win.applyLive(payload)
+        }
+        function onFilesReady(payload) {
+            win.files = JSON.parse(payload)
+        }
+        function onEraseFinished(code, line) {
+            win.erasing = false
+            win.savedLine = line || (code === 0 ? "The installer finished." : "Nothing was erased.")
+        }
     }
 }

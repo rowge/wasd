@@ -3,7 +3,7 @@ import Qt.labs.folderlistmodel
 
 Item {
     id: lister
-    signal provide(var loading, var login, var wallpapers)
+    signal provide(var icons, var loading, var login, var wallpapers)
 
     function prefer(names, first) {
         const rank = {}
@@ -34,17 +34,33 @@ Item {
     }
 
     function publish() {
+        if (iconModel.status !== FolderListModel.Ready)
+            return
         if (loadingModel.status !== FolderListModel.Ready)
             return
         if (loginModel.status !== FolderListModel.Ready)
             return
         if (wallModel.status !== FolderListModel.Ready)
             return
+        const icons = prefer(names(iconModel), [
+            "knight.jpg", "superhero-female.jpg", "pilot.jpg", "fox.jpg", "wizard.jpg",
+            "soldier.jpg", "gunslinger.jpg", "archer.jpg", "wolf-brawler.jpg", "superhero.jpg"
+        ]).filter(function(name) { return name !== "wasd-logo.png" })
         lister.provide(
+            icons,
             prefer(names(loadingModel), ["stained-glass.jpg"]),
-            prefer(names(loginModel), ["camp.png"]),
+            prefer(names(loginModel), ["throne.jpg", "camp.png"]),
             prefer(names(wallModel), ["stained-glass.jpg"])
         )
+    }
+
+    FolderListModel {
+        id: iconModel
+        folder: "file:///usr/share/wasd/icons"
+        nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp"]
+        showDirs: false
+        showOnlyReadable: true
+        onStatusChanged: lister.publish()
     }
 
     FolderListModel {

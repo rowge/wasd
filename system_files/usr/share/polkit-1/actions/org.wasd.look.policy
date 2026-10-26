@@ -5,8 +5,8 @@
 <policyconfig>
   <vendor>WASD</vendor>
   <action id="org.wasd.look">
-    <description>Change the WASD loading screen and login screen</description>
-    <message>Authentication is needed to change the WASD loading screen and login screen</message>
+    <description>Change the WASD loading screen, login screen, and user picture</description>
+    <message>Authentication is needed to change the WASD loading screen, login screen, and user picture</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>

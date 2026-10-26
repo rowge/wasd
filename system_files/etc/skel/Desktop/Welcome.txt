@@ -1,0 +1,7 @@
+Thank you for trying WASD. This is a labor of love.
+
+I used Grok to make the build pipeline for WASD, the Install WASD window, and the WASD Look app, as well as much of the artwork. Many of the wallpapers are my own amateur photography.
+
+WASD Look is where the loading screen, the login screen, and the desktop picture can be changed later.
+
+Problems, ideas, and contributions: https://github.com/rowge/wasd

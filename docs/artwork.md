@@ -47,7 +47,7 @@ Older copies of this set also sit on the NAS:
 | Loading splash | `wasd-loading-screens/stained-glass.jpg` | A loading bar runs along the bottom. Plymouth loads a PNG copy at `system_files/usr/share/plymouth/themes/wasd/background.png`, made from this file. |
 | Live desktop | `wasd-wallpapers/stained-glass.jpg` | The room with the stained-glass W. |
 | Welcome window logo | `wasd-icons/wasd-logo.png` | Renamed from `wasdee-logo.png`. Checkerboard removed so the background is actually transparent. |
-| Login wallpaper (installed system, not the live USB) | `wasd-login-screens/camp.png` | |
+| Login wallpaper (installed system, not the live USB) | `wasd-login-screens/throne.jpg` | `camp.png` stays a choice. |
 
 ## Surfaces we still need art for
 

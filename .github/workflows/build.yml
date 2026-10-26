@@ -85,7 +85,12 @@ jobs:
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> "$GITHUB_ENV"
 
       - name: Build the image
-        run: just build "$IMAGE_NAME" "$DEFAULT_TAG" "$VARIANT"
+        run: |
+          set -euo pipefail
+          # The push step logs in as this repo. A saved login makes the next
+          # job's pull of the public Bazzite image fail with 403.
+          podman logout ghcr.io || true
+          just build "$IMAGE_NAME" "$DEFAULT_TAG" "$VARIANT"
 
       - name: Rechunk for smaller updates
         run: just ostree-rechunk "$IMAGE_NAME" "$DEFAULT_TAG"
@@ -221,4 +226,5 @@ jobs:
             podman rmi -f "$base" || true
           fi
           podman image prune -f || true
+          podman logout ghcr.io || true
           rm -rf output

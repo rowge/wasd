@@ -10,6 +10,33 @@ Item {
         return !!host.appOn[name]
     }
 
+    component ChoiceButton: Rectangle {
+        id: choice
+        required property string label
+        required property var host
+        signal clicked()
+        width: choiceLabel.implicitWidth + 28
+        height: 32
+        color: "transparent"
+        border.width: 1
+        border.color: host.line
+
+        Text {
+            id: choiceLabel
+            anchors.centerIn: parent
+            text: choice.label
+            color: host.ink
+            font.family: host.bodyFont
+            font.pixelSize: 14
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: choice.clicked()
+        }
+    }
+
     Flickable {
         id: scroller
         objectName: "pageScroll"
@@ -92,6 +119,24 @@ Item {
                 leftPadding: 26
                 bottomPadding: 12
                 spacing: 12
+
+                Row {
+                    spacing: 8
+
+                    ChoiceButton {
+                        objectName: "selectAllApps"
+                        label: "Select All"
+                        host: page.host
+                        onClicked: host.selectAllApps()
+                    }
+
+                    ChoiceButton {
+                        objectName: "selectNoneApps"
+                        label: "Select None"
+                        host: page.host
+                        onClicked: host.selectNoneApps()
+                    }
+                }
 
                 Rectangle {
                     width: parent.width - 26
@@ -228,16 +273,38 @@ Item {
                 }
             }
 
-            Grid {
-                width: parent.width - 26
+            Column {
+                width: parent.width
                 visible: host.appsOpen === "agents"
                 leftPadding: 26
                 bottomPadding: 8
-                columns: 2
-                columnSpacing: 24
-                rowSpacing: 8
+                spacing: 12
 
-                Repeater {
+                Row {
+                    spacing: 8
+
+                    ChoiceButton {
+                        objectName: "selectAllAgents"
+                        label: "Select All"
+                        host: page.host
+                        onClicked: host.selectAllAgents()
+                    }
+
+                    ChoiceButton {
+                        objectName: "selectNoneAgents"
+                        label: "Select None"
+                        host: page.host
+                        onClicked: host.selectNoneAgents()
+                    }
+                }
+
+                Grid {
+                    width: parent.width - 26
+                    columns: 2
+                    columnSpacing: 24
+                    rowSpacing: 8
+
+                    Repeater {
                     model: host.agentNames
                     delegate: Item {
                         required property string modelData
@@ -273,6 +340,7 @@ Item {
                         }
                     }
                 }
+                }
             }
         }
     }
@@ -285,10 +353,8 @@ Item {
         anchors.rightMargin: 32
         anchors.bottomMargin: 12
         host: page.host
-        nextText: host.eraseLabel
-        nextEnabled: !host.installBlocked && host.diskIndex >= 0
-        note: host.savedLine
-        onBack: host.page = 2
-        onGo: host.saveChoices()
+        nextText: "Next"
+        onBack: host.page = 1
+        onGo: host.page = 3
     }
 }

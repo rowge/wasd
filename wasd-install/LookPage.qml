@@ -9,7 +9,9 @@ Item {
             return "loading"
         if (index === 1)
             return "login"
-        return "desktop"
+        if (index === 2)
+            return "desktop"
+        return "avatar"
     }
 
     function sectionTitle(index) {
@@ -17,9 +19,9 @@ Item {
             return "Loading screen"
         if (index === 1)
             return "Login screen"
-        if (host.tool)
-            return "Desktop wallpaper"
-        return "Desktop"
+        if (index === 2)
+            return host.tool ? "Desktop wallpaper" : "Desktop"
+        return "User picture"
     }
 
     function sectionFolder(index) {
@@ -27,7 +29,9 @@ Item {
             return "wasd-loading-screens"
         if (index === 1)
             return "wasd-login-screens"
-        return "wasd-wallpapers"
+        if (index === 2)
+            return "wasd-wallpapers"
+        return "wasd-icons"
     }
 
     function sectionFiles(index) {
@@ -35,7 +39,9 @@ Item {
             return host.loadingFiles
         if (index === 1)
             return host.loginFiles
-        return host.wallpaperFiles
+        if (index === 2)
+            return host.wallpaperFiles
+        return host.iconFiles
     }
 
     function sectionChoice(index) {
@@ -43,7 +49,9 @@ Item {
             return host.loadingChoice
         if (index === 1)
             return host.loginChoice
-        return host.wallpaperChoice
+        if (index === 2)
+            return host.wallpaperChoice
+        return host.avatarChoice
     }
 
     function choose(index, fileName) {
@@ -51,8 +59,12 @@ Item {
             host.loadingChoice = fileName
         else if (index === 1)
             host.loginChoice = fileName
-        else
+        else if (index === 2)
             host.wallpaperChoice = fileName
+        else {
+            host.avatarTouched = true
+            host.avatarChoice = host.avatarChoice === fileName ? "" : fileName
+        }
     }
 
     Flickable {
@@ -84,7 +96,7 @@ Item {
             }
 
             Repeater {
-                model: 3
+                model: host.tool ? 4 : 3
                 delegate: Column {
                     id: section
                     required property int index
@@ -136,9 +148,19 @@ Item {
                                 font.pixelSize: 14
                             }
 
+                            Text {
+                                visible: index === 3 && page.sectionChoice(index).length === 0
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "None"
+                                color: host.muted
+                                font.family: host.bodyFont
+                                font.pixelSize: 14
+                            }
+
                             Rectangle {
-                                width: 112
-                                height: 63
+                                visible: page.sectionChoice(index).length > 0
+                                width: index === 3 ? 40 : 112
+                                height: index === 3 ? 40 : 63
                                 color: "#120c09"
                                 border.width: 2
                                 border.color: host.brass
@@ -148,7 +170,7 @@ Item {
                                     anchors.margins: 2
                                     source: host.shareRoot.length >= 0 ? host.art(page.sectionFolder(index), page.sectionChoice(index)) : ""
                                     fillMode: Image.PreserveAspectCrop
-                                    sourceSize: Qt.size(224, 126)
+                                    sourceSize: index === 3 ? Qt.size(80, 80) : Qt.size(224, 126)
                                     cache: true
                                 }
                             }
@@ -226,8 +248,8 @@ Item {
                                 model: page.sectionFiles(index)
                                 delegate: Rectangle {
                                     required property string modelData
-                                    width: 112
-                                    height: 63
+                                    width: index === 3 ? 84 : 112
+                                    height: index === 3 ? 84 : 63
                                     color: "#120c09"
                                     border.width: 2
                                     border.color: page.sectionChoice(index) === modelData ? host.brass : "transparent"
@@ -265,14 +287,14 @@ Item {
         host: page.host
         showBack: !host.tool
         nextText: host.tool ? "Apply" : "Next"
-        nextEnabled: !(host.tool && host.applying)
+        nextEnabled: !host.tool || (!host.applying && host.avatarReady)
         note: host.tool ? (host.savedLine || "The loading screen changes on the next boot.") : ""
-        onBack: host.page = 1
+        onBack: host.page = 0
         onGo: {
             if (host.tool)
                 host.applyLook()
             else
-                host.page = 3
+                host.page = 2
         }
     }
 }
