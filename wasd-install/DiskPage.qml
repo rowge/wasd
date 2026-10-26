@@ -6,6 +6,7 @@ Item {
 
     Flickable {
         id: scroller
+        objectName: "diskScroll"
         anchors.fill: parent
         anchors.leftMargin: 40
         anchors.rightMargin: 40
@@ -142,6 +143,281 @@ Item {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: host.diskIndex = index
+                        }
+                    }
+                }
+            }
+
+            Text {
+                width: parent.width
+                topPadding: 18
+                wrapMode: Text.WordWrap
+                text: "A second drive for games can stay when you reinstall WASD."
+                color: host.ink
+                font.family: host.bodyFont
+                font.pixelSize: 16
+            }
+
+            Text {
+                id: gamesHead
+                objectName: "gamesDrive"
+                width: parent.width
+                topPadding: 14
+                wrapMode: Text.WordWrap
+                text: host.gamesHeading()
+                color: host.ink
+                font.family: host.bodyFont
+                font.pixelSize: 16
+                font.bold: true
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: host.gamesOpen = !host.gamesOpen
+                }
+            }
+
+            Column {
+                width: parent.width
+                visible: host.gamesOpen
+                spacing: 10
+                topPadding: 10
+
+                Repeater {
+                    model: host.diskModel
+                    delegate: Rectangle {
+                        required property string name
+                        required property string size
+                        required property int index
+                        required property bool windows
+                        width: column.width
+                        height: index === host.diskIndex ? 0 : 88
+                        visible: index !== host.diskIndex
+                        color: Qt.rgba(0, 0, 0, 0.18)
+                        border.color: !windows && host.gamesDiskIndex === index && host.gamesMode !== "off" && host.gamesMode !== "split" ? host.brass : host.line
+                        border.width: 1
+
+                        Column {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 16
+                            anchors.rightMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+
+                            Text {
+                                width: parent.width
+                                text: name + (size ? "  " + size : "")
+                                color: host.ink
+                                font.family: host.bodyFont
+                                font.pixelSize: 16
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                width: parent.width
+                                wrapMode: Text.WordWrap
+                                text: host.gamesLine(index)
+                                color: host.muted
+                                font.family: host.bodyFont
+                                font.pixelSize: 14
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: !windows
+                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: host.chooseGames(index)
+                        }
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    visible: host.onlyDrive()
+                    spacing: 10
+
+                    Text {
+                        width: parent.width
+                        visible: !host.splitFits()
+                        wrapMode: Text.WordWrap
+                        text: "This drive is too small to leave room for games."
+                        color: host.muted
+                        font.family: host.bodyFont
+                        font.pixelSize: 15
+                    }
+
+                    Item {
+                        width: checkRow.width
+                        height: 28
+                        visible: host.splitFits()
+
+                        Row {
+                            id: checkRow
+                            spacing: 12
+
+                            Rectangle {
+                                width: 18
+                                height: 18
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: host.gamesMode === "split" ? host.brass : "transparent"
+                                border.width: 2
+                                border.color: host.gamesMode === "split" ? host.brass : host.muted
+                            }
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Leave the rest of this drive for games."
+                                color: host.ink
+                                font.family: host.bodyFont
+                                font.pixelSize: 16
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: host.toggleSplit()
+                        }
+                    }
+
+                    Column {
+                        width: parent.width
+                        visible: host.gamesMode === "split"
+                        spacing: 8
+
+                        Item {
+                            id: slider
+                            width: parent.width
+                            height: 28
+                            property real minV: 64
+                            property real maxV: Math.max(65, host.usableGb() - 32)
+                            property real span: Math.max(1, maxV - minV)
+
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                height: 4
+                                radius: 2
+                                color: host.line
+                            }
+
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Math.max(8, (host.osGb - slider.minV) / slider.span * parent.width)
+                                height: 4
+                                radius: 2
+                                color: host.brass
+                            }
+
+                            Rectangle {
+                                width: 18
+                                height: 18
+                                radius: 9
+                                color: host.brass
+                                y: (parent.height - height) / 2
+                                x: Math.max(0, Math.min(parent.width - width, (host.osGb - slider.minV) / slider.span * (parent.width - width)))
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onPressed: reposition(mouse.x)
+                                onPositionChanged: if (pressed) reposition(mouse.x)
+                                function reposition(x) {
+                                    const span = Math.max(1, width)
+                                    const t = Math.max(0, Math.min(1, x / span))
+                                    host.setOsGb(Math.round(slider.minV + t * slider.span))
+                                }
+                            }
+                        }
+
+                        Row {
+                            spacing: 16
+
+                            Column {
+                                spacing: 4
+
+                                Text {
+                                    text: "WASD, gigabytes"
+                                    color: host.muted
+                                    font.family: host.bodyFont
+                                    font.pixelSize: 13
+                                }
+
+                                Rectangle {
+                                    width: 140
+                                    height: 40
+                                    color: Qt.rgba(0, 0, 0, 0.28)
+                                    border.width: 1
+                                    border.color: host.line
+
+                                    TextInput {
+                                        objectName: "osGbBox"
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 12
+                                        anchors.rightMargin: 12
+                                        verticalAlignment: TextInput.AlignVCenter
+                                        color: host.ink
+                                        font.pixelSize: 18
+                                        font.family: host.bodyFont
+                                        selectByMouse: true
+                                        clip: true
+                                        text: host.osGbText
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        validator: IntValidator { bottom: 1; top: 999999 }
+                                        onTextEdited: host.osGbText = text
+                                        onEditingFinished: host.setOsGb(text)
+                                    }
+                                }
+                            }
+
+                            Column {
+                                spacing: 4
+
+                                Text {
+                                    text: "Games, gigabytes"
+                                    color: host.muted
+                                    font.family: host.bodyFont
+                                    font.pixelSize: 13
+                                }
+
+                                Rectangle {
+                                    width: 140
+                                    height: 40
+                                    color: Qt.rgba(0, 0, 0, 0.28)
+                                    border.width: 1
+                                    border.color: host.line
+
+                                    TextInput {
+                                        objectName: "gamesGbBox"
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 12
+                                        anchors.rightMargin: 12
+                                        verticalAlignment: TextInput.AlignVCenter
+                                        color: host.ink
+                                        font.pixelSize: 18
+                                        font.family: host.bodyFont
+                                        selectByMouse: true
+                                        clip: true
+                                        text: host.gamesGbText
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        validator: IntValidator { bottom: 1; top: 999999 }
+                                        onTextEdited: host.gamesGbText = text
+                                        onEditingFinished: host.setGamesGb(text)
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            width: parent.width
+                            wrapMode: Text.WordWrap
+                            text: "WASD keeps the first part. The rest is mounted at /games."
+                            color: host.muted
+                            font.family: host.bodyFont
+                            font.pixelSize: 14
                         }
                     }
                 }

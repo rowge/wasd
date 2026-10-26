@@ -45,6 +45,13 @@ Window {
     property string appQuery: ""
     property string savedLine: ""
     property bool advancedOpen: false
+    property bool gamesOpen: false
+    property string gamesMode: "off"
+    property int gamesDiskIndex: -1
+    property int osGb: 128
+    property int gamesGb: 32
+    property string osGbText: "128"
+    property string gamesGbText: "32"
     property bool installBlocked: false
     property var files: ({})
     property var appOn: ({})
@@ -127,8 +134,8 @@ Window {
 
     ListModel {
         id: disks
-        ListElement { name: "Samsung 990"; kind: ""; size: "2 TB"; windows: false; occupied: false; device: "" }
-        ListElement { name: "WD Black"; kind: "Windows. This drive stays"; size: "1 TB"; windows: true; occupied: true; device: "" }
+        ListElement { name: "Samsung 990"; kind: ""; size: "2 TB"; windows: false; occupied: false; device: ""; bytes: 2000000000000.0; games: false; part: ""; fstype: ""; uuid: "" }
+        ListElement { name: "WD Black"; kind: "Windows. This drive stays"; size: "1 TB"; windows: true; occupied: true; device: ""; bytes: 1000000000000.0; games: false; part: ""; fstype: ""; uuid: "" }
     }
     property alias diskModel: disks
 
@@ -320,6 +327,155 @@ Window {
         return row.kind || ""
     }
 
+    function usableGb() {
+        if (diskIndex < 0 || diskIndex >= disks.count)
+            return 0
+        const bytes = disks.get(diskIndex).bytes || 0
+        const gib = Math.floor(bytes / (1024 * 1024 * 1024))
+        return Math.max(0, gib - 4)
+    }
+
+    function onlyDrive() {
+        if (diskIndex < 0 || disks.count < 1)
+            return false
+        for (let i = 0; i < disks.count; i++) {
+            if (i !== diskIndex && !disks.get(i).windows)
+                return false
+        }
+        return true
+    }
+
+    function splitFits() {
+        return onlyDrive() && usableGb() >= 96
+    }
+
+    function gamesHeading() {
+        let extra = ""
+        if (gamesMode === "split")
+            extra = "Leaving the rest of this drive for games."
+        else if ((gamesMode === "keep" || gamesMode === "format") && gamesDiskIndex >= 0 && gamesDiskIndex < disks.count)
+            extra = disks.get(gamesDiskIndex).name
+        else {
+            for (let i = 0; i < disks.count; i++) {
+                if (i !== diskIndex && disks.get(i).games) {
+                    extra = "A drive already has your games."
+                    break
+                }
+            }
+        }
+        return extra ? "Games drive. " + extra : "Games drive"
+    }
+
+    function gamesLine(index) {
+        if (index < 0 || index >= disks.count)
+            return ""
+        const row = disks.get(index)
+        if (row.windows)
+            return "The Windows drive stays."
+        if (row.games)
+            return "This drive has your games. WASD will use it and will not erase it."
+        if (!row.occupied)
+            return "Use this drive for games. This formats the drive, names it games, and mounts it at /games."
+        return "Use this drive for games. WASD will use it and will not erase it."
+    }
+
+    function clearGames() {
+        gamesMode = "off"
+        gamesDiskIndex = -1
+    }
+
+    function chooseSplit() {
+        if (!splitFits())
+            return
+        const usable = usableGb()
+        const os = Math.min(128, usable - 32)
+        osGb = os
+        gamesGb = usable - os
+        osGbText = String(os)
+        gamesGbText = String(gamesGb)
+        gamesMode = "split"
+        gamesDiskIndex = -1
+    }
+
+    function toggleSplit() {
+        if (gamesMode === "split")
+            clearGames()
+        else
+            chooseSplit()
+    }
+
+    function setOsGb(value) {
+        if (!splitFits())
+            return
+        let n = parseInt(value, 10)
+        if (!isFinite(n)) {
+            osGbText = String(osGb)
+            return
+        }
+        const usable = usableGb()
+        if (n < 64)
+            n = 64
+        if (n > usable - 32)
+            n = usable - 32
+        osGb = n
+        gamesGb = usable - n
+        osGbText = String(n)
+        gamesGbText = String(gamesGb)
+        gamesMode = "split"
+        gamesDiskIndex = -1
+    }
+
+    function setGamesGb(value) {
+        if (!splitFits())
+            return
+        let n = parseInt(value, 10)
+        if (!isFinite(n)) {
+            gamesGbText = String(gamesGb)
+            return
+        }
+        const usable = usableGb()
+        if (n < 32)
+            n = 32
+        if (n > usable - 64)
+            n = usable - 64
+        gamesGb = n
+        osGb = usable - n
+        gamesGbText = String(n)
+        osGbText = String(osGb)
+        gamesMode = "split"
+        gamesDiskIndex = -1
+    }
+
+    function chooseGames(index) {
+        if (index < 0 || index >= disks.count || index === diskIndex)
+            return
+        const row = disks.get(index)
+        if (row.windows)
+            return
+        if (gamesDiskIndex === index && gamesMode !== "off" && gamesMode !== "split") {
+            clearGames()
+            return
+        }
+        gamesMode = row.games || row.occupied ? "keep" : "format"
+        gamesDiskIndex = index
+    }
+
+    function reconcileGames() {
+        if (gamesMode === "off")
+            return
+        if (gamesMode === "split") {
+            if (!splitFits())
+                clearGames()
+            else if (osGb < 64 || gamesGb < 32 || osGb + gamesGb > usableGb())
+                chooseSplit()
+            return
+        }
+        if (gamesDiskIndex < 0 || gamesDiskIndex >= disks.count || gamesDiskIndex === diskIndex)
+            clearGames()
+        else if (disks.get(gamesDiskIndex).windows)
+            clearGames()
+    }
+
     function openLook(which) {
         lookOpen = lookOpen === which ? "" : which
     }
@@ -450,11 +606,13 @@ Window {
         const agents = selectedAgentNames()
         let diskName = ""
         let device = ""
+        let diskBytes = 0
         if (diskIndex >= 0 && diskIndex < disks.count) {
             diskName = disks.get(diskIndex).name
             device = disks.get(diskIndex).device || ""
+            diskBytes = Math.round(disks.get(diskIndex).bytes || 0)
         }
-        return JSON.stringify({
+        const payload = {
             disk: diskName,
             device: device,
             hostname: hostname.toLowerCase(),
@@ -467,7 +625,29 @@ Window {
             wallpaper: wallpaperChoice,
             apps: apps,
             agents: agents
-        }, null, 2)
+        }
+        if (gamesMode === "split") {
+            payload.games = {
+                mode: "split",
+                osGb: osGb,
+                gamesGb: gamesGb,
+                bytes: diskBytes
+            }
+        } else if ((gamesMode === "keep" || gamesMode === "format") && gamesDiskIndex >= 0 && gamesDiskIndex < disks.count) {
+            const grow = disks.get(gamesDiskIndex)
+            const games = {
+                mode: gamesMode,
+                device: grow.device || "",
+                disk: grow.name
+            }
+            if (gamesMode === "keep") {
+                games.part = grow.part || ""
+                games.fstype = grow.fstype || ""
+                games.uuid = grow.uuid || ""
+            }
+            payload.games = games
+        }
+        return JSON.stringify(payload, null, 2)
     }
 
     function saveChoices() {
@@ -512,6 +692,7 @@ Window {
         const data = JSON.parse(payload)
         warnings = data.warnings || []
         installBlocked = !!data.blocked
+        clearGames()
         diskIndex = -1
         disks.clear()
         const rows = data.disks || []
@@ -524,7 +705,12 @@ Window {
                 size: row.size || "",
                 windows: !!row.windows,
                 occupied: !!row.occupied,
-                device: row.device || ""
+                device: row.device || "",
+                bytes: row.bytes || 0,
+                games: !!row.games,
+                part: row.part || "",
+                fstype: row.fstype || "",
+                uuid: row.uuid || ""
             })
             if (pick < 0 && !row.occupied)
                 pick = i
@@ -536,7 +722,7 @@ Window {
         const rows = []
         for (let i = 0; i < disks.count; i++) {
             const row = disks.get(i)
-            rows.push({ name: row.name, windows: !!row.windows, occupied: !!row.occupied, device: row.device || "" })
+            rows.push({ name: row.name, windows: !!row.windows, occupied: !!row.occupied, device: row.device || "", games: !!row.games })
         }
         return JSON.stringify({ index: diskIndex, blocked: installBlocked, rows: rows })
     }
@@ -564,6 +750,7 @@ Window {
     }
 
     onAppQueryChanged: refreshShown()
+    onDiskIndexChanged: reconcileGames()
 
     Component.onCompleted: boot()
 

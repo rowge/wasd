@@ -61,61 +61,9 @@ serve_docs() {
         fg >/dev/null 2>&1 || true
     fi
 }
-welcome_dialog() {
-    _EXITLOCK=1
-    _RETVAL=0
-    local welcome_text="
-Welcome to WASD.
-
-Steam is on this live desktop if you want to try a game.
-On NVIDIA, live-session performance is not the installed system.
-Install when you want WASD on a disk."
-    local welcome_title="WASD"
-    local install_button="Install WASD"
-    local restore_button="Launch Bootloader Restoring tool"
-    local close_button="Close dialog"
-    if is_swedish_locale; then
-        welcome_text="
-Välkommen till Bazzites Live ISO!\n
-Live ISO-avbildningen är avsedd för installation och felsökning.
-Den har <b>inte</b> drivrutiner och kan <b>inte köra spel.</b>
-
-Använd den <b>inte för prestandatester</b> eftersom den
-inte representerar den installerade upplevelsen."
-        welcome_title="Välkommen"
-        install_button="Installera Bazzite"
-        restore_button="Starta verktyget för återställning av starthanteraren"
-        close_button="Stäng dialogrutan"
-    fi
-    while [[ $_EXITLOCK -eq 1 ]]; do
-        yad \
-            --no-escape \
-            --on-top \
-            --timeout-indicator=bottom \
-            --text-align=center \
-            --buttons-layout=center \
-            --title="$welcome_title" \
-            --text="$welcome_text" \
-            --button="$install_button:10" \
-            --button="$restore_button:20" \
-            --button="$close_button:0"
-        _RETVAL=$?
-        case $_RETVAL in
-        10)
-            wasd-install &
-            disown $!
-            _EXITLOCK=0
-            ;;
-        20)
-            /usr/bin/bootloader_restore &
-            disown $!
-            _EXITLOCK=0
-            ;;
-        0) _EXITLOCK=0 ;;
-        esac
-    done
-    unset -v _EXITLOCK
-    unset -v _RETVAL
+launch_install() {
+    wasd-install &
+    disown $! || true
 }
 nvidia_hardware_helper() {
     timeout_seconds=15
@@ -302,6 +250,6 @@ done
 nvidia_hardware_helper
 result=$?
 if [ $result -eq 0 ] || [ $result -eq 1 ] || [ $result -eq 124 ]; then
-    echo 'launch welcome dialog'
-    welcome_dialog
+    echo 'launch Install WASD'
+    launch_install
 fi

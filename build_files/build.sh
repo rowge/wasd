@@ -4,6 +4,16 @@ set -ouex pipefail
 
 cp -avf /ctx/system_files/. /
 
+# /games is the mount point for a games drive. The directory has to exist
+# in the image or the installed system cannot mount over it.
+install -d /games
+
+# The portal is Bazzite's setup window. The live desktop opens Install WASD.
+rm -f \
+    /etc/skel/.config/autostart/bazzite-portal.desktop \
+    /etc/xdg/autostart/bazzite-portal.desktop \
+    /etc/xdg/autostart/io.github.ublue_os.yafti_gtk.desktop
+
 # Plasma's wallpaper gallery scans /usr/share/wallpapers, including folders
 # under it. Symlinks are ignored, so these are real copies. Every image in
 # wasd-wallpapers/ shows up as a choice. The default desktop is set elsewhere.
@@ -212,7 +222,9 @@ test -s /usr/share/wasd/loading/stained-glass.jpg
 test -s /usr/share/wasd/loading/keysketch.jpg
 test -s /usr/share/wasd/login/camp.png
 test -s /usr/share/wasd/login/throne.jpg
+test -d /games
 test -s /etc/skel/Desktop/Welcome.txt
+test ! -e /etc/skel/.config/autostart/bazzite-portal.desktop
 test -s /usr/share/wasd/icons/wasd-logo.png
 test -s /usr/share/wasd/look/Look.qml
 test -s /usr/share/wasd/look/ApplyHost.qml

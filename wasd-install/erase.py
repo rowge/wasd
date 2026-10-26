@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, "/usr/libexec")
 
-from disks import DEVICE_NAME, display_name, is_live, live_disk_names  # noqa: E402
+from disks import DEVICE_NAME, display_name, is_live, live_disk_names, parse_disks  # noqa: E402
 
 HOST_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 USER_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
@@ -26,7 +26,13 @@ FILE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 LANG_NAME = re.compile(r"^[A-Za-z0-9_.@-]+$")
 KEYMAP_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 ZONE_NAME = re.compile(r"^[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)+$|^UTC$")
+PART_NAME = re.compile(r"^(nvme[0-9]+n[0-9]+p[0-9]+|sd[a-z]+[0-9]+|vd[a-z]+[0-9]+|mmcblk[0-9]+p[0-9]+|hd[a-z]+[0-9]+)$")
+UUID_NAME = re.compile(r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+KEEP_FS = {"btrfs", "ext4", "xfs", "ntfs", "exfat"}
 CHOICES_END = "WASD_CHOICES_END"
+MIN_OS_GB = 64
+MIN_GAMES_GB = 32
+OVERHEAD_GB = 4
 
 
 class Refuse(Exception):
@@ -115,6 +121,143 @@ def locale_bits():
     return lang, keymap, zone
 
 
+def plain_int(value):
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def first_partition(device):
+    if device.startswith(("nvme", "mmcblk")):
+        return device + "p1"
+    return device + "1"
+
+
+def games_plan(data, os_device):
+    raw = data.get("games")
+    if not raw:
+        return {"mode": "off"}
+    if not isinstance(raw, dict):
+        raise Refuse("The games choice could not be read. Nothing was erased.")
+    mode = raw.get("mode") or "off"
+    if mode == "off":
+        return {"mode": "off"}
+    if mode == "split":
+        os_gb = plain_int(raw.get("osGb"))
+        games_gb = plain_int(raw.get("gamesGb"))
+        total = plain_int(raw.get("bytes"))
+        if os_gb is None or games_gb is None:
+            raise Refuse("Set the size for WASD and for games. Nothing was erased.")
+        if os_gb < MIN_OS_GB or games_gb < MIN_GAMES_GB:
+            raise Refuse("Leave at least 64 GB for WASD and 32 GB for games. Nothing was erased.")
+        if total is not None and os_gb + games_gb > (total // (1024 ** 3)) - OVERHEAD_GB:
+            raise Refuse("Those sizes do not fit on the selected drive. Nothing was erased.")
+        return {"mode": "split", "osGb": os_gb, "gamesGb": games_gb}
+    device = raw.get("device") or ""
+    disk_name = raw.get("disk") or ""
+    if mode not in {"keep", "format"} or not DEVICE_NAME.fullmatch(device) or device == os_device:
+        raise Refuse("Choose the games drive again. Nothing was erased.")
+    if not disk_name or "\n" in disk_name or len(disk_name) > 80:
+        raise Refuse("Choose the games drive again. Nothing was erased.")
+    if mode == "format":
+        return {"mode": "format", "device": device, "disk": disk_name, "part": first_partition(device)}
+    part = raw.get("part") or ""
+    fstype = str(raw.get("fstype") or "").lower()
+    uuid = raw.get("uuid") or ""
+    if not PART_NAME.fullmatch(part) or not part.startswith(device) or fstype not in KEEP_FS or not UUID_NAME.fullmatch(uuid):
+        raise Refuse("Choose the games drive again. Nothing was erased.")
+    mount_fs = "ntfs3" if fstype == "ntfs" else fstype
+    return {
+        "mode": "keep",
+        "device": device,
+        "disk": disk_name,
+        "part": part,
+        "fstype": mount_fs,
+        "uuid": uuid,
+    }
+
+
+def storage_lines(device, plan):
+    if plan["mode"] != "split":
+        return (
+            f"ignoredisk --only-use={device}\n"
+            f"clearpart --all --initlabel --disklabel=gpt --drives={device}\n"
+            "autopart --type=btrfs\n"
+            f"bootloader --location=mbr --boot-drive={device}"
+        )
+    os_mib = plan["osGb"] * 1024
+    return (
+        f"ignoredisk --only-use={device}\n"
+        f"clearpart --all --initlabel --disklabel=gpt --drives={device}\n"
+        "reqpart --add-boot\n"
+        f"part / --fstype=btrfs --size={os_mib} --ondisk={device} --label=wasd\n"
+        f"part /games --fstype=btrfs --size=1024 --grow --ondisk={device} --label=games\n"
+        f"bootloader --location=mbr --boot-drive={device}"
+    )
+
+
+def games_post(plan):
+    if plan["mode"] == "off":
+        return ""
+    if plan["mode"] == "split":
+        return """
+%post --nochroot --log=/tmp/anacoda_custom_logs/wasd-games.log
+set -u
+if [ -d /mnt/sysimage/games ]; then
+    mkdir -p /mnt/sysimage/games/SteamLibrary/steamapps || true
+fi
+%end
+"""
+    mount_fs = "btrfs" if plan["mode"] == "format" else plan["fstype"]
+    uuid = plan.get("uuid") or ""
+    prepare = ""
+    if plan["mode"] == "format":
+        prepare = f"""
+dev={plan["device"]}
+part={plan["part"]}
+wipefs -a "/dev/$dev"
+printf '%s\\n' 'label: gpt' ', type=linux, name=games' | sfdisk --wipe always "/dev/$dev"
+partprobe "/dev/$dev" || true
+udevadm settle || sleep 2
+mkfs.btrfs -f -L games "/dev/$part"
+uuid=$(blkid -s UUID -o value "/dev/$part")
+"""
+    else:
+        prepare = f"""
+part={plan["part"]}
+uuid=$(blkid -s UUID -o value "/dev/$part")
+if [ "$uuid" != "{uuid}" ]; then
+    echo "The games drive changed." >&2
+    exit 1
+fi
+"""
+    return f"""
+%post --nochroot --erroronfail --log=/tmp/anacoda_custom_logs/wasd-games.log
+set -eu
+{prepare}
+if [ -z "$uuid" ]; then
+    echo "The games drive has no id." >&2
+    exit 1
+fi
+deployment=$(ostree rev-parse --repo=/mnt/sysimage/ostree/repo ostree/0/1/0 || true)
+fstab=/mnt/sysimage/etc/fstab
+if [ -n "$deployment" ]; then
+    alt="/mnt/sysimage/ostree/deploy/default/deploy/${{deployment}}.0/etc/fstab"
+    if [ -f "$alt" ]; then
+        fstab=$alt
+    fi
+fi
+if ! grep -q ' /games ' "$fstab"; then
+    printf '%s\\n' "UUID=$uuid /games {mount_fs} defaults,nofail 0 0" >> "$fstab"
+fi
+mkdir -p /run/wasd-games
+mount -t {mount_fs} "UUID=$uuid" /run/wasd-games
+mkdir -p /run/wasd-games/SteamLibrary/steamapps
+umount /run/wasd-games
+%end
+"""
+
+
 def render_kickstart(data, choices_text, defaults_text):
     user = data["user"]
     hostname = data["hostname"]
@@ -122,6 +265,9 @@ def render_kickstart(data, choices_text, defaults_text):
     avatar = data["avatar"]
     lang, keymap, zone = locale_bits()
     defaults = filtered_defaults(defaults_text)
+    plan = games_plan(data, device)
+    storage = storage_lines(device, plan)
+    games = games_post(plan)
     # The account is locked here. The post script clears that lock so the
     # first boot signs in with no password. The chosen password is typed
     # after install and is not part of this file.
@@ -131,10 +277,7 @@ keyboard {keymap}
 timezone {zone} --utc
 network --bootproto=dhcp --device=link --activate --onboot=yes --hostname={hostname}
 rootpw --lock
-ignoredisk --only-use={device}
-clearpart --all --initlabel --disklabel=gpt --drives={device}
-autopart --type=btrfs
-bootloader --location=mbr --boot-drive={device}
+{storage}
 user --name={user} --groups=wheel --lock
 
 {defaults}
@@ -196,7 +339,7 @@ if [ -d "$src" ] && [ -n "$(ls -A "$src" 2>/dev/null || true)" ]; then
     fi
 fi
 %end
-
+{games}
 reboot
 """
 
@@ -226,11 +369,42 @@ def read_defaults(path):
     return file.read_text(errors="replace")
 
 
+def assert_games_matches(data, lsblk_payload):
+    plan = games_plan(data, data["device"])
+    if plan["mode"] == "off":
+        return
+    blob = json.loads(lsblk_payload) if isinstance(lsblk_payload, str) else lsblk_payload
+    rows = parse_disks(blob)
+    if plan["mode"] == "split":
+        found = next((row for row in rows if row["device"] == data["device"]), None)
+        if found is None:
+            raise Refuse("That disk is not on this computer. Nothing was erased.")
+        real = found.get("bytes") or 0
+        if real and plan["osGb"] + plan["gamesGb"] > (real // (1024 ** 3)) - OVERHEAD_GB:
+            raise Refuse("Those sizes do not fit on the selected drive. Nothing was erased.")
+        return
+    if plan["device"] in live_disk_names(blob):
+        raise Refuse("That disk is the live USB. Nothing was erased.")
+    found = next((row for row in rows if row["device"] == plan["device"]), None)
+    if found is None:
+        raise Refuse("That games drive is not on this computer. Nothing was erased.")
+    if found["windows"]:
+        raise Refuse("The Windows drive stays. Nothing was erased.")
+    if found["name"] != plan["disk"] and plan["disk"] != plan["device"]:
+        raise Refuse("The games drive does not match. Nothing was erased.")
+    if plan["mode"] == "format":
+        if found["occupied"] or found["games"]:
+            raise Refuse("That drive is not empty. Nothing was erased.")
+        return
+    if found["part"] != plan["part"] or not found.get("uuid") or found["uuid"].lower() != plan["uuid"].lower():
+        raise Refuse("Choose the games drive again. Nothing was erased.")
+
+
 def current_lsblk():
     import subprocess
 
     result = subprocess.run(
-        ["lsblk", "-J", "-o", "NAME,TYPE,MODEL,LABEL,MOUNTPOINTS,PKNAME"],
+        ["lsblk", "-J", "-b", "-o", "NAME,SIZE,MODEL,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS,PKNAME"],
         check=True,
         capture_output=True,
         text=True,
@@ -270,6 +444,8 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
             raise SystemExit(f"kickstart missing {needle}")
     if "icons/knight.jpg" not in kick:
         raise SystemExit("kickstart missed the account picture")
+    if "autopart --type=btrfs" not in kick or "part /games" in kick:
+        raise SystemExit("the default install changed the disk layout")
     if "system-connections" not in kick or "${deployment}" not in kick or "chmod 0600 {}" not in kick:
         raise SystemExit("the network copy was wrong")
     if "wpakey" in kick or "passphrase" in kick:
@@ -311,6 +487,121 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         pass
     else:
         raise SystemExit("the live USB was accepted")
+    fit = games_plan(
+        {"games": {"mode": "split", "osGb": 128, "gamesGb": 1730, "bytes": 2_000_000_000_000}},
+        "nvme0n1",
+    )
+    if fit["osGb"] != 128 or fit["gamesGb"] != 1730:
+        raise SystemExit(f"split sizes were changed {fit}")
+    for bad_games in (
+        {"mode": "split", "osGb": True, "gamesGb": 32, "bytes": 2_000_000_000_000},
+        {"mode": "split", "osGb": 128, "gamesGb": 1731, "bytes": 2_000_000_000_000},
+        {"mode": "split", "osGb": 32, "gamesGb": 32, "bytes": 2_000_000_000_000},
+        {"mode": "keep", "device": "nvme0n1", "disk": "Same", "part": "nvme0n1p1", "fstype": "btrfs", "uuid": "12345678-1234-1234-1234-123456789abc"},
+    ):
+        try:
+            games_plan({"games": bad_games}, "nvme0n1")
+        except Refuse:
+            pass
+        else:
+            raise SystemExit(f"games choice was accepted {bad_games}")
+    split = dict(choices)
+    split["games"] = {"mode": "split", "osGb": 128, "gamesGb": 1730, "bytes": 2_000_000_000_000}
+    split_data, split_text = load_choices(json.dumps(split))
+    split_kick = render_kickstart(split_data, split_text, defaults)
+    if "autopart" in split_kick or "part /games" not in split_kick or "--label=games" not in split_kick:
+        raise SystemExit("the split install did not keep the games space")
+    if "--size=131072" not in split_kick or "reqpart --add-boot" not in split_kick:
+        raise SystemExit("the split install missed the WASD size")
+    keep = dict(choices)
+    keep["games"] = {
+        "mode": "keep",
+        "device": "nvme1n1",
+        "disk": "WD BLACK SN850X",
+        "part": "nvme1n1p1",
+        "fstype": "ntfs",
+        "uuid": "12345678-1234-1234-1234-123456789abc",
+    }
+    keep_data, keep_text = load_choices(json.dumps(keep))
+    keep_kick = render_kickstart(keep_data, keep_text, defaults)
+    if "mkfs" in keep_kick or "12345678-1234-1234-1234-123456789abc" not in keep_kick or "ntfs3" not in keep_kick:
+        raise SystemExit("keeping a games drive formatted it")
+    if "autopart --type=btrfs" not in keep_kick or "ignoredisk --only-use=nvme0n1" not in keep_kick:
+        raise SystemExit("keeping a games drive changed the WASD disk")
+    if "part /games" in keep_kick or "clearpart" not in keep_kick.split("ignoredisk --only-use=nvme0n1", 1)[-1]:
+        raise SystemExit("keeping a games drive partitioned the wrong disk")
+    formatted = dict(choices)
+    formatted["games"] = {"mode": "format", "device": "nvme3n1", "disk": "Empty Shelf"}
+    format_data, format_text = load_choices(json.dumps(formatted))
+    format_kick = render_kickstart(format_data, format_text, defaults)
+    if "mkfs.btrfs -f -L games" not in format_kick or "/dev/$part" not in format_kick:
+        raise SystemExit("an empty games drive was not formatted")
+    if "autopart --type=btrfs" not in format_kick or "part /games" in format_kick:
+        raise SystemExit("formatting a games drive changed the WASD disk")
+    for kick_text in (kick, split_kick, keep_kick, format_kick):
+        if "wpakey" in kick_text or "passphrase" in kick_text or "${deployment}" not in kick_text:
+            raise SystemExit("a games kickstart was wrong")
+    games_lsblk = {
+        "blockdevices": [
+            {
+                "name": "sda",
+                "type": "disk",
+                "size": 16_000_000_000,
+                "model": "Live USB",
+                "children": [{"name": "sda1", "type": "part", "label": "WASD", "mountpoints": ["/run/initramfs/live"]}],
+            },
+            {"name": "nvme0n1", "type": "disk", "size": 2_000_000_000_000, "model": "Samsung SSD 990 PRO", "children": []},
+            {
+                "name": "nvme1n1",
+                "type": "disk",
+                "size": 1_000_000_000_000,
+                "model": "WD_BLACK SN850X",
+                "children": [{
+                    "name": "nvme1n1p1",
+                    "type": "part",
+                    "fstype": "ntfs",
+                    "label": "games",
+                    "size": 999_000_000_000,
+                    "uuid": "12345678-1234-1234-1234-123456789abc",
+                }],
+            },
+            {
+                "name": "nvme2n1",
+                "type": "disk",
+                "size": 1_000_000_000_000,
+                "model": "Windows Disk",
+                "children": [{"name": "nvme2n1p1", "type": "part", "fstype": "BitLocker"}],
+            },
+            {"name": "nvme3n1", "type": "disk", "size": 4_000_000_000_000, "model": "Empty Shelf", "children": []},
+        ]
+    }
+    assert_games_matches(split_data, games_lsblk)
+    assert_games_matches(keep_data, games_lsblk)
+    assert_games_matches(format_data, games_lsblk)
+    windows_games = dict(keep)
+    windows_games["games"] = {
+        "mode": "keep",
+        "device": "nvme2n1",
+        "disk": "Windows Disk",
+        "part": "nvme2n1p1",
+        "fstype": "ntfs",
+        "uuid": "12345678-1234-1234-1234-123456789abc",
+    }
+    occupied = dict(formatted)
+    occupied["games"] = {"mode": "format", "device": "nvme1n1", "disk": "WD BLACK SN850X"}
+    usb_games = dict(formatted)
+    usb_games["games"] = {"mode": "format", "device": "sda", "disk": "Live USB"}
+    for refused, label in (
+        (windows_games, "windows"),
+        (occupied, "occupied"),
+        (usb_games, "live usb"),
+    ):
+        try:
+            assert_games_matches(refused, games_lsblk)
+        except Refuse:
+            pass
+        else:
+            raise SystemExit(f"the {label} games drive was accepted")
     from disks import self_check as disks_check
 
     disks_check()
@@ -345,7 +636,9 @@ def main():
         return 1
     try:
         data, text = load_choices(args.payload or "")
-        assert_disk_matches(data, current_lsblk())
+        listing = current_lsblk()
+        assert_disk_matches(data, listing)
+        assert_games_matches(data, listing)
         kick = render_kickstart(data, text, read_defaults(args.defaults))
     except Refuse as exc:
         print(str(exc), file=sys.stderr)

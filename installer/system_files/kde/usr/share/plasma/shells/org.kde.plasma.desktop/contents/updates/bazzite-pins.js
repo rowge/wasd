@@ -17,7 +17,7 @@ for (let i = 0; i < allPanels.length; ++i) {
             if (!currentLaunchers || currentLaunchers.trim() === "") {
                 widget.writeConfig("launchers", [
                     "preferred://browser",
-                    "applications:liveinst.desktop",
+                    "applications:wasd-install.desktop",
                     "preferred://filemanager"
                 ]);
                 widget.reloadConfig();

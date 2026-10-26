@@ -24,6 +24,28 @@ def display_name(model, fallback):
     return " ".join(str(raw).replace("_", " ").split())
 
 
+def disk_bytes(value):
+    if isinstance(value, int):
+        return value if value > 0 else 0
+    text = str(value or "").strip()
+    if text.isdigit():
+        return int(text)
+    return 0
+
+
+def human_size(value):
+    number = disk_bytes(value)
+    if number <= 0:
+        return str(value or "")
+    units = ((1_000_000_000_000, "TB"), (1_000_000_000, "GB"))
+    for scale, label in units:
+        if number >= scale:
+            shown = number / scale
+            text = f"{shown:.1f}".rstrip("0").rstrip(".")
+            return f"{text} {label}"
+    return f"{number // 1_000_000} MB"
+
+
 def parse_disks(payload):
     data = json.loads(payload) if isinstance(payload, str) else payload
     disks = []
@@ -34,28 +56,72 @@ def parse_disks(payload):
         name = display_name(dev.get("model"), device)
         windows = False
         occupied = False
+        games = False
+        games_part = ""
+        games_fs = ""
+        games_uuid = ""
+        games_bytes = -1
+        data_part = ""
+        data_fs = ""
+        data_uuid = ""
+        data_bytes = -1
         for node in walk(dev):
+            if node is dev:
+                continue
             fs = (node.get("fstype") or "").lower()
-            label = node.get("label") or ""
+            label = str(node.get("label") or "")
             if fs == "bitlocker" or (fs == "ntfs" and re.search(r"windows|microsoft", label, re.I)):
                 windows = True
                 occupied = True
-            elif fs in OS_FS:
+            elif fs in OS_FS or fs == "exfat":
                 occupied = True
+            marked = label.casefold() == "games"
+            steam = False
+            for mount in _mounts(node):
+                root = Path(mount)
+                try:
+                    steam = (root / "SteamLibrary" / "steamapps").is_dir() or (root / "steamapps").is_dir()
+                except OSError:
+                    steam = False
+                if steam:
+                    break
+            size = disk_bytes(node.get("size"))
+            if (marked or steam) and size >= games_bytes:
+                games = True
+                games_part = str(node.get("name") or "")
+                games_fs = fs
+                games_uuid = str(node.get("uuid") or "")
+                games_bytes = size
+            elif fs in {"btrfs", "ext4", "xfs", "ntfs", "exfat"} and size > data_bytes:
+                data_part = str(node.get("name") or "")
+                data_fs = fs
+                data_uuid = str(node.get("uuid") or "")
+                data_bytes = size
         if windows:
             kind = "Windows. This drive stays"
-        elif occupied:
-            kind = "Another system. This drive stays"
+            games = False
+            part = ""
+            fstype = ""
+            uuid = ""
         else:
-            kind = ""
+            part = games_part or data_part
+            fstype = games_fs if games else data_fs
+            uuid = games_uuid if games else data_uuid
+            kind = "Another system. This drive stays" if occupied else ""
+        raw_size = dev.get("size")
         disks.append(
             {
                 "name": name,
                 "device": device,
                 "kind": kind,
-                "size": dev.get("size") or "",
+                "size": human_size(raw_size) if disk_bytes(raw_size) else (raw_size or ""),
+                "bytes": disk_bytes(raw_size),
                 "windows": windows,
                 "occupied": occupied,
+                "games": games,
+                "part": "" if windows else part,
+                "fstype": "" if windows else fstype,
+                "uuid": "" if windows else uuid,
             }
         )
     return disks
@@ -155,7 +221,7 @@ def memory_kb():
 
 def live_disks():
     result = subprocess.run(
-        ["lsblk", "-J", "-o", "NAME,SIZE,MODEL,TYPE,FSTYPE,LABEL"],
+        ["lsblk", "-J", "-b", "-o", "NAME,SIZE,MODEL,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS"],
         check=True,
         capture_output=True,
         text=True,
@@ -214,3 +280,39 @@ def self_check():
         raise SystemExit(f"device names {disks}")
     if not DEVICE_NAME.fullmatch("nvme0n1") or DEVICE_NAME.fullmatch("../nvme0n1"):
         raise SystemExit("device name check failed")
+    if human_size(2_000_000_000_000) != "2 TB":
+        raise SystemExit(f"size text {human_size(2_000_000_000_000)}")
+    if human_size("1.8T") != "1.8T":
+        raise SystemExit("a labeled size was rewritten")
+    marked = parse_disks({
+        "blockdevices": [
+            {
+                "name": "nvme0n1",
+                "type": "disk",
+                "size": 2_000_000_000_000,
+                "model": "Samsung SSD 990 PRO",
+                "children": [{
+                    "name": "nvme0n1p1",
+                    "type": "part",
+                    "fstype": "ntfs",
+                    "label": "Games",
+                    "size": 1_500_000_000_000,
+                    "uuid": "12345678-1234-1234-1234-123456789abc",
+                }],
+            },
+            {
+                "name": "nvme1n1",
+                "type": "disk",
+                "size": 1_000_000_000_000,
+                "model": "Windows Disk",
+                "children": [
+                    {"name": "nvme1n1p1", "type": "part", "fstype": "BitLocker"},
+                    {"name": "nvme1n1p2", "type": "part", "fstype": "ntfs", "label": "games", "uuid": "abcdefab-1234-1234-1234-123456789abc"},
+                ],
+            },
+        ]
+    })
+    if not marked[0]["games"] or marked[0]["part"] != "nvme0n1p1" or marked[0]["fstype"] != "ntfs":
+        raise SystemExit(f"games label was missed {marked[0]}")
+    if marked[1]["games"] or marked[1]["part"] or marked[1]["uuid"] or not marked[1]["windows"]:
+        raise SystemExit(f"windows disk became a games drive {marked[1]}")

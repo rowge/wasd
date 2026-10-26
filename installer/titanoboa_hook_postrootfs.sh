@@ -317,4 +317,29 @@ fi
 # Install Gparted
 dnf -yq install gparted
 
+# Anaconda's "Install to Hard Drive" opens the old installer. The live
+# desktop and the menu get Install WASD instead.
+rm -f \
+    /usr/share/applications/liveinst.desktop \
+    /usr/share/applications/anaconda.desktop \
+    /etc/skel/Desktop/liveinst.desktop \
+    /etc/skel/Desktop/anaconda.desktop
+install -d -m 0755 /usr/share/applications /etc/skel/Desktop
+cat > /usr/share/applications/wasd-install.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Install WASD
+GenericName=Install WASD
+Comment=Install WASD on this computer
+Exec=wasd-install
+Icon=wasd-logo
+Terminal=false
+Categories=System;
+Keywords=install;installer;wasd;
+EOF
+cp -a /usr/share/applications/wasd-install.desktop /etc/skel/Desktop/wasd-install.desktop
+chmod 0755 /usr/share/applications/wasd-install.desktop /etc/skel/Desktop/wasd-install.desktop
+test -s /usr/share/applications/wasd-install.desktop
+test ! -e /usr/share/applications/liveinst.desktop
+
 ###############################

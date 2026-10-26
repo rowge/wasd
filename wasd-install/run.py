@@ -143,6 +143,12 @@ def check_parser():
         raise SystemExit("empty disk was classified wrong")
     if default_disk(disks) != 2:
         raise SystemExit("default disk was not the empty one")
+    if any(disk["games"] for disk in disks) or disks[0]["part"] or disks[0]["uuid"]:
+        raise SystemExit(f"windows disk looked like a games drive {disks[0]}")
+    if disks[1]["part"] != "nvme1n1p1" or disks[1]["fstype"] != "ext4":
+        raise SystemExit(f"linux disk kept no partition {disks[1]}")
+    if disks[2]["part"] or disks[2]["fstype"]:
+        raise SystemExit(f"empty disk kept a partition {disks[2]}")
 
 
 def qml_app(save_path, shot_dir, live):
@@ -150,7 +156,7 @@ def qml_app(save_path, shot_dir, live):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         os.environ.setdefault("QT_QUICK_BACKEND", "software")
         os.environ.setdefault("QSG_RHI_BACKEND", "sw")
-    from PySide6.QtCore import QEventLoop, QMetaObject, QObject, QTimer, QUrl, Signal, Slot
+    from PySide6.QtCore import QEventLoop, QMetaObject, QObject, Qt, QTimer, QUrl, Q_ARG, Signal, Slot
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtQml import QQmlApplicationEngine
     from PySide6.QtQuick import QQuickItem, QQuickWindow
@@ -229,6 +235,52 @@ def qml_app(save_path, shot_dir, live):
             for key, value in props.items():
                 window.setProperty(key, value)
             grab(shot / f"{name}.png")
+        window.setProperty("page", 4)
+        window.setProperty("gamesOpen", True)
+        pump(50)
+        if quick.findChild(QQuickItem, "gamesDrive") is None:
+            raise SystemExit("Games drive is missing from Disk")
+        if not QMetaObject.invokeMethod(window, "chooseSplit"):
+            raise SystemExit("chooseSplit did not run")
+        pump(50)
+        if window.property("gamesMode") != "split":
+            raise SystemExit(f"split did not turn on: {window.property('gamesMode')}")
+        os_gb = int(window.property("osGb") or 0)
+        games_gb = int(window.property("gamesGb") or 0)
+        if os_gb < 64 or games_gb < 32:
+            raise SystemExit(f"split sizes {os_gb} {games_gb}")
+        if not QMetaObject.invokeMethod(window, "setOsGb", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 200)):
+            raise SystemExit("setOsGb did not run")
+        pump(50)
+        if int(window.property("osGb") or 0) != 200:
+            raise SystemExit(f"the WASD size did not move: {window.property('osGb')}")
+        if int(window.property("gamesGb") or 0) >= games_gb:
+            raise SystemExit(f"the games size did not shrink: {window.property('gamesGb')}")
+        import base64
+
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for games")
+        pump(50)
+        games_raw = base64.b64decode(window.property("encodedChoices") or "", validate=True)
+        games_data = json.loads(games_raw)
+        if games_data.get("games", {}).get("mode") != "split" or games_data["games"].get("osGb") != 200:
+            raise SystemExit(f"games choice {games_data.get('games')}")
+        if b"passphrase" in games_raw or b"wpakey" in games_raw:
+            raise SystemExit("the games choice kept a secret")
+        disk_scroll = quick.findChild(QQuickItem, "diskScroll")
+        if disk_scroll is None:
+            raise SystemExit("the disk page does not scroll")
+        disk_height = disk_scroll.property("height") or 0
+        disk_content = disk_scroll.property("contentHeight") or 0
+        disk_scroll.setProperty("contentY", max(0, disk_content - disk_height))
+        grab(shot / "disk-games.png")
+        if not QMetaObject.invokeMethod(window, "clearGames"):
+            raise SystemExit("clearGames did not run")
+        pump(50)
+        if window.property("gamesMode") != "off":
+            raise SystemExit("games choice stayed on")
+        window.setProperty("gamesOpen", False)
+        disk_scroll.setProperty("contentY", 0)
         window.setProperty("page", 2)
         window.setProperty("appsOpen", "agents")
         pump(50)
@@ -290,6 +342,8 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit(f"live disk apply failed {snap}")
         if snap["rows"][0]["device"] != "nvme0n1" or snap["rows"][2]["device"] != "sda":
             raise SystemExit(f"live disk devices were not kept {snap}")
+        if snap["rows"][0].get("games") or snap["rows"][1].get("games"):
+            raise SystemExit(f"a fixture disk was marked for games {snap}")
         window.setProperty("page", 2)
         window.setProperty("appsOpen", "apps")
         pump(50)

@@ -4,4 +4,6 @@ I used Grok to make the build pipeline for WASD, the Install WASD window, and th
 
 WASD Look is where the loading screen, the login screen, and the desktop picture can be changed later.
 
+WASD is a gaming system based on Bazzite. It does not include Waydroid. Steam is here, and so are Discord, OBS Studio, and Heroic.
+
 Problems, ideas, and contributions: https://github.com/rowge/wasd
