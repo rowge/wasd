@@ -60,8 +60,8 @@ ICON_ORDER = [
     "superhero.jpg",
 ]
 LOADING_ORDER = [
-    "keysketch.jpg",
     "stained-glass.jpg",
+    "keysketch.jpg",
     "throne.jpg",
     "space.jpg",
     "cell-shaded.jpg",
@@ -72,7 +72,7 @@ LOADING_ORDER = [
     "zerog.jpg",
 ]
 LOGIN_ORDER = ["camp.png"]
-WALL_ORDER = ["wasdsketch.png"]
+WALL_ORDER = ["stained-glass.jpg"]
 OS_FS = {"ext4", "btrfs", "xfs", "ntfs", "bitlocker", "crypto_luks"}
 
 
@@ -488,9 +488,9 @@ def open_look(save_path, shot_dir):
     data = json.loads(Path(save_path).read_text())
     if data.get("changed") is not False:
         raise SystemExit(f"preview changed the computer: {data}")
-    if data.get("loading") != "keysketch.jpg" or data.get("login") != "camp.png":
+    if data.get("loading") != "stained-glass.jpg" or data.get("login") != "camp.png":
         raise SystemExit(f"unexpected look choices {data}")
-    if data.get("wallpaper") != "wasdsketch.png":
+    if data.get("wallpaper") != "stained-glass.jpg":
         raise SystemExit(f"unexpected wallpaper {data}")
     line = window.property("savedLine") or ""
     if "This computer was not changed." not in line:

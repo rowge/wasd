@@ -5,6 +5,9 @@ COPY build_files /
 COPY system_files /system_files
 COPY wasd-wallpapers /wasd-wallpapers
 COPY wasd-icons /wasd-icons
+COPY wasd-loading-screens /wasd-loading-screens
+COPY wasd-login-screens /wasd-login-screens
+COPY wasd-install /wasd-install
 
 # Which Bazzite desktop to start from. `just build` passes the pin in images.env.
 # The NVIDIA open pin is the default. The AMD/Intel pin is the other line.

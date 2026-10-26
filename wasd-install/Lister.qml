@@ -41,9 +41,9 @@ Item {
         if (wallModel.status !== FolderListModel.Ready)
             return
         lister.provide(
-            prefer(names(loadingModel), ["keysketch.jpg"]),
+            prefer(names(loadingModel), ["stained-glass.jpg"]),
             prefer(names(loginModel), ["camp.png"]),
-            prefer(names(wallModel), ["wasdsketch.png"])
+            prefer(names(wallModel), ["stained-glass.jpg"])
         )
     }
 

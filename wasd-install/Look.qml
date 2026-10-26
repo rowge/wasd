@@ -36,10 +36,10 @@ Window {
     property string bodyFont: "Liberation Sans"
     property int page: 0
     property string lookOpen: ""
-    property string loadingChoice: "keysketch.jpg"
+    property string loadingChoice: "stained-glass.jpg"
     property string loginChoice: "camp.png"
     property string themeChoice: "We10XOS-dark"
-    property string wallpaperChoice: "wasdsketch.png"
+    property string wallpaperChoice: "stained-glass.jpg"
     property var themes: []
     property string savedLine: ""
     property bool applying: false

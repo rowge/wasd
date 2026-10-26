@@ -1,4 +1,4 @@
-# Keys stay at the top of the sketch. The bar runs along the bottom.
+# The stained-glass W stays above the bar. The bar runs along the bottom.
 wallpaper_image = Image("background.png");
 track_image = Image("progress_track.png");
 fill_image = Image("progress_fill.png");

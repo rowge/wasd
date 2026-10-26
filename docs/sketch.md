@@ -143,7 +143,7 @@ The recipe is in this repo. It builds two images. AMD/Intel is the default. It c
 
 - `waydroid` and `waydroid-selinux` are removed, along with the launcher, policy, and the Waydroid entry in the welcome screen.
 - Brave replaces Firefox. Discord, Element, Heroic, Bottles, OBS Studio, GOverlay, EasyEffects, Piper, OpenRGB, and LACT are on that same Flatpak list. Bazzite's install command downloads their list from GitHub, so the build points that command at `/usr/share/wasd/flatpaks` in the image.
-- The desktop wallpaper is `wasdsketch.png`. The login screen wallpaper is `wasd-camp.png`. Every image in `wasd-wallpapers/` is a choice in Plasma's wallpaper gallery. The logo is installed for the welcome window. The Plymouth theme uses `keysketch.jpg` (as a PNG) with a bar along the bottom.
+- The desktop wallpaper is `stained-glass.jpg`. The login screen wallpaper is `camp.png`. Every image in `wasd-wallpapers/` is a choice in Plasma's wallpaper gallery. The logo is installed for the welcome window. The Plymouth theme uses the stained-glass W (as a PNG) with a bar along the bottom.
 - The USB menu is plain black with white text and has no background picture.
 - The kernel and initramfs are still Bazzite's. The sketch splash shows once the live USB rebuilds the initramfs.
 - Steam, Lutris, Proton tools, GameMode, MangoHud, and Plasma stay. The default image uses the AMD/Intel desktop's Mesa stack. The NVIDIA image keeps the NVIDIA open driver.

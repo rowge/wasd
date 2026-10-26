@@ -3,5 +3,5 @@ for (var i = 0; i < allDesktops.length; i++) {
     var desktop = allDesktops[i];
     desktop.wallpaperPlugin = "org.kde.image";
     desktop.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
-    desktop.writeConfig("Image", "file:///usr/share/wallpapers/wasd/wasdsketch.png");
+    desktop.writeConfig("Image", "file:///usr/share/wallpapers/wasd/stained-glass.jpg");
 }

@@ -25,14 +25,14 @@ The E keys and the extra "ee" in the wordmark were removed in place. Blank keys 
 |---|---|
 | `wasd-wallpapers/wasdee-login-bg.png` | Deleted. The wordmark cut left a blunt D. |
 | `wasd-wallpapers/wasdsketch.png` | Pencil cluster. Trailing E key removed. Blank key beside W stays. |
-| `wasd-wallpapers/keysketch.jpg` | Four keys in a row: W A S D. Pencil ground. This is the loading splash. |
+| `wasd-wallpapers/keysketch.jpg` | Four keys in a row: W A S D. Pencil ground. Still a loading choice. The default splash is the stained-glass W. |
 | `wasd-wallpapers/keysketch2.jpg` | Blank key and W on the top row, A S D below. Not used on a screen. |
 | `wasd-wallpapers/keysketchrgb.jpg` | New neon drawing. Cyan W, magenta A, red S, green D. Smooth dark background. |
-| `wasd-wallpapers/wasdsketch-800x600.jpg` | Same cluster as `wasdsketch.png`, E key removed. |
+| `wasd-wallpapers/wasdsketch-800x600.jpg` | Deleted. It was a small copy of the same cluster. |
 
 ## Photos in the wallpaper gallery
 
-Every image in `wasd-wallpapers/` is installed for the Plasma wallpaper picker. The default desktop is still `wasdsketch.png`. The camp picture is still the login screen. The moon is only a wallpaper. The key sketch is the loading splash. The USB menu has no picture.
+Every image in `wasd-wallpapers/` is installed for the Plasma wallpaper picker. The default desktop is `stained-glass.jpg`. The camp picture is still the login screen. The moon is only a wallpaper. The default loading splash is the stained-glass W. The USB menu has no picture.
 
 Older copies of this set also sit on the NAS:
 
@@ -44,10 +44,10 @@ Older copies of this set also sit on the NAS:
 | Screen | File | Notes |
 |---|---|---|
 | USB boot menu | none | Black background, white text. No picture. |
-| Loading splash | `wasd-wallpapers/keysketch.jpg` | A loading bar runs along the bottom. Plymouth loads a PNG copy at `system_files/usr/share/plymouth/themes/wasd/background.png`, made from this file. |
-| Live desktop | `wasd-wallpapers/wasdsketch.png` | |
+| Loading splash | `wasd-loading-screens/stained-glass.jpg` | A loading bar runs along the bottom. Plymouth loads a PNG copy at `system_files/usr/share/plymouth/themes/wasd/background.png`, made from this file. |
+| Live desktop | `wasd-wallpapers/stained-glass.jpg` | The room with the stained-glass W. |
 | Welcome window logo | `wasd-icons/wasd-logo.png` | Renamed from `wasdee-logo.png`. Checkerboard removed so the background is actually transparent. |
-| Login wallpaper (installed system, not the live USB) | `wasd-wallpapers/wasd-camp.png` | |
+| Login wallpaper (installed system, not the live USB) | `wasd-login-screens/camp.png` | |
 
 ## Surfaces we still need art for
 

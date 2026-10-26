@@ -190,13 +190,16 @@ if [[ -z $conf_path || $theme_line != Theme=wasd && $theme_line != "Theme= wasd"
     exit 1
 fi
 
+test -s /usr/share/wallpapers/wasd/stained-glass.jpg
 test -s /usr/share/wallpapers/wasd/wasdsketch.png
-test -s /usr/share/wallpapers/wasd/wasd-camp.png
+test -s /usr/share/wallpapers/wasd/camp.png
 test -s /usr/share/wallpapers/wasd/keysketch.jpg
 test -s /usr/share/wasd/wasd-logo.png
 test -s /usr/share/plymouth/themes/wasd/background.png
 test -s /usr/share/icons/hicolor/48x48/apps/wasd-logo.png
+test -s /usr/share/wasd/loading/stained-glass.jpg
 test -s /usr/share/wasd/loading/keysketch.jpg
+test -s /usr/share/wasd/login/camp.png
 test -s /usr/share/wasd/login/camp.png
 test -s /usr/share/wasd/icons/wasd-logo.png
 test -s /usr/share/wasd/look/Look.qml
