@@ -32,7 +32,7 @@ The E keys and the extra "ee" in the wordmark were removed in place. Blank keys 
 
 ## Photos in the wallpaper gallery
 
-Every image in `wasd-wallpapers/` is installed for the Plasma wallpaper picker. The default desktop is still `wasdsketch.png`. The camp picture is still the login screen. The moon and the key sketch still have their boot jobs too.
+Every image in `wasd-wallpapers/` is installed for the Plasma wallpaper picker. The default desktop is still `wasdsketch.png`. The camp picture is still the login screen. The moon is only a wallpaper. The key sketch is the loading splash. The USB menu has no picture.
 
 Older copies of this set also sit on the NAS:
 
@@ -43,7 +43,7 @@ Older copies of this set also sit on the NAS:
 
 | Screen | File | Notes |
 |---|---|---|
-| USB boot menu | `wasd-wallpapers/moon2.jpg` | Menu text sits on the black, left of the moon. |
+| USB boot menu | none | Black background, white text. No picture. |
 | Loading splash | `wasd-wallpapers/keysketch.jpg` | A loading bar runs along the bottom. Plymouth loads a PNG copy at `system_files/usr/share/plymouth/themes/wasd/background.png`, made from this file. |
 | Live desktop | `wasd-wallpapers/wasdsketch.png` | |
 | Welcome window logo | `wasd-icons/wasd-logo.png` | Renamed from `wasdee-logo.png`. Checkerboard removed so the background is actually transparent. |
@@ -56,4 +56,4 @@ Older copies of this set also sit on the NAS:
 - Installer `.desktop` icon
 - Favicon, once there is a site
 
-When we import, import **specific files into a curated `artwork/` tree** (logo, wordmark, plymouth, grub, sddm, wallpapers). Do not copy the old project directories.
+When we import, import **specific files into a curated `artwork/` tree** (logo, wordmark, plymouth, login, wallpapers). Do not copy the old project directories. The USB menu stays black and white, with no picture.

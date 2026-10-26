@@ -73,46 +73,33 @@ a:focus-visible {
   outline-offset: 3px;
 }
 
-body.guide {
-  background: #0c121c;
-  color: #e7eef8;
-}
-
 body.guide main {
   text-align: left;
-  width: min(38rem, calc(100% - 2.4rem));
-  padding-top: 2.2rem;
+  width: min(40rem, calc(100% - 2.4rem));
 }
 
-body.guide h1 {
-  font-size: 2rem;
-  color: #7ec8ff;
+body.guide h2,
+body.guide h3 {
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
+  font-weight: 500;
 }
 
 body.guide h2 {
   margin: 1.6rem 0 0;
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: #4da3ff;
+  font-size: 1.35rem;
 }
 
 body.guide h3 {
   margin: 1rem 0 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #9fd2ff;
+  font-size: 1.1rem;
 }
 
 body.guide p { margin: 0.55rem 0 0; }
 
-body.guide a { color: #7ec8ff; }
-body.guide a:hover { color: #d7efff; }
-body.guide a:focus-visible { outline-color: #7ec8ff; }
-
 body.guide .back {
   margin: 0 0 1.2rem;
-  letter-spacing: 0.22em;
-  font-family: Palatino, "Palatino Linotype", Georgia, serif;
+  letter-spacing: 0.28em;
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
 }
 
 body.guide .checks {
@@ -131,9 +118,9 @@ body.guide pre {
   margin: 0.6rem 0 0;
   padding: 0.7rem 0.85rem;
   overflow-x: auto;
-  color: #d7efff;
-  background: #161e2c;
-  border-radius: 4px;
+  color: var(--ink);
+  background: #1a100b;
+  border: 1px solid var(--line);
 }
 
 @media (max-width: 640px) {

@@ -29,6 +29,40 @@ if [[ $wallpaper_count -lt 1 ]]; then
 fi
 install -m 0644 /ctx/wasd-icons/wasd-logo.png /usr/share/wasd/wasd-logo.png
 
+# WASD Look reads these folders after install. Plasma ignores wallpaper
+# symlinks, so the copies are real files, same as the gallery above.
+copy_wasd_images() {
+    local src_dir=$1 dest=$2 label=$3
+    local src count=0
+    install -d "$dest"
+    shopt -s nullglob
+    for src in "$src_dir"/*; do
+        [[ -f $src ]] || continue
+        case ${src##*.} in
+            jpg | jpeg | png | webp | JPG | JPEG | PNG | WEBP) ;;
+            *)
+                echo "skipping non-image in ${label}: ${src##*/}" >&2
+                continue
+                ;;
+        esac
+        install -m 0644 "$src" "${dest}/${src##*/}"
+        count=$((count + 1))
+    done
+    shopt -u nullglob
+    if [[ $count -lt 1 ]]; then
+        echo "no images installed from ${label}" >&2
+        exit 1
+    fi
+}
+copy_wasd_images /ctx/wasd-loading-screens /usr/share/wasd/loading wasd-loading-screens
+copy_wasd_images /ctx/wasd-login-screens /usr/share/wasd/login wasd-login-screens
+copy_wasd_images /ctx/wasd-icons /usr/share/wasd/icons wasd-icons
+install -d /usr/share/wasd/look
+for qml in Look.qml LookPage.qml PageFooter.qml ApplyHost.qml Lister.qml; do
+    install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/look/${qml}"
+done
+chmod 0755 /usr/bin/wasd-look /usr/libexec/wasd-apply-look
+
 # Keep shared libraries. Only the Waydroid packages themselves go.
 dnf5 -y remove --setopt=clean_requirements_on_remove=False waydroid waydroid-selinux
 if rpm -q waydroid >/dev/null 2>&1 || rpm -q waydroid-selinux >/dev/null 2>&1; then
@@ -158,11 +192,19 @@ fi
 
 test -s /usr/share/wallpapers/wasd/wasdsketch.png
 test -s /usr/share/wallpapers/wasd/wasd-camp.png
-test -s /usr/share/wallpapers/wasd/moon2.png
 test -s /usr/share/wallpapers/wasd/keysketch.jpg
 test -s /usr/share/wasd/wasd-logo.png
 test -s /usr/share/plymouth/themes/wasd/background.png
 test -s /usr/share/icons/hicolor/48x48/apps/wasd-logo.png
+test -s /usr/share/wasd/loading/keysketch.jpg
+test -s /usr/share/wasd/login/camp.png
+test -s /usr/share/wasd/icons/wasd-logo.png
+test -s /usr/share/wasd/look/Look.qml
+test -s /usr/share/wasd/look/ApplyHost.qml
+test -x /usr/bin/wasd-look
+test -x /usr/libexec/wasd-apply-look
+test -s /usr/share/applications/wasd-look.desktop
+test -s /usr/share/polkit-1/actions/org.wasd.look.policy
 test ! -e /usr/share/icons/hicolor/scalable/places/bazzite-logo.svg
 vapor_splash=/usr/share/plasma/look-and-feel/com.valve.vapor.desktop/contents/splash
 grep -q 'images/wasd_logo.png' "${vapor_splash}/Splash.qml"

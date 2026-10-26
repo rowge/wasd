@@ -1,0 +1,57 @@
+# Next build
+
+Changes to the distribution wait here. They stay on this list until you say to build the next one.
+
+When you say to build the next one, the waiting changes get made, committed, and pushed to main. Hammerite builds the AMD/Intel image, then the NVIDIA image. When each job finishes, the machine uploads that ISO to R2 on its own.
+
+The image pushed on the evening of 2026-10-25 has the plain USB menu and WASD Look. The theme pack, the smaller ISO, and the install button that erases a disk are still in the list below. They are not in that image.
+
+## Waiting
+
+Ship extra Plasma 6 global themes on both the AMD/Intel image and the NVIDIA image, so they show up as choices. The default global theme on both images is We10XOS-dark (https://store.kde.org/p/1368860). List taken from the KDE Store on 2026-10-25, category Global Themes (Plasma 6), sorted by rating.
+
+Top ten by rating:
+
+1. Sweet KDE, 8.9, https://store.kde.org/p/1294729
+2. Layan, 8.8, https://store.kde.org/p/1325243
+3. We10XOS-dark, 8.6, https://store.kde.org/p/1368860
+4. Ant-Dark, 8.6, https://store.kde.org/p/1464332
+5. Nordic, 8.5, https://store.kde.org/p/1327093
+6. ChromeOS, 8.4, https://store.kde.org/p/1354062
+7. Otto, 8.4, https://store.kde.org/p/1360125
+8. Carl, 8.3, https://store.kde.org/p/1338881
+9. WhiteSur-Dark, 8.3, https://store.kde.org/p/1400424
+10. Edna-Light, 8.3, https://store.kde.org/p/1529191
+
+Expose series, the Windows XP and Aero lookalikes:
+
+- Expose (Luna blue), https://store.kde.org/p/2136378
+- Expose Blue, https://store.kde.org/p/2140867
+- Expose Green (olive), https://store.kde.org/p/2150674
+- Expose Metallic (silver), https://store.kde.org/p/2143690
+- Expose Dark, https://store.kde.org/p/2348099
+- Expose Air (Windows 7 Aero), https://store.kde.org/p/2142957
+- Expose Air Dark, https://store.kde.org/p/2357433
+
+Include each theme's companion pieces (Kvantum, colors, window borders, icons) when the theme needs them, so applying it changes the whole desktop.
+
+Take the optional apps out of the ISO. The live desktop opens one window, Install WASD, and no other popup. Closing that window leaves the live desktop usable. Warnings (legacy BIOS / CSM, low memory, another operating system already on a disk) sit at the top of that window. If the firmware is legacy BIOS, the window says to switch it to UEFI and the install stays unavailable. They can still close the window.
+
+When nothing is blocking the install, the wizard steps are titled Disk, User, Look, and Apps & Agents.
+
+1. Disk. The recommended install is one drive, and the page says so in plain text: the selected drive will be wiped. They pick the disk. The same page names the computer. The box starts filled in with wasd, and the note above it says "Give your computer a name." They can change the name. It is not chosen at random. The last step ends with the button "Erase the selected disk and install WASD". That erases the whole chosen disk. Every other disk is left alone. The installer is only allowed to touch the selected disk, so it cannot rewrite another operating system's boot files. A disk that already has an operating system is not selected by default. If they select it, the button names what will be erased. When another system is present, the page says this computer will start WASD afterward, and the other system is started from the computer's own boot menu. Warnings that need a person to do something are red. When Windows is present: turn off BitLocker and fast startup in Windows before installing. When the firmware is legacy: set it to UEFI in the BIOS, and the motherboard manual explains how. When Secure Boot is on, the next boot asks to enroll a key (choose Enroll MOK and enter `universalblue`). The selected drive says WARNING! This drive will be wiped. An Advanced section stays collapsed under the disk list. It opens the existing installer for partitioning and the other disk choices, including encryption. That is not the recommended install. Bazzite's live installer documents automatic wipe as the choice it offers. Manual partitioning is documented on the legacy ISO.
+2. User. Three things. The username. A row of character icons from `wasd-icons/`, which is the picture shown next to the name on the login screen. The WASD logo stays in that folder and is not one of the choices. Set a password, a checkbox that starts unchecked. While it is unchecked, the page says, in red, "Without a password, anyone who can turn on the computer is you." The computer signs in by itself. Checking it shows a password and a second box to type it again. That password is also the administrator password. There is no separate root account. `wasd-icons/`, `wasd-loading-screens/`, `wasd-login-screens/`, and `wasd-wallpapers/` are all copied onto the installed system, so the pictures are still there after install.
+3. Look. Loading screen, login screen, and desktop, on this one step. Each starts closed, with a triangle and the current picture, so all three fit at once. Opening one shows its choices and closes the other two. The choices are the image files in a folder, so adding a picture adds a choice.
+   - Loading screen, from `wasd-loading-screens/`. This is the Plymouth artwork. The bar along the bottom stays. Default remains the key sketch. The disk install writes the chosen picture and rebuilds the startup picture, so the first boot of the installed system already shows it. The folder holds the loading pictures already in the repo, including a copy of `keysketch.jpg`. The original stays in `wasd-wallpapers/`. The USB menu is separate from that picture. It is black with white text and has no picture.
+   - Login screen, from `wasd-login-screens/`. The default choice is `camp.png` in that folder. `wasd-camp.png` remains in `wasd-wallpapers/`.
+   - Desktop. Global theme and wallpaper. We10XOS-dark is the default theme. Wallpapers come from `wasd-wallpapers/`, which already exists. Default wallpaper remains `wasdsketch.png`.
+   The new loading and login folders start with the pictures already in the repo, so there is something to pick. Defaults stay the current assignments.
+4. Apps & Agents. Suggested apps and the agent list on one step. Apps starts open and Agents starts closed. Collapsing Apps opens Agents, and collapsing Agents opens Apps, so only one is open. The closed one shows what is already selected. The current WASD flatpak list, plus VLC, GIMP, and Bitwarden, checked by default. MakeMKV is not offered. Steam is not on this list. It is already part of the system. A search box adds any other Flathub app. Desktop apps stay Flatpak. The agents Omarchy ships, plus the Grok pieces, are listed here and installed when chosen, not baked into the ISO. Grok Build (`grok`), Grok Bot, and a Grok web app (grok.com opened as its own window, the same kind of web app Omarchy makes) start checked. The other agents start unchecked: Claude Code, Codex, OpenCode, Antigravity, Amp, Command Code, Copilot CLI, Crush, Cursor CLI, Devin, DeepSeek Harness, Freebuff, Hermes, Kilo, Kimi, Kiro, MiniMax Code, Muse, Oh My Pi, Ori, Pi, Qwen, and the desktop apps ChatGPT, Claude, Hermes Desktop, OpenClaw, Perplexity, T3 Code, LM Studio, and Ollama. Agents install the way Omarchy installs them.
+
+Install WASD is a new app, and so is the window on first boot. The window source is `wasd-install/`. Both are one Qt program, using the toolkit KDE already ships, and both are meant to look finished: the WASD logo, our colors, real type and spacing, and no stock dialog. The disk write is the existing installer run with no window of its own, from choices this app saves. The erase button in the current app saves those choices, including the hostname, and does not erase a disk yet. After the erase button there are no more choices. The username, sign-in, loading screen, and login screen are written with the disk.
+
+The first time the installed system reaches the desktop, a window titled "Completing the install" stays up while the work runs. It shows the logo, a circular animation, and one line for the current step: setting the desktop, installing what they checked, then "Finishing up". It asks nothing. When it is done it closes and removes itself from startup. If the network is down, the desktop look still applies and the downloads wait in that same window. That window is `wasd-install/Complete.qml`. Opening it in this preview plays those three lines and then closes. It does not change the desktop, install anything, or remove a startup entry yet. A separate welcome app is not in this preview. The global theme stays in KDE's own settings.
+
+WASD Look is installed with the system. The window is `wasd-install/Look.qml`. It matches the Look step and only changes pictures: the loading screen, the login screen, and the wallpaper. Theme chips stay out of this window. The wallpaper changes immediately. The login screen changes at the next login. The loading screen is rebuilt on that computer and shows up on the next boot. That rebuild is not a new ISO. Opening WASD Look in this preview writes a choice file and does not change the computer. The picture folders are copied onto the installed system for that window.
+
+Day-to-day testing happens on the AMD laptop, with the AMD/Intel image. The NVIDIA image waits until that flow is about 90% worked out, and then it is tested on Elemental.

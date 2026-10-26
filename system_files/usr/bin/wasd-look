@@ -1,0 +1,9 @@
+#!/bin/bash
+# Open WASD Look. The window is Qt 6 QML.
+
+set -euo pipefail
+
+if command -v qml6 >/dev/null 2>&1; then
+    exec qml6 /usr/share/wasd/look/Look.qml
+fi
+exec qml /usr/share/wasd/look/Look.qml

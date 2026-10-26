@@ -26,7 +26,6 @@ install() {
     for file in \
         /usr/share/plymouth/themes/wasd/wasd.plymouth \
         /usr/share/plymouth/themes/wasd/wasd.script \
-        /usr/share/plymouth/themes/wasd/background.png \
         /usr/share/plymouth/themes/wasd/progress_fill.png \
         /usr/share/plymouth/themes/wasd/progress_track.png
     do
@@ -36,6 +35,18 @@ install() {
         fi
         inst "$file"
     done
+
+    # WASD Look writes the chosen loading picture here. It replaces the
+    # theme background inside this initramfs. The stock picture remains
+    # the fallback.
+    if [[ -s /etc/wasd/loading-background.png ]]; then
+        inst /etc/wasd/loading-background.png /usr/share/plymouth/themes/wasd/background.png
+    elif [[ -s /usr/share/plymouth/themes/wasd/background.png ]]; then
+        inst /usr/share/plymouth/themes/wasd/background.png
+    else
+        dfatal "WASD splash is missing background.png"
+        return 1
+    fi
 
     mkdir -p "${initdir}/usr/share/plymouth/themes" "${initdir}/etc/plymouth"
     ln -sfn wasd/wasd.plymouth "${initdir}/usr/share/plymouth/themes/default.plymouth"

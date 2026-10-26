@@ -67,7 +67,7 @@ Every surface a user sees from USB insert to first match should say WASD. This i
 ### Boot media
 
 - ISO volume label
-- UEFI boot entry / GRUB menu title, background, fonts, timeout
+- UEFI boot entry / GRUB menu title, fonts, and timeout. The menu is black with white text and has no picture.
 - BIOS/legacy isolinux only if we still ship it (most modern PCs never see it — this is why the last splash never changed)
 - Plymouth splash from kernel start until the login screen
 - Kernel / boot messages hidden behind that splash (`quiet splash`)
@@ -143,8 +143,9 @@ The recipe is in this repo. It builds two images. AMD/Intel is the default. It c
 
 - `waydroid` and `waydroid-selinux` are removed, along with the launcher, policy, and the Waydroid entry in the welcome screen.
 - Brave replaces Firefox. Discord, Element, Heroic, Bottles, OBS Studio, GOverlay, EasyEffects, Piper, OpenRGB, and LACT are on that same Flatpak list. Bazzite's install command downloads their list from GitHub, so the build points that command at `/usr/share/wasd/flatpaks` in the image.
-- The desktop wallpaper is `wasdsketch.png`. The login screen wallpaper is `wasd-camp.png`. Every image in `wasd-wallpapers/` is a choice in Plasma's wallpaper gallery. The logo is installed for the welcome window. The Plymouth theme uses `keysketch.jpg` (as a PNG) with a bar along the bottom, and the USB menu background `moon2.jpg` is in the image for the ISO build.
-- The kernel and initramfs are still Bazzite's. The sketch splash shows once the live USB rebuilds the initramfs. The boot menu picture is part of that ISO, not this container.
+- The desktop wallpaper is `wasdsketch.png`. The login screen wallpaper is `wasd-camp.png`. Every image in `wasd-wallpapers/` is a choice in Plasma's wallpaper gallery. The logo is installed for the welcome window. The Plymouth theme uses `keysketch.jpg` (as a PNG) with a bar along the bottom.
+- The USB menu is plain black with white text and has no background picture.
+- The kernel and initramfs are still Bazzite's. The sketch splash shows once the live USB rebuilds the initramfs.
 - Steam, Lutris, Proton tools, GameMode, MangoHud, and Plasma stay. The default image uses the AMD/Intel desktop's Mesa stack. The NVIDIA image keeps the NVIDIA open driver.
 - The on-screen name is WASD. The internal id stays `bazzite` so the NVIDIA scripts keep matching.
 

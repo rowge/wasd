@@ -36,15 +36,6 @@ done
 
 cp -avT /rootfs/boot/efi/EFI /work/EFI
 
-# GRUB does not decode the progressive JPEG this photo started as.
-# The PNG is baseline color and the cdboot GRUB image already knows PNG.
-moon_png=/rootfs/usr/share/wallpapers/wasd/moon2.png
-if [[ ! -s $moon_png ]]; then
-    echo >&2 "ERROR: missing $moon_png"
-    exit 1
-fi
-cp -av "$moon_png" /work/iso-root/moon2.png
-
 grub_font=""
 for candidate in \
     /rootfs/usr/share/grub/unicode.pf2 \
@@ -59,7 +50,7 @@ if [[ -z $grub_font ]]; then
     grub_font=$(find /rootfs/usr -name 'unicode.pf2' -print -quit)
 fi
 if [[ ! -s ${grub_font:-} ]]; then
-    echo >&2 "ERROR: GRUB unicode font not found; the menu cannot show the moon"
+    echo >&2 "ERROR: GRUB unicode font not found; the menu would be blank"
     exit 1
 fi
 mkdir -p /work/iso-root/boot/grub2/fonts
@@ -79,22 +70,20 @@ set gfxpayload=keep
 insmod gzio
 insmod part_gpt
 insmod chain
-insmod png
 insmod iso9660
 insmod gfxterm
 
 search --no-floppy --set=root -l '$iso_label'
 
-# moon2.png is black on the left, where the menu text sits.
+# Plain menu. A background picture covered the entries.
 if loadfont /boot/grub2/fonts/unicode.pf2; then
   set gfxmode=auto
   terminal_output gfxterm
 fi
-if [ -f /moon2.png ]; then
-  background_image /moon2.png
-  set color_normal=white/black
-  set color_highlight=black/white
-fi
+set color_normal=white/black
+set color_highlight=black/white
+set menu_color_normal=white/black
+set menu_color_highlight=black/white
 
 EOF
 for i in $(yq '.grub2.entries | keys | .[]' <"$iso_config_file"); do

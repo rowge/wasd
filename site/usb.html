@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>How to make a bootable USB — WASD</title>
   <meta name="description" content="Download the WASD ISO, check it, and write it to a USB stick.">
-  <meta name="theme-color" content="#0c121c">
+  <meta name="theme-color" content="#c4a574">
   <link rel="icon" href="favicon.png" type="image/png">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -17,13 +17,14 @@
     <h2>Check the file</h2>
     <p>When the download finishes, compare it with the checksum published next to it.</p>
     <p class="checks">
-      <a href="https://github.com/rowge/wasd/releases/latest/download/WASD.iso.sha256">AMD and Intel checksum</a>
-      <a href="https://github.com/rowge/wasd/releases/latest/download/WASD-nvidia.iso.sha256">NVIDIA checksum</a>
+      <a href="https://downloads.wasd.run/WASD.iso.sha256">AMD and Intel checksum</a>
+      <a href="https://downloads.wasd.run/WASD-nvidia.iso.sha256">NVIDIA checksum</a>
     </p>
     <p>On Linux, in the folder with both files:</p>
     <pre>sha256sum -c WASD.iso.sha256</pre>
     <p>On macOS the same check is <code>shasum -a 256 -c WASD.iso.sha256</code>. On Windows, <code>certutil -hashfile WASD.iso SHA256</code> and compare it with the text in the checksum file. For the NVIDIA disc, use <code>WASD-nvidia.iso</code> in those commands.</p>
     <h2>Write it to a USB stick</h2>
+    <p>Use a 16 GB or larger stick.</p>
     <p>Use a free tool for the computer you are on. It will erase the stick.</p>
     <h3>Windows</h3>
     <p><a href="https://fedoraproject.org/workstation/download/">Fedora Media Writer</a> or <a href="https://rufus.ie">Rufus</a>. In Rufus, write the ISO in DD mode.</p>

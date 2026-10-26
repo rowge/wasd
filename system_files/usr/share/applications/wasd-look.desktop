@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=WASD Look
+Comment=Change the loading screen, the login screen, and the wallpaper
+Exec=wasd-look
+Icon=wasd-logo
+Terminal=false
+Type=Application
+Categories=Settings;DesktopSettings;

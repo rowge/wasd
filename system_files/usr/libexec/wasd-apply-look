@@ -1,0 +1,160 @@
+#!/bin/bash
+# Write the chosen login picture and prepare the loading picture.
+# WASD Look sets the wallpaper itself before it runs this.
+# This does not reboot.
+
+set -euo pipefail
+
+names_only=0
+login=""
+loading=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --names-only)
+            names_only=1
+            shift
+            ;;
+        --login)
+            login=${2-}
+            shift 2
+            ;;
+        --loading)
+            loading=${2-}
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument." >&2
+            exit 2
+            ;;
+    esac
+done
+
+name_ok='^[A-Za-z0-9._-]+$'
+if [[ ! $login =~ $name_ok || ! $loading =~ $name_ok ]]; then
+    echo "Use a picture from the list." >&2
+    exit 2
+fi
+
+if [[ -n ${WASD_LOOK_ROOT:-} && $names_only -eq 0 ]]; then
+    echo "WASD_LOOK_ROOT is only for a name check." >&2
+    exit 2
+fi
+
+root=${WASD_LOOK_ROOT:-/usr/share/wasd}
+login_src=${root}/login/${login}
+loading_src=${root}/loading/${loading}
+if [[ ! -f $login_src || ! -f $loading_src ]]; then
+    echo "That picture is not installed." >&2
+    exit 1
+fi
+
+if [[ $names_only -eq 1 ]]; then
+    printf '%s\n%s\n' "$login_src" "$loading_src"
+    exit 0
+fi
+
+install -d -m 0755 /etc/wasd
+dest=/etc/wasd/loading-background.png
+case ${loading_src##*.} in
+    png | PNG)
+        install -m 0644 "$loading_src" "$dest"
+        ;;
+    *)
+        converted=0
+        if command -v ffmpeg >/dev/null 2>&1; then
+            if ffmpeg -y -loglevel error -i "$loading_src" "$dest"; then
+                converted=1
+            fi
+        fi
+        if [[ $converted -eq 0 ]] && command -v magick >/dev/null 2>&1; then
+            if magick "$loading_src" "$dest"; then
+                converted=1
+            fi
+        fi
+        if [[ $converted -eq 0 ]] && command -v convert >/dev/null 2>&1; then
+            if convert "$loading_src" "$dest"; then
+                converted=1
+            fi
+        fi
+        if [[ $converted -ne 1 || ! -s $dest ]]; then
+            echo "Could not prepare the loading picture." >&2
+            exit 1
+        fi
+        chmod 0644 "$dest"
+        ;;
+esac
+
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+defaults=/usr/lib/plasmalogin/defaults.conf
+if [[ -f $defaults ]]; then
+    cp "$defaults" "$tmp"
+else
+    printf '%s\n' '[Greeter]' 'WallpaperPlugin=org.kde.image' '' '[Greeter][Wallpaper][org.kde.image][General]' >"$tmp"
+fi
+url="file://${login_src}"
+if grep -q '^Image=' "$tmp"; then
+    sed -i "s|^Image=.*|Image=${url}|" "$tmp"
+else
+    printf 'Image=%s\n' "$url" >>"$tmp"
+fi
+if grep -q '^PreviewImage=' "$tmp"; then
+    sed -i "s|^PreviewImage=.*|PreviewImage=${url}|" "$tmp"
+else
+    printf 'PreviewImage=%s\n' "$url" >>"$tmp"
+fi
+install -m 0644 "$tmp" /etc/plasmalogin.conf
+
+rebuild_loading() {
+    local log output status
+    log=$(mktemp)
+    if command -v rpm-ostree >/dev/null 2>&1; then
+        set +e
+        output=$(rpm-ostree initramfs --enable --arg=-I --arg=/etc/wasd/loading-background.png 2>&1)
+        status=$?
+        set -e
+        if [[ $status -eq 0 ]]; then
+            rm -f "$log"
+            return 0
+        fi
+        if grep -qi 'already enabled' <<<"$output"; then
+            # The same request does not rebuild. Turn it off and back on
+            # so this picture is included. Neither command reboots.
+            if ! rpm-ostree initramfs --disable >"$log" 2>&1; then
+                cat "$log" >&2
+                rm -f "$log"
+                return 1
+            fi
+            if ! rpm-ostree initramfs --enable --arg=-I --arg=/etc/wasd/loading-background.png >"$log" 2>&1; then
+                cat "$log" >&2
+                rm -f "$log"
+                return 1
+            fi
+            rm -f "$log"
+            return 0
+        fi
+        printf '%s\n' "$output" >&2
+        rm -f "$log"
+        return "$status"
+    fi
+    if command -v dracut >/dev/null 2>&1; then
+        if ! dracut -f >"$log" 2>&1; then
+            cat "$log" >&2
+            rm -f "$log"
+            return 1
+        fi
+        rm -f "$log"
+        return 0
+    fi
+    rm -f "$log"
+    echo "This system cannot rebuild the loading screen." >&2
+    return 1
+}
+
+if ! rebuild_loading; then
+    echo "The login screen is saved. The loading screen waits for the next system update, then a restart." 
+    exit 0
+fi
+
+echo "The login screen changes at the next login. The loading screen changes on the next boot."
