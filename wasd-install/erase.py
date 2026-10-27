@@ -18,7 +18,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, "/usr/libexec")
 
+from agents import agents_problem  # noqa: E402
 from disks import DEVICE_NAME, display_name, is_live, live_disk_names, parse_disks  # noqa: E402
+from lookapply import look_problem  # noqa: E402
+from network import validate_tcp  # noqa: E402
 
 HOST_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 USER_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
@@ -30,6 +33,8 @@ PART_NAME = re.compile(r"^(nvme[0-9]+n[0-9]+p[0-9]+|sd[a-z]+[0-9]+|vd[a-z]+[0-9]
 UUID_NAME = re.compile(r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
 KEEP_FS = {"btrfs", "ext4", "xfs", "ntfs", "exfat"}
 CHOICES_END = "WASD_CHOICES_END"
+SECRET_KEYS = {"passphrase", "wpakey", "psk"}
+WIFI_SECURITY = re.compile(r"[A-Za-z0-9 ._+-]*")
 MIN_OS_GB = 64
 MIN_GAMES_GB = 32
 OVERHEAD_GB = 4
@@ -37,6 +42,54 @@ OVERHEAD_GB = 4
 
 class Refuse(Exception):
     pass
+
+
+def reject_secrets(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).lower() in SECRET_KEYS:
+                raise Refuse("The choice file must not contain a passphrase. Nothing was erased.")
+            if str(key).lower() == "password" and not isinstance(item, bool):
+                raise Refuse("The choice file must not contain a password. Nothing was erased.")
+            reject_secrets(item)
+    elif isinstance(value, list):
+        for item in value:
+            reject_secrets(item)
+
+
+def checked_wifi(data):
+    if "wifi" not in data:
+        return
+    wifi = data["wifi"]
+    if not isinstance(wifi, dict) or any(key not in {"ssid", "security", "hidden"} for key in wifi):
+        raise Refuse("The choice file must not contain a passphrase. Nothing was erased.")
+    ssid = wifi.get("ssid") or ""
+    security = wifi.get("security") or ""
+    hidden = wifi.get("hidden", False)
+    if (
+        not isinstance(ssid, str)
+        or not ssid.strip()
+        or ssid.startswith("-")
+        or "\n" in ssid
+        or "\x00" in ssid
+        or len(ssid) > 32
+    ):
+        raise Refuse("Choose the network again. Nothing was erased.")
+    if not isinstance(security, str) or not WIFI_SECURITY.fullmatch(security) or len(security) > 64:
+        raise Refuse("Choose the network again. Nothing was erased.")
+    if not isinstance(hidden, bool):
+        raise Refuse("Choose the network again. Nothing was erased.")
+
+
+def checked_tcp(data):
+    if "tcp" not in data:
+        return
+    tcp = data["tcp"]
+    allowed = {"mode", "interface", "kind", "address", "netmask", "gateway", "dns"}
+    if not isinstance(tcp, dict) or set(tcp) != allowed or tcp.get("mode") != "manual":
+        raise Refuse("Choose the adapter again. Nothing was erased.")
+    if tcp.get("kind") not in {"wifi", "ethernet"} or validate_tcp(tcp):
+        raise Refuse("Choose the adapter again. Nothing was erased.")
 
 
 def load_choices(payload):
@@ -54,6 +107,9 @@ def load_choices(payload):
         raise Refuse("The choices could not be read. Nothing was erased.")
     if not isinstance(data.get("password"), bool):
         raise Refuse("The choice file must not contain a password. Nothing was erased.")
+    reject_secrets(data)
+    checked_wifi(data)
+    checked_tcp(data)
     user = data.get("user") or ""
     hostname = data.get("hostname") or ""
     device = data.get("device") or ""
@@ -67,6 +123,12 @@ def load_choices(payload):
         raise Refuse("Choose a disk again. Nothing was erased.")
     if avatar and not FILE_NAME.fullmatch(avatar):
         raise Refuse("Choose a picture again. Nothing was erased.")
+    problem = look_problem(data)
+    if problem:
+        raise Refuse(problem)
+    problem = agents_problem(data)
+    if problem:
+        raise Refuse(problem)
     if not disk_name or "\n" in disk_name:
         raise Refuse("Choose a disk again. Nothing was erased.")
     encoded = json.dumps(data, indent=2)
@@ -159,8 +221,15 @@ def games_plan(data, os_device):
         raise Refuse("Choose the games drive again. Nothing was erased.")
     if not disk_name or "\n" in disk_name or len(disk_name) > 80:
         raise Refuse("Choose the games drive again. Nothing was erased.")
+    confirmed = raw.get("confirmed") is True
     if mode == "format":
-        return {"mode": "format", "device": device, "disk": disk_name, "part": first_partition(device)}
+        return {
+            "mode": "format",
+            "device": device,
+            "disk": disk_name,
+            "part": first_partition(device),
+            "confirmed": confirmed,
+        }
     part = raw.get("part") or ""
     fstype = str(raw.get("fstype") or "").lower()
     uuid = raw.get("uuid") or ""
@@ -174,7 +243,54 @@ def games_plan(data, os_device):
         "part": part,
         "fstype": mount_fs,
         "uuid": uuid,
+        "confirmed": confirmed,
     }
+
+
+def wipe_plan(data, os_device, games_device):
+    raw = data.get("wipe")
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise Refuse("The wipe choice could not be read. Nothing was erased.")
+    plans = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict) or item.get("confirmed") is not True:
+            raise Refuse("Confirm that wipe again. Nothing was erased.")
+        device = item.get("device") or ""
+        disk_name = item.get("disk") or ""
+        if (
+            not DEVICE_NAME.fullmatch(device)
+            or device in {os_device, games_device}
+            or device in seen
+        ):
+            raise Refuse("Choose that drive again. Nothing was erased.")
+        if not disk_name or "\n" in disk_name or len(disk_name) > 80:
+            raise Refuse("Choose that drive again. Nothing was erased.")
+        seen.add(device)
+        plans.append({"device": device, "disk": disk_name})
+    return plans
+
+
+def wipe_post(plans):
+    if not plans:
+        return ""
+    commands = []
+    for item in plans:
+        device = item["device"]
+        commands.append(
+            f'wipefs -a "/dev/{device}"\n'
+            f"printf '%s\\n' 'label: gpt' | sfdisk --wipe always \"/dev/{device}\"\n"
+            f'partprobe "/dev/{device}" || true'
+        )
+    body = "\n".join(commands)
+    return f"""
+%post --nochroot --erroronfail --log=/tmp/anacoda_custom_logs/wasd-wipe.log
+set -eu
+{body}
+%end
+"""
 
 
 def storage_lines(device, plan):
@@ -266,8 +382,11 @@ def render_kickstart(data, choices_text, defaults_text):
     lang, keymap, zone = locale_bits()
     defaults = filtered_defaults(defaults_text)
     plan = games_plan(data, device)
+    games_device = plan.get("device") or ""
+    wiped = wipe_plan(data, device, games_device)
     storage = storage_lines(device, plan)
     games = games_post(plan)
+    emptied = wipe_post(wiped)
     # The account is locked here. The post script clears that lock so the
     # first boot signs in with no password. The chosen password is typed
     # after install and is not part of this file.
@@ -315,6 +434,18 @@ X-GNOME-Autostart-enabled=true
 OnlyShowIn=KDE;
 EOF
 chown "$target_user:$target_user" "$home/.config/autostart/wasd-complete.desktop"
+install -d -m 0755 -o "$target_user" -g "$target_user" "$home/Desktop"
+cat > "$home/Desktop/wasd-complete.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Completing the install
+Comment=Finish setting up this computer
+Exec=/usr/bin/wasd-complete
+Icon=wasd-logo
+Terminal=false
+EOF
+chown "$target_user:$target_user" "$home/Desktop/wasd-complete.desktop"
+chmod 0755 "$home/Desktop/wasd-complete.desktop"
 icon=/usr/share/wasd/icons/{avatar}
 if [ -n "{avatar}" ] && [ -f "$icon" ]; then
     install -d -m 0755 /var/lib/AccountsService/icons /var/lib/AccountsService/users
@@ -322,6 +453,11 @@ if [ -n "{avatar}" ] && [ -f "$icon" ]; then
     printf '%s\\n' '[User]' "Icon=/var/lib/AccountsService/icons/$target_user" 'SystemAccount=false' > "/var/lib/AccountsService/users/$target_user"
     install -m 0644 "$icon" "$home/.face"
     chown "$target_user:$target_user" "$home/.face"
+fi
+if [ -x /usr/libexec/wasd-apply-choices ]; then
+    if ! /usr/libexec/wasd-apply-choices --choices /etc/wasd/choices.json --user "$target_user" --rebuild --no-mark; then
+        echo "The look choices were saved. The first boot will apply them." >&2
+    fi
 fi
 %end
 
@@ -340,6 +476,7 @@ if [ -d "$src" ] && [ -n "$(ls -A "$src" 2>/dev/null || true)" ]; then
 fi
 %end
 {games}
+{emptied}
 reboot
 """
 
@@ -388,16 +525,34 @@ def assert_games_matches(data, lsblk_payload):
     found = next((row for row in rows if row["device"] == plan["device"]), None)
     if found is None:
         raise Refuse("That games drive is not on this computer. Nothing was erased.")
-    if found["windows"]:
-        raise Refuse("The Windows drive stays. Nothing was erased.")
     if found["name"] != plan["disk"] and plan["disk"] != plan["device"]:
         raise Refuse("The games drive does not match. Nothing was erased.")
+    if found["windows"] and not plan.get("confirmed"):
+        raise Refuse("The Windows drive stays. Nothing was erased.")
     if plan["mode"] == "format":
-        if found["occupied"] or found["games"]:
+        if (found["occupied"] or found["games"]) and not plan.get("confirmed"):
             raise Refuse("That drive is not empty. Nothing was erased.")
         return
     if found["part"] != plan["part"] or not found.get("uuid") or found["uuid"].lower() != plan["uuid"].lower():
         raise Refuse("Choose the games drive again. Nothing was erased.")
+
+
+def assert_wipe_matches(data, lsblk_payload):
+    blob = json.loads(lsblk_payload) if isinstance(lsblk_payload, str) else lsblk_payload
+    plan = games_plan(data, data["device"])
+    wiped = wipe_plan(data, data["device"], plan.get("device") or "")
+    if not wiped:
+        return
+    rows = parse_disks(blob)
+    banned = live_disk_names(blob)
+    for item in wiped:
+        if item["device"] in banned:
+            raise Refuse("That disk is the live USB. Nothing was erased.")
+        found = next((row for row in rows if row["device"] == item["device"]), None)
+        if found is None:
+            raise Refuse("That disk is not on this computer. Nothing was erased.")
+        if found["name"] != item["disk"] and item["disk"] != item["device"]:
+            raise Refuse("The selected disk does not match. Nothing was erased.")
 
 
 def current_lsblk():
@@ -439,6 +594,12 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         '"password": true',
         "[Autologin]",
         "Session=plasma",
+        "Desktop/wasd-complete.desktop",
+        "Name=Completing the install",
+        "Icon=wasd-logo",
+        "/usr/libexec/wasd-apply-choices",
+        "--no-mark",
+        "The look choices were saved. The first boot will apply them.",
     ):
         if needle not in kick:
             raise SystemExit(f"kickstart missing {needle}")
@@ -466,6 +627,62 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         pass
     else:
         raise SystemExit("a password string was accepted")
+    saved_net = dict(choices)
+    saved_net["wifi"] = {"ssid": "Home", "security": "WPA2", "hidden": False}
+    net_data, net_text = load_choices(json.dumps(saved_net))
+    net_kick = render_kickstart(net_data, net_text, defaults)
+    if '"ssid": "Home"' not in net_kick or '"security": "WPA2"' not in net_kick:
+        raise SystemExit("the saved network was not kept")
+    if "passphrase" in net_text or "wpakey" in net_text or '"psk"' in net_text:
+        raise SystemExit("the saved network kept a passphrase")
+    try:
+        leaked = dict(choices)
+        leaked["wifi"] = {"ssid": "Home", "security": "WPA2", "hidden": False, "passphrase": "secret"}
+        load_choices(json.dumps(leaked))
+    except Refuse:
+        pass
+    else:
+        raise SystemExit("a wifi passphrase was accepted")
+    try:
+        dashed = dict(choices)
+        dashed["wifi"] = {"ssid": "-Home", "security": "", "hidden": True}
+        load_choices(json.dumps(dashed))
+    except Refuse:
+        pass
+    else:
+        raise SystemExit("a network name starting with a dash was accepted")
+    saved_tcp = dict(choices)
+    saved_tcp["tcp"] = {
+        "mode": "manual",
+        "interface": "enp4s0",
+        "kind": "ethernet",
+        "address": "192.168.1.20",
+        "netmask": "255.255.255.0",
+        "gateway": "192.168.1.1",
+        "dns": "1.1.1.1",
+    }
+    tcp_data, tcp_text = load_choices(json.dumps(saved_tcp))
+    tcp_kick = render_kickstart(tcp_data, tcp_text, defaults)
+    if '"interface": "enp4s0"' not in tcp_kick or '"address": "192.168.1.20"' not in tcp_kick:
+        raise SystemExit("the saved address was not kept")
+    if "passphrase" in tcp_text or "wpakey" in tcp_text or '"psk"' in tcp_text:
+        raise SystemExit("the saved address kept a passphrase")
+    for bad_tcp in (
+        dict(saved_tcp["tcp"], address="192.168.1.999"),
+        dict(saved_tcp["tcp"], interface="-enp4s0"),
+        dict(saved_tcp["tcp"], interface="enp4s0;rm"),
+        dict(saved_tcp["tcp"], kind="bridge"),
+        dict(saved_tcp["tcp"], mode="auto"),
+        dict(saved_tcp["tcp"], passphrase="secret"),
+    ):
+        try:
+            refused = dict(choices)
+            refused["tcp"] = bad_tcp
+            load_choices(json.dumps(refused))
+        except Refuse:
+            pass
+        else:
+            raise SystemExit(f"a bad address was accepted {bad_tcp}")
     lsblk = {
         "blockdevices": [
             {
@@ -602,9 +819,87 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
             pass
         else:
             raise SystemExit(f"the {label} games drive was accepted")
+    forced = dict(formatted)
+    forced["games"] = {
+        "mode": "format",
+        "device": "nvme2n1",
+        "disk": "Windows Disk",
+        "confirmed": True,
+    }
+    assert_games_matches(forced, games_lsblk)
+    forced_kick = render_kickstart(forced, json.dumps(forced), defaults)
+    if "dev=nvme2n1" not in forced_kick or "mkfs.btrfs -f -L games" not in forced_kick:
+        raise SystemExit("a confirmed Windows games wipe was not formatted")
+    if "ignoredisk --only-use=nvme0n1" not in forced_kick:
+        raise SystemExit("a games wipe moved the WASD disk")
+    windows_keep_blob = json.loads(json.dumps(games_lsblk))
+    windows_keep_blob["blockdevices"][3]["children"] = [{
+        "name": "nvme2n1p3",
+        "type": "part",
+        "fstype": "ntfs",
+        "label": "Windows",
+        "size": 900_000_000_000,
+        "uuid": "abcdefab-1234-1234-1234-123456789abc",
+    }]
+    kept = dict(keep)
+    kept["games"] = {
+        "mode": "keep",
+        "device": "nvme2n1",
+        "disk": "Windows Disk",
+        "part": "nvme2n1p3",
+        "fstype": "ntfs",
+        "uuid": "abcdefab-1234-1234-1234-123456789abc",
+        "confirmed": True,
+    }
+    assert_games_matches(kept, windows_keep_blob)
+    kept_kick = render_kickstart(kept, json.dumps(kept), defaults)
+    if "ntfs3" not in kept_kick or "mkfs.btrfs -f -L games" in kept_kick:
+        raise SystemExit("a confirmed Windows games drive was formatted")
+    emptied = dict(choices)
+    emptied["wipe"] = [{"device": "nvme3n1", "disk": "Empty Shelf", "confirmed": True}]
+    assert_wipe_matches(emptied, games_lsblk)
+    empty_kick = render_kickstart(emptied, json.dumps(emptied), defaults)
+    if 'wipefs -a "/dev/nvme3n1"' not in empty_kick or "wasd-wipe.log" not in empty_kick:
+        raise SystemExit("a leave-empty wipe did not erase the drive")
+    wipe_tail = empty_kick.split("wasd-wipe.log", 1)[-1]
+    if "mkfs.btrfs" in wipe_tail or "/games" in wipe_tail:
+        raise SystemExit("a leave-empty wipe was used for games")
+    if "ignoredisk --only-use=nvme0n1" not in empty_kick:
+        raise SystemExit("leaving a drive empty changed the WASD disk")
+    try:
+        wipe_plan(dict(emptied, wipe=[{"device": "nvme0n1", "disk": "Samsung SSD 990 PRO", "confirmed": True}]), "nvme0n1", "")
+    except Refuse:
+        pass
+    else:
+        raise SystemExit("the install drive was wiped and left")
+    try:
+        wipe_plan(dict(emptied, wipe=[{"device": "nvme3n1", "disk": "Empty Shelf"}]), "nvme0n1", "")
+    except Refuse:
+        pass
+    else:
+        raise SystemExit("an unconfirmed wipe was accepted")
     from disks import self_check as disks_check
 
     disks_check()
+    try:
+        refused = dict(choices)
+        refused["theme"] = "Not a theme"
+        refused["loading"] = "stained-glass.jpg"
+        refused["login"] = "throne.jpg"
+        refused["wallpaper"] = "stained-glass.jpg"
+        load_choices(json.dumps(refused))
+    except Refuse:
+        pass
+    else:
+        raise SystemExit("an unknown theme was accepted")
+    try:
+        refused = dict(choices)
+        refused["agents"] = ["Not an agent"]
+        load_choices(json.dumps(refused))
+    except Refuse:
+        pass
+    else:
+        raise SystemExit("an unknown agent was accepted")
     print("erase self-check ok")
 
 
@@ -639,6 +934,7 @@ def main():
         listing = current_lsblk()
         assert_disk_matches(data, listing)
         assert_games_matches(data, listing)
+        assert_wipe_matches(data, listing)
         kick = render_kickstart(data, text, read_defaults(args.defaults))
     except Refuse as exc:
         print(str(exc), file=sys.stderr)

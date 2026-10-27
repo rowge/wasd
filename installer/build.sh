@@ -17,9 +17,45 @@ mkdir -p "$(realpath /root)"
 # so we need to remount it as rw
 mount -o remount,rw /proc/sys
 
-# Install flatpaks
+# Install flatpaks. Brave stays on the disc. The other suggested apps are
+# downloaded on the first boot of the installed system.
 curl --retry 3 -Lo /etc/flatpak/remotes.d/flathub.flatpakrepo https://dl.flathub.org/repo/flathub.flatpakrepo
-xargs -r flatpak install -y --noninteractive <"/src/$FLATPAK_DIR_SHORTNAME/flatpaks"
+flatpak_list="/src/$FLATPAK_DIR_SHORTNAME/flatpaks"
+grep -q '^app/com.brave.Browser/x86_64/stable$' "$flatpak_list"
+grep -q '^runtime/org.freedesktop.Platform.VulkanLayer.MangoHud/x86_64/25.08$' "$flatpak_list"
+grep -q '^runtime/org.freedesktop.Platform.VulkanLayer.vkBasalt/x86_64/25.08$' "$flatpak_list"
+for gone in \
+    app/com.discordapp.Discord/ \
+    app/im.riot.Riot/ \
+    app/com.heroicgameslauncher.hgl/ \
+    app/com.usebottles.bottles/ \
+    app/com.obsproject.Studio/ \
+    app/io.github.benjamimgois.goverlay/ \
+    app/com.github.wwmm.easyeffects/ \
+    app/org.freedesktop.Piper/ \
+    app/org.openrgb.OpenRGB/ \
+    app/io.github.ilya_zlobintsev.LACT/ \
+    app/org.kde.gwenview/ \
+    app/org.kde.okular/ \
+    app/org.kde.kcalc/ \
+    app/org.kde.haruna/ \
+    app/io.github.DenysMb.Kontainer/ \
+    app/com.github.tchx84.Flatseal/ \
+    app/com.github.Matoking.protontricks/ \
+    app/io.github.flattool.Warehouse/ \
+    app/com.vysp3r.ProtonPlus/ \
+    app/org.gnome.Firmware/ \
+    runtime/com.obsproject.Studio.Plugin.OBSVkCapture/ \
+    runtime/com.obsproject.Studio.Plugin.Gstreamer/ \
+    runtime/com.obsproject.Studio.Plugin.GStreamerVaapi/ \
+    runtime/org.freedesktop.Platform.VulkanLayer.OBSVkCapture/
+do
+    if grep -q "^${gone}" "$flatpak_list"; then
+        echo "the live USB flatpak list still has ${gone}" >&2
+        exit 1
+    fi
+done
+xargs -r flatpak install -y --noninteractive <"$flatpak_list"
 
 # Pull the container image to be installed
 if mountpoint -q /usr/lib/containers/storage; then

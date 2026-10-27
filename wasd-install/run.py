@@ -20,6 +20,14 @@ from disks import default_disk, live_payload, parse_disks
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
+
+
+def _shown(item):
+    while item is not None:
+        if item.property("visible") is False:
+            return False
+        item = item.parent()
+    return True
 FIXTURE = {
     "blockdevices": [
         {
@@ -221,7 +229,6 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit("username did not start empty")
         if window.property("setPassword"):
             raise SystemExit("password checkbox did not start off")
-        window.setProperty("userName", "alex")
         pages = [
             ("user", {"page": 0}),
             ("look", {"page": 1, "lookOpen": ""}),
@@ -234,51 +241,127 @@ def qml_app(save_path, shot_dir, live):
         for name, props in pages:
             for key, value in props.items():
                 window.setProperty(key, value)
+            if name == "user":
+                window.setProperty("userName", "rowge")
+                name_field = quick.findChild(QQuickItem, "userNameField")
+                if name_field is None:
+                    raise SystemExit("username field is missing")
+                name_field.setProperty("text", "rowge")
+                expected_lines = {
+                    "passwordCheckedLine": "CHECKING this means you will have to type your password sometimes.",
+                    "passwordOpenLine": "NOT checking this means hitting enter instead of typing a password AND",
+                    "passwordAccessLine": "anyone with physical access to this computer is YOU",
+                }
+                for object_name, expected in expected_lines.items():
+                    item = quick.findChild(QQuickItem, object_name)
+                    if item is None or item.property("text") != expected:
+                        actual = None if item is None else item.property("text")
+                        raise SystemExit(f"{object_name} was {actual}")
+                grab(shot / f"{name}.png")
+                window.setProperty("userName", "alex")
+                continue
             grab(shot / f"{name}.png")
         window.setProperty("page", 4)
-        window.setProperty("gamesOpen", True)
+        window.setProperty("gamesOpen", False)
         pump(50)
-        if quick.findChild(QQuickItem, "gamesDrive") is None:
-            raise SystemExit("Games drive is missing from Disk")
-        if not QMetaObject.invokeMethod(window, "chooseSplit"):
-            raise SystemExit("chooseSplit did not run")
+        games_head = quick.findChild(QQuickItem, "gamesDrive")
+        if games_head is None or games_head.property("text") != "/games":
+            raise SystemExit(f"/games is missing from Disk: {None if games_head is None else games_head.property('text')}")
+        if quick.findChild(QQuickItem, "gamesPartition") is not None:
+            raise SystemExit("the /games checkbox is still on the page")
+        fork = quick.findChild(QQuickItem, "chooseGamesButton")
+        label = quick.findChild(QQuickItem, "chooseGamesLabel")
+        if fork is None or not _shown(fork) or label is None or label.property("text") != "Set up /games":
+            raise SystemExit("the /games button is missing")
+        slider = quick.findChild(QQuickItem, "osGbBox")
+        if slider is not None and _shown(slider):
+            raise SystemExit("the slider showed before Set up /games")
+        if not QMetaObject.invokeMethod(window, "openGamesSection"):
+            raise SystemExit("openGamesSection did not run")
         pump(50)
-        if window.property("gamesMode") != "split":
-            raise SystemExit(f"split did not turn on: {window.property('gamesMode')}")
-        os_gb = int(window.property("osGb") or 0)
-        games_gb = int(window.property("gamesGb") or 0)
-        if os_gb < 64 or games_gb < 32:
-            raise SystemExit(f"split sizes {os_gb} {games_gb}")
-        if not QMetaObject.invokeMethod(window, "setOsGb", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 200)):
-            raise SystemExit("setOsGb did not run")
+        if window.property("gamesOpen") is not True:
+            raise SystemExit("/games stayed closed")
+        if window.property("gamesMode") != "off":
+            raise SystemExit("Set up /games split a second drive before a drive was chosen")
+        if not QMetaObject.invokeMethod(window, "pickGamesDrive", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 0)):
+            raise SystemExit("pickGamesDrive did not run for the install drive")
         pump(50)
-        if int(window.property("osGb") or 0) != 200:
-            raise SystemExit(f"the WASD size did not move: {window.property('osGb')}")
-        if int(window.property("gamesGb") or 0) >= games_gb:
-            raise SystemExit(f"the games size did not shrink: {window.property('gamesGb')}")
-        import base64
-
-        if not QMetaObject.invokeMethod(window, "encodeChoices"):
-            raise SystemExit("encodeChoices did not run for games")
-        pump(50)
-        games_raw = base64.b64decode(window.property("encodedChoices") or "", validate=True)
-        games_data = json.loads(games_raw)
-        if games_data.get("games", {}).get("mode") != "split" or games_data["games"].get("osGb") != 200:
-            raise SystemExit(f"games choice {games_data.get('games')}")
-        if b"passphrase" in games_raw or b"wpakey" in games_raw:
-            raise SystemExit("the games choice kept a secret")
+        if window.property("gamesMode") != "split" or int(window.property("gamesDiskIndex")) != -1:
+            raise SystemExit(f"the install drive did not open the slider: {window.property('gamesMode')}")
+        if slider is None or not _shown(slider):
+            raise SystemExit("the slider stayed hidden on the install drive")
         disk_scroll = quick.findChild(QQuickItem, "diskScroll")
         if disk_scroll is None:
             raise SystemExit("the disk page does not scroll")
-        disk_height = disk_scroll.property("height") or 0
-        disk_content = disk_scroll.property("contentHeight") or 0
-        disk_scroll.setProperty("contentY", max(0, disk_content - disk_height))
+        disk_scroll.setProperty("contentY", max(0, games_head.property("y") - 12))
+        grab(shot / "disk-games-split.png")
+        if not QMetaObject.invokeMethod(window, "clearGames"):
+            raise SystemExit("clearGames did not run before the other drive")
+        pump(50)
+        if window.property("gamesMode") != "off":
+            raise SystemExit("the install-drive split stayed on")
+        disk_scroll.setProperty("contentY", max(0, games_head.property("y") - 12))
         grab(shot / "disk-games.png")
+        if not QMetaObject.invokeMethod(window, "pickGamesDrive", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 1)):
+            raise SystemExit("pickGamesDrive did not run")
+        pump(50)
+        if int(window.property("confirmStep") or 0) != 0 or window.property("gamesMode") != "off":
+            raise SystemExit("a locked Windows drive opened a choice")
         if not QMetaObject.invokeMethod(window, "clearGames"):
             raise SystemExit("clearGames did not run")
         pump(50)
         if window.property("gamesMode") != "off":
             raise SystemExit("games choice stayed on")
+        if not QMetaObject.invokeMethod(
+            window,
+            "beginConfirm",
+            Qt.ConnectionType.DirectConnection,
+            Q_ARG("QVariant", "gamesWipe"),
+            Q_ARG("QVariant", 1),
+            Q_ARG("QVariant", False),
+        ):
+            raise SystemExit("beginConfirm did not run")
+        pump(50)
+        if int(window.property("confirmStep") or 0) != 1:
+            raise SystemExit("the first wipe question did not open")
+        if "Windows is on this drive." not in str(window.confirmTitle()):
+            raise SystemExit(f"windows question was {window.confirmTitle()}")
+        if not QMetaObject.invokeMethod(window, "confirmYes"):
+            raise SystemExit("the first yes did not run")
+        pump(50)
+        if int(window.property("confirmStep") or 0) != 2:
+            raise SystemExit("the second wipe question did not open")
+        if not QMetaObject.invokeMethod(window, "confirmNo"):
+            raise SystemExit("confirmNo did not run")
+        pump(50)
+        if int(window.property("confirmStep") or 0) != 0 or window.property("gamesMode") != "off":
+            raise SystemExit("no did not cancel the wipe")
+        if not QMetaObject.invokeMethod(window, "pickGamesDrive", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 0)):
+            raise SystemExit("pickGamesDrive did not split the install drive again")
+        pump(50)
+        if window.property("gamesMode") != "split":
+            raise SystemExit("the install drive did not split before the other drive was chosen")
+        if not QMetaObject.invokeMethod(
+            window,
+            "beginConfirm",
+            Qt.ConnectionType.DirectConnection,
+            Q_ARG("QVariant", "gamesWipe"),
+            Q_ARG("QVariant", 1),
+            Q_ARG("QVariant", False),
+        ):
+            raise SystemExit("beginConfirm did not run again")
+        if not QMetaObject.invokeMethod(window, "confirmYes") or not QMetaObject.invokeMethod(window, "confirmYes"):
+            raise SystemExit("the two yes clicks did not run")
+        pump(50)
+        if window.property("gamesMode") != "format" or int(window.property("gamesDiskIndex") or -1) != 1:
+            raise SystemExit(f"windows drive was not accepted for games: {window.property('gamesMode')}")
+        if window.property("gamesConfirmed") is not True:
+            raise SystemExit("the games wipe was not confirmed")
+        if int(window.property("diskIndex")) != 0:
+            raise SystemExit(f"choosing /games cleared the WASD drive: {window.property('diskIndex')}")
+        if not QMetaObject.invokeMethod(window, "clearGames"):
+            raise SystemExit("clearGames did not run after the questions")
+        window.setProperty("diskIndex", 0)
         window.setProperty("gamesOpen", False)
         disk_scroll.setProperty("contentY", 0)
         window.setProperty("page", 2)
@@ -296,6 +379,9 @@ def qml_app(save_path, shot_dir, live):
         data = json.loads(text)
         if data["hostname"] != "wasd" or data["user"] != "alex" or data["password"] is not False:
             raise SystemExit(f"unexpected choices {data}")
+        saved_ids = [app.get("id") for app in data.get("apps") or []]
+        if "com.brave.Browser" in saved_ids or len(saved_ids) != 23:
+            raise SystemExit(f"the app list was {saved_ids}")
         if data.get("login") != "throne.jpg":
             raise SystemExit(f"login default was {data.get('login')}")
         if data.get("avatar") != "knight.jpg":
@@ -335,6 +421,62 @@ def qml_app(save_path, shot_dir, live):
         coded = json.loads(raw)
         if coded.get("password") is not True or coded.get("device") != "":
             raise SystemExit(f"encoded choices {coded}")
+        window.applyLive(json.dumps({
+            "warnings": [],
+            "blocked": False,
+            "disks": [{
+                "name": "Samsung 990",
+                "size": "2 TB",
+                "windows": False,
+                "occupied": False,
+                "device": "",
+                "bytes": 2000000000000,
+                "games": False,
+            }],
+        }))
+        window.setProperty("gamesOpen", False)
+        window.setProperty("page", 4)
+        pump(50)
+        if quick.findChild(QQuickItem, "gamesPartition") is not None:
+            raise SystemExit("the /games checkbox showed on the only drive")
+        if not _shown(quick.findChild(QQuickItem, "chooseGamesButton")):
+            raise SystemExit("the /games button was missing on the only drive")
+        one_slider = quick.findChild(QQuickItem, "osGbBox")
+        if one_slider is not None and _shown(one_slider):
+            raise SystemExit("the slider showed before Set up /games on the only drive")
+        if not QMetaObject.invokeMethod(window, "openGamesSection"):
+            raise SystemExit("openGamesSection did not run for the only drive")
+        pump(50)
+        if window.property("gamesMode") != "split" or window.property("gamesOpen") is not True:
+            raise SystemExit(f"the only drive did not open the slider: {window.property('gamesMode')}")
+        if one_slider is None or not _shown(one_slider):
+            raise SystemExit("the slider stayed hidden on the only drive")
+        os_gb = int(window.property("osGb") or 0)
+        games_gb = int(window.property("gamesGb") or 0)
+        if os_gb < 64 or games_gb < 32:
+            raise SystemExit(f"split sizes {os_gb} {games_gb}")
+        if not QMetaObject.invokeMethod(window, "setOsGb", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 200)):
+            raise SystemExit("setOsGb did not run")
+        pump(50)
+        if int(window.property("osGb") or 0) != 200:
+            raise SystemExit(f"the WASD size did not move: {window.property('osGb')}")
+        if int(window.property("gamesGb") or 0) >= games_gb:
+            raise SystemExit(f"the games size did not shrink: {window.property('gamesGb')}")
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for games")
+        pump(50)
+        games_raw = base64.b64decode(window.property("encodedChoices") or "", validate=True)
+        games_data = json.loads(games_raw)
+        if games_data.get("games", {}).get("mode") != "split" or games_data["games"].get("osGb") != 200:
+            raise SystemExit(f"games choice {games_data.get('games')}")
+        if b"passphrase" in games_raw or b"wpakey" in games_raw:
+            raise SystemExit("the games choice kept a secret")
+        grab(shot / "disk-one.png")
+        if not QMetaObject.invokeMethod(window, "openGamesSection"):
+            raise SystemExit("the second Set up /games did not run")
+        pump(50)
+        if window.property("gamesMode") != "off" or window.property("gamesOpen") is not False:
+            raise SystemExit("Set up /games did not close the slider")
         window.applyLive(json.dumps({"warnings": [], "blocked": False, "disks": parse_disks(FIXTURE)}))
         pump(50)
         snap = json.loads(window.diskSnapshot())
@@ -360,7 +502,7 @@ def qml_app(save_path, shot_dir, live):
         if not QMetaObject.invokeMethod(window, "selectAllApps"):
             raise SystemExit("selectAllApps did not run")
         pump(50)
-        if window.property("appSummary") != "24 selected":
+        if window.property("appSummary") != "23 selected":
             raise SystemExit(f"apps were not all selected: {window.property('appSummary')}")
         grab(shot / "apps-all.png")
         window.setProperty("appsOpen", "agents")
@@ -401,23 +543,142 @@ def qml_app(save_path, shot_dir, live):
         window.setProperty("tcpMode", "auto")
         system_scroll.setProperty("contentY", 0)
         window.setProperty("wifiSsid", "Home")
-        window.setProperty("wifiPass", "not-stored-secret")
-        if not QMetaObject.invokeMethod(window, "connectWifi"):
-            raise SystemExit("connectWifi did not run")
         pump(50)
-        if window.property("wifiPass"):
-            raise SystemExit("the passphrase stayed on the window")
-        if window.property("networkDetail") != "Home":
-            raise SystemExit(f"preview network was {window.property('networkDetail')}")
-        if "not changed" not in (window.property("networkLine") or ""):
-            raise SystemExit(f"preview network changed the computer: {window.property('networkLine')}")
+        if window.property("wifiNote") != "Saved. The first boot asks for the passphrase.":
+            raise SystemExit(f"saved network note was {window.property('wifiNote')}")
+        if not QMetaObject.invokeMethod(window, "chooseWifi", Q_ARG("QVariant", "Home")):
+            raise SystemExit("chooseWifi did not run")
+        pump(50)
+        if window.property("wifiSsid"):
+            raise SystemExit("choosing the saved network again did not clear it")
+        if not QMetaObject.invokeMethod(window, "chooseWifi", Q_ARG("QVariant", "Home")):
+            raise SystemExit("chooseWifi did not save the network")
+        pump(50)
+        if window.property("wifiSsid") != "Home":
+            raise SystemExit(f"the network was not saved: {window.property('wifiSsid')}")
         if not QMetaObject.invokeMethod(window, "encodeChoices"):
             raise SystemExit("encodeChoices did not run after the network")
         pump(50)
         import base64 as network_base64
         network_raw = network_base64.b64decode(window.property("encodedChoices") or "", validate=True)
-        if b"not-stored-secret" in network_raw or b"passphrase" in network_raw:
+        if b"not-stored-secret" in network_raw or b"passphrase" in network_raw or b"wpakey" in network_raw:
             raise SystemExit("the passphrase was written into the choices")
+        saved_wifi = json.loads(network_raw).get("wifi") or {}
+        if saved_wifi.get("ssid") != "Home" or saved_wifi.get("security") != "WPA2" or saved_wifi.get("hidden") is not False:
+            raise SystemExit(f"saved wifi was {saved_wifi}")
+        window.setProperty("wifiSsid", "Cabin")
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for a typed network")
+        pump(50)
+        typed = json.loads(network_base64.b64decode(window.property("encodedChoices") or "", validate=True))
+        typed_wifi = typed.get("wifi") or {}
+        if typed_wifi.get("ssid") != "Cabin" or typed_wifi.get("hidden") is not True or typed_wifi.get("security") != "":
+            raise SystemExit(f"a typed network was {typed_wifi}")
+        window.setProperty("wifiSsid", "H" * 40)
+        pump(50)
+        if window.property("wifiNote") != "That network name cannot be used.":
+            raise SystemExit(f"a long network name was {window.property('wifiNote')}")
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for a long network name")
+        pump(50)
+        refused = json.loads(network_base64.b64decode(window.property("encodedChoices") or "", validate=True))
+        if "wifi" in refused:
+            raise SystemExit(f"a long network name was saved: {refused.get('wifi')}")
+        raw_devices = window.property("tcpDevices")
+        if hasattr(raw_devices, "toVariant"):
+            raw_devices = raw_devices.toVariant()
+        found = {}
+        for row in raw_devices or []:
+            found[row["device"]] = row["kind"]
+        if found.get("wlp3s0") != "wifi" or found.get("enp4s0") != "ethernet":
+            raise SystemExit(f"adapters were {found}")
+        window.setProperty("tcpMode", "manual")
+        window.setProperty("tcpAddress", "192.168.1.20")
+        window.setProperty("tcpNetmask", "255.255.255.0")
+        window.setProperty("tcpGateway", "192.168.1.1")
+        window.setProperty("tcpDns", "1.1.1.1")
+        pump(50)
+        if "not saved" not in (window.property("tcpNote") or ""):
+            raise SystemExit(f"manual address without an adapter was saved: {window.property('tcpNote')}")
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for an unfinished address")
+        pump(50)
+        unfinished = json.loads(network_base64.b64decode(window.property("encodedChoices") or "", validate=True))
+        if "tcp" in unfinished:
+            raise SystemExit(f"an unfinished address was saved: {unfinished.get('tcp')}")
+        if not QMetaObject.invokeMethod(window, "chooseAdapter", Q_ARG("QVariant", "enp4s0")):
+            raise SystemExit("chooseAdapter did not run")
+        pump(50)
+        if window.property("tcpInterface") != "enp4s0" or window.property("tcpKind") != "ethernet":
+            raise SystemExit(f"adapter was {window.property('tcpInterface')} {window.property('tcpKind')}")
+        if not str(window.property("tcpNote") or "").startswith("Saved for the installed system."):
+            raise SystemExit(f"saved address note was {window.property('tcpNote')}")
+        if not QMetaObject.invokeMethod(window, "applyTcp"):
+            raise SystemExit("applyTcp did not run")
+        pump(50)
+        if "This computer was not changed." not in (window.property("networkLine") or ""):
+            raise SystemExit(f"preview address changed the computer: {window.property('networkLine')}")
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for a manual address")
+        pump(50)
+        saved_tcp = json.loads(network_base64.b64decode(window.property("encodedChoices") or "", validate=True)).get("tcp") or {}
+        if (
+            saved_tcp.get("mode") != "manual"
+            or saved_tcp.get("interface") != "enp4s0"
+            or saved_tcp.get("kind") != "ethernet"
+            or saved_tcp.get("address") != "192.168.1.20"
+            or saved_tcp.get("netmask") != "255.255.255.0"
+            or saved_tcp.get("gateway") != "192.168.1.1"
+            or saved_tcp.get("dns") != "1.1.1.1"
+        ):
+            raise SystemExit(f"saved tcp was {saved_tcp}")
+        if not QMetaObject.invokeMethod(window, "chooseAdapter", Q_ARG("QVariant", "enp4s0")):
+            raise SystemExit("chooseAdapter did not clear the adapter")
+        pump(50)
+        if window.property("tcpInterface"):
+            raise SystemExit("choosing the adapter again did not clear it")
+        if not QMetaObject.invokeMethod(window, "chooseAdapter", Q_ARG("QVariant", "enp4s0")):
+            raise SystemExit("chooseAdapter did not select the adapter again")
+        pump(50)
+        window.setProperty("tcpAddress", "192.168.1.999")
+        pump(50)
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for a bad address")
+        pump(50)
+        bad_address = json.loads(network_base64.b64decode(window.property("encodedChoices") or "", validate=True))
+        if "tcp" in bad_address:
+            raise SystemExit(f"a bad address was saved: {bad_address.get('tcp')}")
+        window.setProperty("tcpAddress", "192.168.1.20")
+        if not QMetaObject.invokeMethod(window, "chooseAdapter", Q_ARG("QVariant", "wlp3s0")):
+            raise SystemExit("chooseAdapter did not select Wi-Fi")
+        pump(50)
+        if window.property("tcpKind") != "wifi":
+            raise SystemExit(f"wifi adapter kind was {window.property('tcpKind')}")
+        if "Choose a Wi-Fi network" not in (window.property("tcpNote") or ""):
+            raise SystemExit(f"wifi address without a network was {window.property('tcpNote')}")
+        window.setProperty("wifiSsid", "Home")
+        pump(50)
+        if "when that network connects" not in (window.property("tcpNote") or ""):
+            raise SystemExit(f"wifi address note was {window.property('tcpNote')}")
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for a wifi address")
+        pump(50)
+        wifi_tcp = json.loads(network_base64.b64decode(window.property("encodedChoices") or "", validate=True)).get("tcp") or {}
+        if wifi_tcp.get("interface") != "wlp3s0" or wifi_tcp.get("kind") != "wifi":
+            raise SystemExit(f"wifi tcp was {wifi_tcp}")
+        if b"passphrase" in network_base64.b64decode(window.property("encodedChoices") or "", validate=True):
+            raise SystemExit("the passphrase was written beside the address")
+        window.setProperty("tcpMode", "auto")
+        pump(50)
+        if window.property("tcpNote"):
+            raise SystemExit(f"automatic still showed an address: {window.property('tcpNote')}")
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for automatic")
+        pump(50)
+        automatic = json.loads(network_base64.b64decode(window.property("encodedChoices") or "", validate=True))
+        if "tcp" in automatic:
+            raise SystemExit(f"automatic saved an address: {automatic.get('tcp')}")
+        window.setProperty("wifiSsid", "")
         window.setProperty("page", 0)
         window.setProperty("avatar", "")
         pump(50)
@@ -450,6 +711,9 @@ def open_complete(shot_dir=None):
     context.setContextProperty("WasdHold", shot_dir is not None)
     context.setContextProperty("WasdPreview", shot_dir is not None)
     context.setContextProperty("WasdWantPassword", shot_dir is not None)
+    context.setContextProperty("WasdWantWifi", shot_dir is not None)
+    context.setContextProperty("WasdWifiSsid", "Home" if shot_dir else "")
+    context.setContextProperty("WasdWifiSecurity", "WPA2" if shot_dir else "")
     engine.load(QUrl.fromLocalFile(str(HERE / "Complete.qml")))
     if not engine.rootObjects():
         raise SystemExit("Completing the install failed to open")
@@ -495,10 +759,60 @@ def open_complete(shot_dir=None):
     if not QMetaObject.invokeMethod(window, "confirmPassword"):
         raise SystemExit("confirmPassword did not accept a match")
     pump(50)
-    if window.property("phase") != "work":
-        raise SystemExit("a matching password did not continue")
+    if window.property("phase") != "wifi":
+        raise SystemExit("a matching password did not ask for the wifi passphrase")
     if window.property("passwordDraft") or window.property("passwordAgainDraft"):
         raise SystemExit("the password stayed on the window")
+    if window.property("wifiName") != "Home":
+        raise SystemExit(f"wifi name was {window.property('wifiName')}")
+    if window.property("wifiLead") != "Connect to Home.":
+        raise SystemExit(f"wifi lead was {window.property('wifiLead')}")
+    grab(shot / "wifi.png")
+    if not QMetaObject.invokeMethod(window, "cancelWifi"):
+        raise SystemExit("cancelWifi did not run")
+    pump(50)
+    if not window.property("wifiWarn"):
+        raise SystemExit("cancel did not open the warning")
+    if window.property("wifiWarnBody") != "If you are not connected, you will not be able to install the applications you selected during installation.":
+        raise SystemExit(f"wifi warning was {window.property('wifiWarnBody')}")
+    grab(shot / "wifi-cancel.png")
+    if not QMetaObject.invokeMethod(window, "dismissWifiWarn"):
+        raise SystemExit("dismissWifiWarn did not run")
+    pump(50)
+    if window.property("wifiWarn") or window.property("phase") != "wifi":
+        raise SystemExit("go back did not return to the passphrase")
+    if not QMetaObject.invokeMethod(window, "confirmWifi"):
+        raise SystemExit("confirmWifi did not run")
+    pump(50)
+    if window.property("phase") != "wifi":
+        raise SystemExit("an empty passphrase was accepted")
+    if window.property("wifiError") != "Type the passphrase.":
+        raise SystemExit(f"empty passphrase text was {window.property('wifiError')}")
+    window.setProperty("wifiDraft", "short")
+    if not QMetaObject.invokeMethod(window, "confirmWifi"):
+        raise SystemExit("confirmWifi did not run for a short passphrase")
+    pump(50)
+    if window.property("phase") != "wifi":
+        raise SystemExit("a short passphrase was accepted")
+    if window.property("wifiError") != "A passphrase is 8 to 63 characters, or empty for an open network.":
+        raise SystemExit(f"short passphrase text was {window.property('wifiError')}")
+    window.setProperty("wifiDraft", secret)
+    if not QMetaObject.invokeMethod(window, "confirmWifi"):
+        raise SystemExit("confirmWifi did not accept a passphrase")
+    pump(50)
+    if window.property("phase") != "work":
+        raise SystemExit("a passphrase did not continue")
+    if window.property("wifiDraft"):
+        raise SystemExit("the passphrase stayed on the window")
+    window.setProperty("phase", "wifi")
+    window.setProperty("wantWifi", True)
+    if not QMetaObject.invokeMethod(window, "continueWithoutWifi"):
+        raise SystemExit("continueWithoutWifi did not run")
+    pump(50)
+    if window.property("phase") != "work" or window.property("wantWifi") or window.property("wifiWarn"):
+        raise SystemExit("continue without wifi did not leave the passphrase")
+    if window.property("workNote"):
+        raise SystemExit(f"work note was {window.property('workNote')}")
     for path in shot.iterdir():
         if secret.encode() in path.read_bytes():
             raise SystemExit(f"the password was written to {path}")

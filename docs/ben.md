@@ -206,7 +206,7 @@ If NVIDIA fails in a few seconds with `403` while pulling `bazzite-nvidia-open`,
 
 ## A few other things
 
-- Bigger changes that are still waiting, such as the theme pack, the smaller ISO, and the install button that really erases a disk, are listed in `docs/next-build.md`. Dropping a picture does not go on that list.
+- The smaller ISO, the install that erases the selected disk, the theme pack, the Look step, and the agents are in this tree. `docs/next-build.md` is the list. Dropping a picture does not go on that list.
 - This file lives in `docs/`. A commit that only changes `docs/` does not start a build.
 - Changes to the installer program in `wasd-install/` also do not start a build. Push them, then use **Run workflow**.
 - `docs/artwork.md` is the inventory of pictures. `docs/sketch.md` describes what the image contains.

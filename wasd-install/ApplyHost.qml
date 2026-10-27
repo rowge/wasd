@@ -54,7 +54,7 @@ Item {
                 host.finished("The wallpaper is changed. " + detail)
                 return
             }
-            const rest = stdout || "The login screen changes at the next login. The loading screen changes on the next boot."
+            const rest = stdout || "The login screen changes at the next login. The lock screen uses that same picture the next time the screen locks. The loading screen changes on the next boot."
             host.finished("The wallpaper is changed. " + rest)
         }
     }

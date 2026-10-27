@@ -12,7 +12,10 @@ install -d /games
 rm -f \
     /etc/skel/.config/autostart/bazzite-portal.desktop \
     /etc/xdg/autostart/bazzite-portal.desktop \
-    /etc/xdg/autostart/io.github.ublue_os.yafti_gtk.desktop
+    /etc/xdg/autostart/io.github.ublue_os.yafti_gtk.desktop \
+    /etc/skel/Desktop/Welcome.txt \
+    /home/player/Desktop/Welcome.txt \
+    /var/home/player/Desktop/Welcome.txt
 
 # Plasma's wallpaper gallery scans /usr/share/wallpapers, including folders
 # under it. Symlinks are ignored, so these are real copies. Every image in
@@ -72,6 +75,8 @@ for qml in Look.qml LookPage.qml PageFooter.qml ApplyHost.qml Lister.qml AvatarP
     install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/look/${qml}"
 done
 chmod 0755 /usr/bin/wasd-look /usr/libexec/wasd-apply-look
+# Keep every other lock setting. Only the picture is set, to the login picture.
+/usr/libexec/wasd-apply-look --sync-lock throne.jpg
 install -d /usr/share/wasd/install
 for qml in Main.qml DiskPage.qml UserPage.qml LookPage.qml AppsPage.qml SystemPage.qml PageFooter.qml Complete.qml LiveHost.qml; do
     install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/install/${qml}"
@@ -80,7 +85,17 @@ install -m 0644 /ctx/wasd-install/disks.py /usr/libexec/disks.py
 install -m 0755 /ctx/wasd-install/liveinfo.py /usr/libexec/wasd-live-info
 install -m 0755 /ctx/wasd-install/erase.py /usr/libexec/wasd-erase
 install -m 0755 /ctx/wasd-install/set_password.py /usr/libexec/wasd-set-password
+install -m 0644 /ctx/wasd-install/set_password.py /usr/libexec/set_password.py
 install -m 0755 /ctx/wasd-install/network.py /usr/libexec/wasd-network
+install -m 0755 /ctx/wasd-install/network.py /usr/libexec/wasd-connect-wifi
+install -m 0644 /ctx/wasd-install/network.py /usr/libexec/network.py
+install -m 0755 /ctx/wasd-install/apps.py /usr/libexec/wasd-install-apps
+install -m 0644 /ctx/wasd-install/apps.py /usr/libexec/apps.py
+install -m 0755 /ctx/wasd-install/lookapply.py /usr/libexec/lookapply.py
+install -m 0755 /ctx/wasd-install/lookapply.py /usr/libexec/wasd-apply-choices
+install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/agents.py
+install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/wasd-install-agents
+install -m 0755 /ctx/wasd-install/wasd-webapp /usr/libexec/wasd-webapp
 install -m 0755 /ctx/wasd-install/complete.py /usr/bin/wasd-complete
 chmod 0755 /usr/bin/wasd-install
 
@@ -164,6 +179,15 @@ if [[ $replaced -lt 1 ]]; then
     exit 1
 fi
 
+# Store themes use the Kvantum style. Install them after the splash rewrite
+# so their own splash files are not mistaken for Bazzite's. The default is
+# We10XOS-dark, and that package's splash is removed so the session keeps the W.
+dnf5 -y install --setopt=install_weak_deps=False kvantum
+rpm -q kvantum
+rpm -ql kvantum | grep -q 'kvantum.so'
+python3 /ctx/install-themes.py
+test -d /usr/share/icons/oxygen
+
 # Bazzite's menu button is these SVGs. A PNG of the same name loses to them.
 rm -f \
     /usr/share/icons/hicolor/scalable/places/distributor-logo.svg \
@@ -222,8 +246,14 @@ test -s /usr/share/wasd/loading/stained-glass.jpg
 test -s /usr/share/wasd/loading/keysketch.jpg
 test -s /usr/share/wasd/login/camp.png
 test -s /usr/share/wasd/login/throne.jpg
+grep -q '^Image=file:///usr/share/wasd/login/throne.jpg$' /etc/xdg/kscreenlockerrc
+grep -q '^PreviewImage=file:///usr/share/wasd/login/throne.jpg$' /etc/xdg/kscreenlockerrc
+grep -q '^WallpaperPlugin=org.kde.image$' /etc/xdg/kscreenlockerrc
+grep -q '^Image=file:///usr/share/wasd/login/throne.jpg$' /etc/skel/.config/kscreenlockerrc
 test -d /games
-test -s /etc/skel/Desktop/Welcome.txt
+test ! -e /etc/skel/Desktop/Welcome.txt
+test ! -e /home/player/Desktop/Welcome.txt
+test ! -e /var/home/player/Desktop/Welcome.txt
 test ! -e /etc/skel/.config/autostart/bazzite-portal.desktop
 test -s /usr/share/wasd/icons/wasd-logo.png
 test -s /usr/share/wasd/look/Look.qml
@@ -242,9 +272,26 @@ test -x /usr/bin/wasd-complete
 test -x /usr/libexec/wasd-erase
 test -x /usr/libexec/wasd-live-info
 test -x /usr/libexec/wasd-set-password
+test -s /usr/libexec/set_password.py
 test -x /usr/libexec/wasd-network
+test -x /usr/libexec/wasd-connect-wifi
+test -s /usr/libexec/network.py
+test -x /usr/libexec/wasd-install-apps
+test -s /usr/libexec/apps.py
+test -x /usr/libexec/wasd-apply-choices
+test -s /usr/libexec/lookapply.py
+test -x /usr/libexec/wasd-install-agents
+test -s /usr/libexec/agents.py
+test -x /usr/libexec/wasd-webapp
 test -s /usr/share/wasd/install/SystemPage.qml
 test -s /usr/share/polkit-1/actions/org.wasd.password.policy
+test -s /usr/share/polkit-1/actions/org.wasd.wifi.policy
+test -s /usr/share/polkit-1/actions/org.wasd.apps.policy
+grep -q '/usr/libexec/wasd-install-apps' /usr/share/polkit-1/actions/org.wasd.apps.policy
+test -s /usr/share/polkit-1/actions/org.wasd.choices.policy
+test -s /usr/share/polkit-1/actions/org.wasd.agents.policy
+grep -q '/usr/libexec/wasd-apply-choices' /usr/share/polkit-1/actions/org.wasd.choices.policy
+grep -q '/usr/libexec/wasd-install-agents' /usr/share/polkit-1/actions/org.wasd.agents.policy
 test ! -e /usr/share/icons/hicolor/scalable/places/bazzite-logo.svg
 vapor_splash=/usr/share/plasma/look-and-feel/com.valve.vapor.desktop/contents/splash
 grep -q 'images/wasd_logo.png' "${vapor_splash}/Splash.qml"
@@ -253,8 +300,16 @@ if grep -q 'images/bazzite_logo.svgz' /usr/share/plasma/look-and-feel/*/contents
     echo "a Plasma splash still shows the Bazzite logo" >&2
     exit 1
 fi
-grep -q '^app/com.brave.Browser/' /usr/share/wasd/flatpaks
-for app in \
+grep -q '^app/com.brave.Browser/x86_64/stable$' /usr/share/wasd/flatpaks
+grep -q '^com.brave.Browser$' /usr/share/ublue-os/bazzite/flatpak/install
+grep -q '^runtime/org.freedesktop.Platform.VulkanLayer.MangoHud/x86_64/25.08$' /usr/share/wasd/flatpaks
+grep -q '^runtime/org.freedesktop.Platform.VulkanLayer.vkBasalt/x86_64/25.08$' /usr/share/wasd/flatpaks
+grep -q '^org.freedesktop.Platform.VulkanLayer.MangoHud//25.08$' /usr/share/ublue-os/bazzite/flatpak/install
+grep -q '^org.freedesktop.Platform.VulkanLayer.vkBasalt//25.08$' /usr/share/ublue-os/bazzite/flatpak/install
+grep -q '^x-scheme-handler/http=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
+grep -q '^x-scheme-handler/https=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
+grep -q '^text/html=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
+for gone in \
     app/com.discordapp.Discord/ \
     app/im.riot.Riot/ \
     app/com.heroicgameslauncher.hgl/ \
@@ -264,15 +319,57 @@ for app in \
     app/com.github.wwmm.easyeffects/ \
     app/org.freedesktop.Piper/ \
     app/org.openrgb.OpenRGB/ \
-    app/io.github.ilya_zlobintsev.LACT/
+    app/io.github.ilya_zlobintsev.LACT/ \
+    app/org.kde.gwenview/ \
+    app/org.kde.okular/ \
+    app/org.kde.kcalc/ \
+    app/org.kde.haruna/ \
+    app/io.github.DenysMb.Kontainer/ \
+    app/com.github.tchx84.Flatseal/ \
+    app/com.github.Matoking.protontricks/ \
+    app/io.github.flattool.Warehouse/ \
+    app/com.vysp3r.ProtonPlus/ \
+    app/org.gnome.Firmware/ \
+    runtime/com.obsproject.Studio.Plugin.OBSVkCapture/ \
+    runtime/com.obsproject.Studio.Plugin.Gstreamer/ \
+    runtime/com.obsproject.Studio.Plugin.GStreamerVaapi/ \
+    runtime/org.freedesktop.Platform.VulkanLayer.OBSVkCapture/
 do
-    grep -q "^${app}" /usr/share/wasd/flatpaks
-    grep -q "^${app}" /usr/share/ublue-os/bazzite/flatpak/install || {
-        # The install list uses the short id, app/id/arch/branch.
-        short=${app#app/}
-        short=${short%/}
-        grep -q "^${short}$" /usr/share/ublue-os/bazzite/flatpak/install
-    }
+    if grep -q "^${gone}" /usr/share/wasd/flatpaks; then
+        echo "flatpak list still has ${gone}" >&2
+        exit 1
+    fi
+done
+for gone in \
+    com.discordapp.Discord \
+    im.riot.Riot \
+    com.heroicgameslauncher.hgl \
+    com.usebottles.bottles \
+    com.obsproject.Studio \
+    io.github.benjamimgois.goverlay \
+    com.github.wwmm.easyeffects \
+    org.freedesktop.Piper \
+    org.openrgb.OpenRGB \
+    io.github.ilya_zlobintsev.LACT \
+    org.kde.gwenview \
+    org.kde.okular \
+    org.kde.kcalc \
+    org.kde.haruna \
+    io.github.DenysMb.Kontainer \
+    com.github.tchx84.Flatseal \
+    com.github.Matoking.protontricks \
+    io.github.flattool.Warehouse \
+    com.vysp3r.ProtonPlus \
+    org.gnome.Firmware \
+    com.obsproject.Studio.Plugin.OBSVkCapture \
+    com.obsproject.Studio.Plugin.Gstreamer \
+    com.obsproject.Studio.Plugin.GStreamerVaapi \
+    org.freedesktop.Platform.VulkanLayer.OBSVkCapture//25.08
+do
+    if grep -qx "${gone}" /usr/share/ublue-os/bazzite/flatpak/install; then
+        echo "flatpak install list still has ${gone}" >&2
+        exit 1
+    fi
 done
 if grep -q 'org.mozilla.firefox' /usr/share/wasd/flatpaks /usr/share/ublue-os/bazzite/flatpak/install; then
     echo "Firefox is still in a flatpak list" >&2

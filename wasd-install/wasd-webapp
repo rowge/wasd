@@ -1,0 +1,21 @@
+#!/bin/bash
+# Open one site in its own Brave window.
+set -euo pipefail
+
+url=${1-}
+if [[ ! $url =~ ^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~:/?#&=%-]*)?$ ]]; then
+    echo "That address cannot be opened." >&2
+    exit 2
+fi
+
+if command -v flatpak >/dev/null 2>&1 && flatpak info com.brave.Browser >/dev/null 2>&1; then
+    exec flatpak run com.brave.Browser --app="$url"
+fi
+if command -v brave-browser >/dev/null 2>&1; then
+    exec brave-browser --app="$url"
+fi
+if command -v brave >/dev/null 2>&1; then
+    exec brave --app="$url"
+fi
+echo "Brave is not installed." >&2
+exit 1

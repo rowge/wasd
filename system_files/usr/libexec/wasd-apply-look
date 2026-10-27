@@ -7,6 +7,7 @@ set -euo pipefail
 
 names_only=0
 current=0
+sync_lock=0
 clear_avatar=0
 avatar_set=0
 login=""
@@ -137,6 +138,72 @@ PY
     fi
 }
 
+write_lock_image() {
+    local dest=$1 url=$2 owner=${3-}
+    local dir
+    dir=$(dirname "$dest")
+    if [[ -n $owner ]]; then
+        if [[ ! -d $dir ]]; then
+            install -d -m 0755 -o "$owner" -g "$owner" "$dir"
+        fi
+    else
+        install -d -m 0755 "$dir"
+    fi
+    python3 - "$dest" "$url" << 'PY'
+import sys
+from pathlib import Path
+
+dest, url = sys.argv[1], sys.argv[2]
+
+def set_group(text, header, updates):
+    lines = text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.strip() == header:
+            start = index
+            break
+    if start is None:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append(header)
+        for key, value in updates.items():
+            lines.append(f"{key}={value}")
+        return "\n".join(lines).rstrip() + "\n"
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            end = index
+            break
+    body = lines[start + 1:end]
+    for key, value in updates.items():
+        prefix = key + "="
+        found = False
+        for index, line in enumerate(body):
+            if line.startswith(prefix):
+                body[index] = prefix + value
+                found = True
+                break
+        if not found:
+            body.append(prefix + value)
+    return "\n".join(lines[: start + 1] + body + lines[end:]).rstrip() + "\n"
+
+path = Path(dest)
+text = path.read_text() if path.is_file() else ""
+text = set_group(text, "[Greeter]", {"WallpaperPlugin": "org.kde.image"})
+text = set_group(
+    text,
+    "[Greeter][Wallpaper][org.kde.image][General]",
+    {"Image": url, "PreviewImage": url},
+)
+path.write_text(text)
+PY
+    chmod 0644 "$dest"
+    if [[ -n $owner ]]; then
+        chown "$owner:$owner" "$dest"
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --names-only)
@@ -146,6 +213,11 @@ while [[ $# -gt 0 ]]; do
         --current)
             current=1
             shift
+            ;;
+        --sync-lock)
+            login=${2-}
+            sync_lock=1
+            shift 2
             ;;
         --clear-avatar)
             clear_avatar=1
@@ -178,6 +250,25 @@ if [[ $current -eq 1 ]]; then
 fi
 
 name_ok='^[A-Za-z0-9._-]+$'
+if [[ $sync_lock -eq 1 ]]; then
+    if [[ -n ${WASD_LOOK_ROOT:-} ]]; then
+        echo "WASD_LOOK_ROOT is only for a name check." >&2
+        exit 2
+    fi
+    if [[ ! $login =~ $name_ok ]]; then
+        echo "Use a picture from the list." >&2
+        exit 2
+    fi
+    login_src=/usr/share/wasd/login/${login}
+    if [[ ! -f $login_src ]]; then
+        echo "That picture is not installed." >&2
+        exit 1
+    fi
+    url="file://${login_src}"
+    write_lock_image /etc/xdg/kscreenlockerrc "$url"
+    write_lock_image /etc/skel/.config/kscreenlockerrc "$url"
+    exit 0
+fi
 if [[ ! $login =~ $name_ok || ! $loading =~ $name_ok ]]; then
     echo "Use a picture from the list." >&2
     exit 2
@@ -268,6 +359,18 @@ else
     printf 'PreviewImage=%s\n' "$url" >>"$tmp"
 fi
 install -m 0644 "$tmp" /etc/plasmalogin.conf
+write_lock_image /etc/xdg/kscreenlockerrc "$url"
+write_lock_image /etc/skel/.config/kscreenlockerrc "$url"
+lock_uid=${PKEXEC_UID:-}
+if [[ $lock_uid =~ ^[0-9]+$ && $lock_uid != 0 ]]; then
+    lock_user=$(id -nu "$lock_uid" 2>/dev/null || true)
+    if [[ $lock_user =~ ^[a-z][a-z0-9-]{0,31}$ ]]; then
+        lock_home=$(getent passwd "$lock_user" | cut -d: -f6 || true)
+        if [[ -n $lock_home && $lock_home == /* && -d $lock_home ]]; then
+            write_lock_image "$lock_home/.config/kscreenlockerrc" "$url" "$lock_user"
+        fi
+    fi
+fi
 
 rebuild_loading() {
     local log output status
@@ -317,15 +420,15 @@ rebuild_loading() {
 
 if ! rebuild_loading; then
     if [[ $avatar_set -eq 1 ]]; then
-        echo "The user picture and the login screen are saved. The loading screen waits for the next system update, then a restart."
+        echo "The user picture and the login screen are saved. The lock screen uses that same picture. The loading screen waits for the next system update, then a restart."
     else
-        echo "The login screen is saved. The loading screen waits for the next system update, then a restart."
+        echo "The login screen is saved. The lock screen uses that same picture. The loading screen waits for the next system update, then a restart."
     fi
     exit 0
 fi
 
 if [[ $avatar_set -eq 1 ]]; then
-    echo "The user picture and the login screen change at the next login. The loading screen changes on the next boot."
+    echo "The user picture and the login screen change at the next login. The lock screen uses that same picture the next time the screen locks. The loading screen changes on the next boot."
 else
-    echo "The login screen changes at the next login. The loading screen changes on the next boot."
+    echo "The login screen changes at the next login. The lock screen uses that same picture the next time the screen locks. The loading screen changes on the next boot."
 fi

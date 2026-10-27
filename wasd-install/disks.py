@@ -65,6 +65,10 @@ def parse_disks(payload):
         data_fs = ""
         data_uuid = ""
         data_bytes = -1
+        ntfs_part = ""
+        ntfs_fs = ""
+        ntfs_uuid = ""
+        ntfs_bytes = -1
         for node in walk(dev):
             if node is dev:
                 continue
@@ -97,17 +101,22 @@ def parse_disks(payload):
                 data_fs = fs
                 data_uuid = str(node.get("uuid") or "")
                 data_bytes = size
+            if fs == "ntfs" and node.get("uuid") and size >= ntfs_bytes:
+                ntfs_part = str(node.get("name") or "")
+                ntfs_fs = fs
+                ntfs_uuid = str(node.get("uuid") or "")
+                ntfs_bytes = size
         if windows:
-            kind = "Windows. This drive stays"
+            kind = "Windows is on this drive."
             games = False
-            part = ""
-            fstype = ""
-            uuid = ""
+            part = ntfs_part
+            fstype = ntfs_fs
+            uuid = ntfs_uuid
         else:
             part = games_part or data_part
             fstype = games_fs if games else data_fs
             uuid = games_uuid if games else data_uuid
-            kind = "Another system. This drive stays" if occupied else ""
+            kind = "Another system is on this drive." if occupied else ""
         raw_size = dev.get("size")
         disks.append(
             {
@@ -119,9 +128,9 @@ def parse_disks(payload):
                 "windows": windows,
                 "occupied": occupied,
                 "games": games,
-                "part": "" if windows else part,
-                "fstype": "" if windows else fstype,
-                "uuid": "" if windows else uuid,
+                "part": part,
+                "fstype": fstype,
+                "uuid": uuid,
             }
         )
     return disks
@@ -314,5 +323,7 @@ def self_check():
     })
     if not marked[0]["games"] or marked[0]["part"] != "nvme0n1p1" or marked[0]["fstype"] != "ntfs":
         raise SystemExit(f"games label was missed {marked[0]}")
-    if marked[1]["games"] or marked[1]["part"] or marked[1]["uuid"] or not marked[1]["windows"]:
+    if marked[1]["games"] or not marked[1]["windows"]:
         raise SystemExit(f"windows disk became a games drive {marked[1]}")
+    if marked[1]["part"] != "nvme1n1p2" or marked[1]["fstype"] != "ntfs" or not marked[1]["uuid"]:
+        raise SystemExit(f"windows disk hid its ntfs partition {marked[1]}")

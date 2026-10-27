@@ -1,0 +1,6 @@
+[Greeter]
+WallpaperPlugin=org.kde.image
+
+[Greeter][Wallpaper][org.kde.image][General]
+Image=file:///usr/share/wasd/login/throne.jpg
+PreviewImage=file:///usr/share/wasd/login/throne.jpg

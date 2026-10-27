@@ -117,8 +117,10 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         host.networkOpen = !host.networkOpen
-                        if (host.networkOpen && host.liveSession)
+                        if (host.networkOpen && host.liveSession) {
                             host.refreshNetwork(true)
+                            host.refreshDevices()
+                        }
                     }
                 }
             }
@@ -178,10 +180,7 @@ Item {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    host.wifiSsid = modelData.ssid
-                                    ssidField.text = modelData.ssid
-                                }
+                                onClicked: host.chooseWifi(modelData.ssid)
                             }
                         }
                     }
@@ -189,7 +188,7 @@ Item {
 
                 Text {
                     width: parent.width - 28
-                    text: "Or type a network name. Leave the passphrase empty for an open network."
+                    text: "Or type a network name. Choose a network again to clear it. The first boot asks for its passphrase."
                     wrapMode: Text.WordWrap
                     color: host.muted
                     font.family: host.bodyFont
@@ -229,61 +228,14 @@ Item {
                     }
                 }
 
-                Rectangle {
-                    width: Math.min(420, parent.width - 28)
-                    height: 44
-                    color: Qt.rgba(0, 0, 0, 0.28)
-                    border.width: 1
-                    border.color: host.line
-
-                    TextInput {
-                        id: passField
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        verticalAlignment: TextInput.AlignVCenter
-                        color: host.ink
-                        font.pixelSize: 16
-                        font.family: host.bodyFont
-                        echoMode: TextInput.Password
-                        selectByMouse: true
-                        clip: true
-                        selectionColor: host.brass
-                        selectedTextColor: "#24160e"
-                        Text {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: parent.text.length === 0
-                            text: "Passphrase"
-                            color: host.muted
-                            font.family: host.bodyFont
-                            font.pixelSize: 16
-                        }
-                        onTextEdited: host.wifiPass = text
-                    }
-                }
-
-                Rectangle {
-                    width: connectLabel.implicitWidth + 28
-                    height: 36
-                    color: host.networkBusy ? Qt.rgba(196 / 255, 165 / 255, 116 / 255, 0.35) : host.brass
-
-                    Text {
-                        id: connectLabel
-                        anchors.centerIn: parent
-                        text: host.networkBusy ? "Connecting." : "Connect"
-                        color: "#24160e"
-                        font.family: host.bodyFont
-                        font.pixelSize: 15
-                        font.bold: true
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: !host.networkBusy
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: host.connectWifi()
-                    }
+                Text {
+                    width: parent.width - 28
+                    visible: host.wifiNote.length > 0
+                    wrapMode: Text.WordWrap
+                    text: host.wifiNote
+                    color: host.wifiNameOk ? host.ink : host.danger
+                    font.family: host.bodyFont
+                    font.pixelSize: 14
                 }
 
                 Text {
@@ -297,7 +249,7 @@ Item {
                 Text {
                     width: parent.width - 28
                     wrapMode: Text.WordWrap
-                    text: "Automatic uses the address the network offers."
+                    text: "Automatic uses the address the network offers. Manual saves an address, a netmask, a gateway, and DNS for the installed system. Choose the adapter. That includes Wi-Fi and every network adapter."
                     color: host.muted
                     font.family: host.bodyFont
                     font.pixelSize: 14
@@ -350,7 +302,10 @@ Item {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: host.tcpMode = modelData.key
+                                onClicked: {
+                                    host.tcpMode = modelData.key
+                                    host.networkLine = ""
+                                }
                             }
                         }
                     }
@@ -360,6 +315,61 @@ Item {
                     width: parent.width - 28
                     visible: host.tcpMode === "manual"
                     spacing: 8
+
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        text: "Choose an adapter. Choose it again to clear it. Adapters that are not connected are listed too."
+                        color: host.muted
+                        font.family: host.bodyFont
+                        font.pixelSize: 14
+                    }
+
+                    Column {
+                        width: parent.width
+                        spacing: 8
+
+                        Repeater {
+                            model: host.tcpDevices
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: parent.width
+                                height: 44
+                                color: Qt.rgba(0, 0, 0, 0.18)
+                                border.width: 1
+                                border.color: host.tcpInterface === modelData.device ? host.brass : host.line
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.leftMargin: 14
+                                    anchors.rightMargin: 14
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: modelData.label + "  " + modelData.device
+                                    color: host.ink
+                                    font.family: host.bodyFont
+                                    font.pixelSize: 16
+                                    elide: Text.ElideRight
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: host.chooseAdapter(modelData.device)
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: host.tcpDevices.length === 0
+                        wrapMode: Text.WordWrap
+                        text: "No network adapters were found."
+                        color: host.muted
+                        font.family: host.bodyFont
+                        font.pixelSize: 14
+                    }
 
                     Repeater {
                         model: [
@@ -420,7 +430,7 @@ Item {
                     Text {
                         id: tcpLabel
                         anchors.centerIn: parent
-                        text: "Use these settings"
+                        text: "Save these settings"
                         color: "#24160e"
                         font.family: host.bodyFont
                         font.pixelSize: 15
@@ -437,10 +447,20 @@ Item {
 
                 Text {
                     width: parent.width - 28
+                    visible: host.tcpNote.length > 0
+                    wrapMode: Text.WordWrap
+                    text: host.tcpNote
+                    color: host.tcpReady ? host.ink : host.danger
+                    font.family: host.bodyFont
+                    font.pixelSize: 14
+                }
+
+                Text {
+                    width: parent.width - 28
                     visible: host.networkLine.length > 0
                     wrapMode: Text.WordWrap
                     text: host.networkLine
-                    color: host.muted
+                    color: host.networkLineOk ? host.muted : host.danger
                     font.family: host.bodyFont
                     font.pixelSize: 14
                 }
@@ -468,10 +488,6 @@ Item {
         function onWifiSsidChanged() {
             if (ssidField.text !== host.wifiSsid)
                 ssidField.text = host.wifiSsid
-        }
-        function onWifiPassChanged() {
-            if (host.wifiPass === "")
-                passField.text = ""
         }
     }
 }

@@ -9,7 +9,7 @@ Decide these as we go. Bold items block a first bootable ISO.
 - Live hostname: `wasd`
 - Live prompt lands as `player@wasd`
 - No WASD agent and no local model. The image does not run an agent, ship a model, or hand crashes to one.
-- Stubs ship for the common subscription agents (Claude, Codex, Grok, and the others Omarchy wires). Nothing downloads until the first launch of that agent. The person signs into their own account.
+- Checked agents are installed on first boot. Web apps open in their own Brave window. Grok Build uses the official installer. Agents without a verified installer get a menu entry and are not downloaded. The person signs into their own account. There is no WASD-hosted model.
 - Remove `waydroid` and `waydroid-selinux` from the image.
 - Do not install Firefox. Brave (`com.brave.Browser`) is the browser, and it is the default.
 

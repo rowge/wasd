@@ -11,6 +11,7 @@ html, body { margin: 0; }
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   color: var(--ink);
@@ -20,19 +21,32 @@ body {
   line-height: 1.45;
 }
 
+body:not(.guide) {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.hero {
+  flex: 0 1 auto;
+  /* Leave the title, the two links, and About inside the first screen. */
+  height: min(64vh, 56.25vw, max(6rem, calc(100dvh - 28rem)));
+  min-height: 0;
+  overflow: hidden;
+  background: #c4a574;
+}
+
 .wood {
   display: block;
   width: 100%;
-  height: min(72vh, 56.25vw);
+  height: 100%;
   object-fit: cover;
   object-position: center center;
-  background: #c4a574;
 }
 
 main {
   width: min(40rem, calc(100% - 2.4rem));
   margin: 0 auto;
-  padding: 1.6rem 0 2.4rem;
+  padding: 1.6rem 0 0;
   text-align: center;
 }
 
@@ -59,7 +73,26 @@ h1 {
   font-size: 1.15rem;
 }
 
-.more { margin: 1.35rem 0 0; }
+.usb,
+.apps,
+.about {
+  margin: 0;
+  text-align: center;
+}
+
+.usb { margin-top: 1.35rem; }
+
+.apps { margin-top: 3rem; }
+
+.about {
+  width: max-content;
+  max-width: calc(100% - 2.4rem);
+  margin-top: auto;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 1.5rem 0 1.35rem;
+  text-align: center;
+}
 
 a {
   color: var(--ink);
@@ -76,6 +109,7 @@ a:focus-visible {
 body.guide main {
   text-align: left;
   width: min(40rem, calc(100% - 2.4rem));
+  padding-bottom: 2.4rem;
 }
 
 body.guide h2,
@@ -114,6 +148,90 @@ body.guide code {
   font-size: 0.92rem;
 }
 
+.boot {
+  font-family: "Cascadia Mono", "Cascadia Code", "Segoe UI Mono", "DejaVu Sans Mono", "Liberation Mono", ui-monospace, monospace;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 0.92em;
+  letter-spacing: 0;
+  white-space: nowrap;
+  color: #d8ffcf;
+  background: #100a07;
+  border: 1px solid rgba(184, 230, 170, 0.4);
+  border-radius: 0.2rem;
+  padding: 0.04em 0.38em;
+}
+
+.app {
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: #e4c48a;
+}
+
+a:hover .app,
+a:focus-visible .app {
+  color: #fff8ee;
+}
+
+.btn {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-family: "Segoe UI", "Helvetica Neue", "Liberation Sans", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 0.86em;
+  letter-spacing: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-align: center;
+  vertical-align: middle;
+  color: #24160e;
+  background: #c4a574;
+  border: 1px solid #c4a574;
+  border-radius: 0;
+  padding: 0.42em 0.9em;
+}
+
+.btn.alt {
+  font-weight: 600;
+  color: #f6ead8;
+  background: transparent;
+  border-color: #c4a574;
+}
+
+.btn.line {
+  font-weight: 500;
+  font-size: 0.82em;
+  color: #f6ead8;
+  background: transparent;
+  border-color: rgba(246, 226, 196, 0.45);
+  padding: 0.28em 0.7em;
+}
+
+.btn.text {
+  font-weight: 500;
+  color: #e7d3b6;
+  background: transparent;
+  border-color: transparent;
+  padding: 0.12em 0.28em;
+}
+
+.withicon {
+  white-space: nowrap;
+}
+
+.withicon img {
+  height: 1.55em;
+  width: 1.55em;
+  object-fit: contain;
+  vertical-align: -0.35em;
+  margin-right: 0.28em;
+}
+
 body.guide pre {
   margin: 0.6rem 0 0;
   padding: 0.7rem 0.85rem;
@@ -123,8 +241,103 @@ body.guide pre {
   border: 1px solid var(--line);
 }
 
+body.guide.shots .sheet {
+  display: flex;
+  align-items: flex-start;
+  gap: 2.2rem;
+  width: min(76rem, calc(100% - 2.4rem));
+  margin: 0 auto;
+  padding: 1.2rem 0 2.4rem;
+}
+
+body.guide.shots main {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding-bottom: 0;
+}
+
+.toc {
+  position: sticky;
+  top: 1rem;
+  flex: 0 0 13.5rem;
+}
+
+.toc p {
+  margin: 0;
+  letter-spacing: 0.16em;
+  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
+  font-size: 0.82rem;
+}
+
+.toc a {
+  display: block;
+  margin-top: 0.42rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.toc a.sub { margin-left: 0.95rem; }
+
+.toc a:hover { color: #fff8ee; }
+
+.notice {
+  margin: 1.15rem 0 0;
+  padding: 0.9rem 1rem;
+  background: #1c100b;
+  border: 1px solid #c4a574;
+}
+
+.notice p { margin: 0; }
+
+body.guide.shots h2 {
+  margin: 1.45rem 0 0;
+  padding-top: 1.45rem;
+  border-top: 1px solid #c4a574;
+  font-size: 1.9rem;
+}
+
+body.guide.shots h3 {
+  margin: 1.35rem 0 0;
+  font-size: 1.45rem;
+}
+
+body.guide h2,
+body.guide h3 { scroll-margin-top: 1rem; }
+
+@media (max-width: 800px) {
+  body.guide.shots .sheet {
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .toc {
+    position: static;
+    flex-basis: auto;
+    width: 100%;
+  }
+}
+
+body.guide figure { margin: 0.9rem 0 0; }
+
+body.guide figure > img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #1a100b;
+  border: 1px solid var(--line);
+}
+
+body.guide figcaption {
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 @media (max-width: 640px) {
-  .wood { height: 48vh; }
+  .hero { height: min(46vh, 70vw, max(6rem, calc(100dvh - 28rem))); }
   h1 { font-size: 1.7rem; }
   .downloads { gap: 1.2rem; }
+  .btn.wide { white-space: normal; }
 }

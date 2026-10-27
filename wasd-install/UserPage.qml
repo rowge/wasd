@@ -49,6 +49,7 @@ Item {
 
                 TextInput {
                     id: nameField
+                    objectName: "userNameField"
                     anchors.fill: parent
                     anchors.leftMargin: 14
                     anchors.rightMargin: 14
@@ -149,33 +150,34 @@ Item {
             }
 
             Text {
+                objectName: "passwordCheckedLine"
                 width: parent.width
-                visible: !host.setPassword
                 topPadding: 10
                 wrapMode: Text.WordWrap
-                text: "Without a password, anyone who can turn on the computer is you."
+                text: "CHECKING this means you will have to type your password sometimes."
+                color: host.ink
+                font.family: host.bodyFont
+                font.pixelSize: 16
+            }
+
+            Text {
+                objectName: "passwordOpenLine"
+                width: parent.width
+                topPadding: 8
+                wrapMode: Text.WordWrap
+                text: "NOT checking this means hitting enter instead of typing a password AND"
+                color: host.ink
+                font.family: host.bodyFont
+                font.pixelSize: 16
+            }
+
+            Text {
+                objectName: "passwordAccessLine"
+                width: parent.width
+                topPadding: 8
+                wrapMode: Text.WordWrap
+                text: "anyone with physical access to this computer is YOU"
                 color: host.danger
-                font.family: host.bodyFont
-                font.pixelSize: 16
-            }
-
-            Text {
-                width: parent.width
-                topPadding: 8
-                wrapMode: Text.WordWrap
-                text: "Setting a password will secure the login screen, and an administrative command will ask for it. Not setting a password will not prompt for one."
-                color: host.ink
-                font.family: host.bodyFont
-                font.pixelSize: 16
-            }
-
-            Text {
-                width: parent.width
-                visible: host.setPassword
-                topPadding: 8
-                wrapMode: Text.WordWrap
-                text: "You will choose it the first time this computer starts."
-                color: host.ink
                 font.family: host.bodyFont
                 font.pixelSize: 16
             }

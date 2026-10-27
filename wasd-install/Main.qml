@@ -52,6 +52,14 @@ Window {
     property int gamesGb: 32
     property string osGbText: "128"
     property string gamesGbText: "32"
+    property bool gamesConfirmed: false
+    property bool systemConfirmed: false
+    property int actionIndex: -1
+    property int confirmStep: 0
+    property int confirmIndex: -1
+    property string confirmAction: ""
+    property bool confirmStartsInstall: false
+    property var wipeDrives: []
     property bool installBlocked: false
     property var files: ({})
     property var appOn: ({})
@@ -77,13 +85,13 @@ Window {
         "Expose Green", "Expose Metallic", "Expose Dark", "Expose Air", "Expose Air Dark"
     ]
     readonly property var appNames: [
-        "Brave", "Discord", "Element", "Heroic", "Bottles", "OBS Studio", "GOverlay",
+        "Discord", "Element", "Heroic", "Bottles", "OBS Studio", "GOverlay",
         "Easy Effects", "Piper", "OpenRGB", "LACT", "Gwenview", "Okular", "Calculator",
         "Haruna", "Kontainer", "Flatseal", "Protontricks", "Warehouse", "ProtonPlus",
         "Firmware", "VLC", "GIMP", "Bitwarden"
     ]
     readonly property var appIds: [
-        "com.brave.Browser", "com.discordapp.Discord", "im.riot.Riot",
+        "com.discordapp.Discord", "im.riot.Riot",
         "com.heroicgameslauncher.hgl", "com.usebottles.bottles", "com.obsproject.Studio",
         "io.github.benjamimgois.goverlay", "com.github.wwmm.easyeffects",
         "org.freedesktop.Piper", "org.openrgb.OpenRGB", "io.github.ilya_zlobintsev.LACT",
@@ -118,12 +126,32 @@ Window {
     property bool networkBusy: false
     property string networkLine: ""
     property string wifiSsid: ""
-    property string wifiPass: ""
+    readonly property bool wifiNameOk: {
+        const name = wifiSsid.trim()
+        return name.length > 0 && !name.startsWith("-") && name.indexOf("\n") < 0 && name.length <= 32
+    }
+    readonly property string wifiNote: {
+        const name = wifiSsid.trim()
+        if (!name)
+            return ""
+        if (!wifiNameOk)
+            return "That network name cannot be used."
+        return "Saved. The first boot asks for the passphrase."
+    }
     property string tcpMode: "auto"
     property string tcpAddress: ""
     property string tcpNetmask: ""
     property string tcpGateway: ""
     property string tcpDns: ""
+    property string tcpInterface: ""
+    property string tcpKind: ""
+    property bool networkLineOk: true
+    property var tcpDevices: [
+        { device: "wlp3s0", kind: "wifi", label: "Wi-Fi" },
+        { device: "enp4s0", kind: "ethernet", label: "Ethernet" }
+    ]
+    readonly property string tcpNote: tcpNoteFor(tcpMode, tcpAddress, tcpNetmask, tcpGateway, tcpDns, tcpInterface, tcpKind, wifiNameOk)
+    readonly property bool tcpReady: tcpMode === "manual" && tcpNote.indexOf("Saved for the installed system.") === 0
     property var wifiNetworks: [
         { ssid: "Home", signal: 84, security: "WPA2" },
         { ssid: "Shop", signal: 42, security: "WPA2" }
@@ -135,7 +163,7 @@ Window {
     ListModel {
         id: disks
         ListElement { name: "Samsung 990"; kind: ""; size: "2 TB"; windows: false; occupied: false; device: ""; bytes: 2000000000000.0; games: false; part: ""; fstype: ""; uuid: "" }
-        ListElement { name: "WD Black"; kind: "Windows. This drive stays"; size: "1 TB"; windows: true; occupied: true; device: ""; bytes: 1000000000000.0; games: false; part: ""; fstype: ""; uuid: "" }
+        ListElement { name: "WD Black"; kind: "Windows is on this drive."; size: "1 TB"; windows: true; occupied: true; device: ""; bytes: 1000000000000.0; games: false; part: ""; fstype: ""; uuid: "" }
     }
     property alias diskModel: disks
 
@@ -191,60 +219,187 @@ Window {
             networkConnected = false
             networkDetail = ""
             wifiNetworks = []
+            tcpDevices = []
             refreshNetwork(false)
+            refreshDevices()
         }
+    }
+
+    function refreshDevices() {
+        if (!liveSession)
+            return
+        const xhr = new XMLHttpRequest()
+        xhr.timeout = 8000
+        xhr.open("GET", "http://127.0.0.1:8765/devices")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE || xhr.status !== 200)
+                return
+            let data = {}
+            try {
+                data = JSON.parse(xhr.responseText || "{}")
+            } catch (e) {
+                return
+            }
+            if (data.devices)
+                win.tcpDevices = data.devices
+        }
+        xhr.send()
     }
 
     function refreshNetwork(rescan) {
         networkRequest("GET", rescan ? "/status?rescan=1" : "/status", "")
     }
 
-    function connectWifi() {
-        const ssid = wifiSsid.trim()
-        const passphrase = wifiPass
-        wifiPass = ""
-        if (!ssid) {
-            networkLine = "Type the network name."
-            return
-        }
-        if (!liveSession) {
-            networkConnected = true
-            networkDetail = ssid
-            networkLine = "This computer was not changed."
-            return
-        }
-        let listed = false
-        for (let i = 0; i < wifiNetworks.length; i++) {
-            if (wifiNetworks[i].ssid === ssid)
-                listed = true
-        }
-        networkBusy = true
-        networkLine = "Connecting."
-        networkRequest("POST", "/wifi", JSON.stringify({
-            ssid: ssid,
-            passphrase: passphrase,
-            hidden: !listed
-        }))
+    function chooseWifi(name) {
+        wifiSsid = wifiSsid === name ? "" : name
     }
 
-    function applyTcp() {
-        if (tcpMode === "manual" && (!tcpAddress.trim() || !tcpNetmask.trim() || !tcpGateway.trim() || !tcpDns.trim())) {
-            networkLine = "Fill in the address, netmask, gateway, and DNS."
+    function wifiChoice() {
+        if (!wifiNameOk)
+            return null
+        const name = wifiSsid.trim()
+        let security = ""
+        let hidden = true
+        for (let i = 0; i < wifiNetworks.length; i++) {
+            if (wifiNetworks[i].ssid === name) {
+                security = wifiNetworks[i].security || ""
+                hidden = false
+                break
+            }
+        }
+        return { ssid: name, security: security, hidden: hidden }
+    }
+
+    function ipv4Ok(value) {
+        const parts = value.split(".")
+        if (parts.length !== 4)
+            return false
+        for (let i = 0; i < 4; i++) {
+            const part = parts[i]
+            if (!/^\d+$/.test(part))
+                return false
+            if (part.length > 1 && part.charAt(0) === "0")
+                return false
+            if (parseInt(part, 10) > 255)
+                return false
+        }
+        return true
+    }
+
+    function netmaskOk(mask) {
+        if (!ipv4Ok(mask))
+            return false
+        const parts = mask.split(".")
+        let bits = ""
+        for (let i = 0; i < 4; i++)
+            bits += ("00000000" + parseInt(parts[i], 10).toString(2)).slice(-8)
+        return bits.indexOf("01") < 0
+    }
+
+    function dnsOk(value) {
+        const parts = value.trim().split(/[\s,]+/)
+        if (!parts.length)
+            return false
+        for (let i = 0; i < parts.length; i++) {
+            if (!parts[i] || !ipv4Ok(parts[i]))
+                return false
+        }
+        return true
+    }
+
+    function adapterOk(iface, kind) {
+        return /^[A-Za-z][A-Za-z0-9._-]{0,15}$/.test(iface) && (kind === "wifi" || kind === "ethernet")
+    }
+
+    function tcpFieldsProblem(address, netmask, gateway, dns, iface, kind) {
+        if (!address.trim() || !netmask.trim() || !gateway.trim() || !dns.trim() || !iface)
+            return "Fill in the address, netmask, gateway, DNS, and choose an adapter."
+        if (!ipv4Ok(address.trim()))
+            return "Use an IP address like 192.168.1.20."
+        if (!netmaskOk(netmask.trim()))
+            return "Use a netmask like 255.255.255.0."
+        if (!ipv4Ok(gateway.trim()))
+            return "Use a gateway like 192.168.1.1."
+        if (!dnsOk(dns.trim()))
+            return "Use a DNS address like 1.1.1.1."
+        if (!adapterOk(iface, kind))
+            return "Choose an adapter."
+        return ""
+    }
+
+    function tcpNoteFor(mode, address, netmask, gateway, dns, iface, kind, wifiOk) {
+        if (mode !== "manual")
+            return ""
+        const problem = tcpFieldsProblem(address, netmask, gateway, dns, iface, kind)
+        if (problem)
+            return problem + " These settings are not saved until then."
+        if (kind === "wifi" && !wifiOk)
+            return "Saved for the installed system. Choose a Wi-Fi network too, or this address is not used."
+        if (kind === "wifi")
+            return "Saved for the installed system. The first boot uses this address when that network connects."
+        return "Saved for the installed system."
+    }
+
+    function chooseAdapter(device) {
+        if (tcpInterface === device) {
+            tcpInterface = ""
+            tcpKind = ""
             return
         }
-        if (!liveSession) {
-            networkLine = "This computer was not changed."
-            return
+        let kind = ""
+        for (let i = 0; i < tcpDevices.length; i++) {
+            if (tcpDevices[i].device === device) {
+                kind = tcpDevices[i].kind || ""
+                break
+            }
         }
-        networkBusy = true
-        networkLine = "Applying."
-        networkRequest("POST", "/tcp", JSON.stringify({
-            mode: tcpMode,
+        tcpInterface = device
+        tcpKind = kind
+    }
+
+    function tcpChoice() {
+        if (tcpMode !== "manual")
+            return null
+        if (tcpFieldsProblem(tcpAddress, tcpNetmask, tcpGateway, tcpDns, tcpInterface, tcpKind))
+            return null
+        return {
+            mode: "manual",
+            interface: tcpInterface,
+            kind: tcpKind,
             address: tcpAddress.trim(),
             netmask: tcpNetmask.trim(),
             gateway: tcpGateway.trim(),
             dns: tcpDns.trim()
-        }))
+        }
+    }
+
+    function applyTcp() {
+        if (tcpMode !== "manual") {
+            networkLineOk = true
+            networkLine = "Automatic uses the address the network offers."
+            return
+        }
+        const problem = tcpFieldsProblem(tcpAddress, tcpNetmask, tcpGateway, tcpDns, tcpInterface, tcpKind)
+        if (problem) {
+            networkLineOk = false
+            networkLine = problem
+            return
+        }
+        if (!liveSession) {
+            networkLineOk = true
+            networkLine = "Saved for the installed system. This computer was not changed."
+            return
+        }
+        const choice = tcpChoice()
+        if (!choice) {
+            networkLineOk = false
+            networkLine = "Choose an adapter."
+            return
+        }
+        networkBusy = true
+        networkLineOk = true
+        networkLine = "Saving."
+        networkRequest("POST", "/tcp", JSON.stringify(choice))
     }
 
     function networkRequest(method, path, body) {
@@ -267,11 +422,17 @@ Window {
                 win.networkDetail = data.detail || ""
                 if (data.networks && data.networks.length)
                     win.wifiNetworks = data.networks
+                if (path === "/tcp") {
+                    win.networkLineOk = true
+                    win.networkLine = data.message || "Saved for the installed system."
+                    return
+                }
                 if (path.indexOf("/status") !== 0)
                     win.networkLine = data.connected ? "Connected." : win.networkLine
                 return
             }
             const detail = (xhr.responseText || "").trim()
+            win.networkLineOk = false
             win.networkLine = detail || "The network helper is not available."
         }
         xhr.send(body)
@@ -335,25 +496,26 @@ Window {
         return Math.max(0, gib - 4)
     }
 
-    function onlyDrive() {
-        if (diskIndex < 0 || disks.count < 1)
-            return false
-        for (let i = 0; i < disks.count; i++) {
-            if (i !== diskIndex && !disks.get(i).windows)
-                return false
-        }
-        return true
+    function splitFits() {
+        return diskIndex >= 0 && usableGb() >= 96
     }
 
-    function splitFits() {
-        return onlyDrive() && usableGb() >= 96
+    function focusIndex() {
+        if (actionIndex >= 0 && actionIndex < disks.count)
+            return actionIndex
+        return diskIndex
+    }
+
+    function canKeep(index) {
+        if (index < 0 || index >= disks.count)
+            return false
+        const row = disks.get(index)
+        return !!(row.part && row.uuid)
     }
 
     function gamesHeading() {
         let extra = ""
-        if (gamesMode === "split")
-            extra = "Leaving the rest of this drive for games."
-        else if ((gamesMode === "keep" || gamesMode === "format") && gamesDiskIndex >= 0 && gamesDiskIndex < disks.count)
+        if ((gamesMode === "keep" || gamesMode === "format") && gamesDiskIndex >= 0 && gamesDiskIndex < disks.count)
             extra = disks.get(gamesDiskIndex).name
         else {
             for (let i = 0; i < disks.count; i++) {
@@ -363,15 +525,28 @@ Window {
                 }
             }
         }
-        return extra ? "Games drive. " + extra : "Games drive"
+        return extra ? "/games. " + extra : "/games"
     }
 
     function gamesLine(index) {
         if (index < 0 || index >= disks.count)
             return ""
+        if (index === diskIndex) {
+            if (!splitFits())
+                return "This drive is too small to leave room for games."
+            if (gamesMode === "split")
+                return "WASD keeps the first part. The rest is mounted at /games."
+            return "Use part of this drive for /games."
+        }
         const row = disks.get(index)
+        if (gamesDiskIndex === index && gamesMode === "format")
+            return "This drive will be erased and used for games."
+        if (gamesDiskIndex === index && gamesMode === "keep")
+            return "WASD will use this drive and will not erase it."
+        if (row.windows && !canKeep(index))
+            return "BitLocker is on. Turn it off in Windows before this drive can be used without erasing it."
         if (row.windows)
-            return "The Windows drive stays."
+            return "Windows is on this drive."
         if (row.games)
             return "This drive has your games. WASD will use it and will not erase it."
         if (!row.occupied)
@@ -382,6 +557,40 @@ Window {
     function clearGames() {
         gamesMode = "off"
         gamesDiskIndex = -1
+        gamesConfirmed = false
+    }
+
+    function wipeHas(row) {
+        if (!row)
+            return false
+        for (let i = 0; i < wipeDrives.length; i++) {
+            const item = wipeDrives[i]
+            if (row.device && item.device === row.device)
+                return true
+            if (!row.device && item.disk === row.name)
+                return true
+        }
+        return false
+    }
+
+    function removeWipe(row) {
+        const next = []
+        for (let i = 0; i < wipeDrives.length; i++) {
+            const item = wipeDrives[i]
+            if (row.device && item.device === row.device)
+                continue
+            if (!row.device && item.disk === row.name)
+                continue
+            next.push(item)
+        }
+        wipeDrives = next
+    }
+
+    function addWipe(row) {
+        removeWipe(row)
+        const next = wipeDrives.slice()
+        next.push({ device: row.device || "", disk: row.name || "" })
+        wipeDrives = next
     }
 
     function chooseSplit() {
@@ -395,13 +604,7 @@ Window {
         gamesGbText = String(gamesGb)
         gamesMode = "split"
         gamesDiskIndex = -1
-    }
-
-    function toggleSplit() {
-        if (gamesMode === "split")
-            clearGames()
-        else
-            chooseSplit()
+        gamesConfirmed = false
     }
 
     function setOsGb(value) {
@@ -446,18 +649,53 @@ Window {
         gamesDiskIndex = -1
     }
 
-    function chooseGames(index) {
-        if (index < 0 || index >= disks.count || index === diskIndex)
+    function pickGamesDrive(index) {
+        if (index < 0 || index >= disks.count || diskIndex < 0)
             return
-        const row = disks.get(index)
-        if (row.windows)
+        if (index === diskIndex) {
+            if (gamesMode === "split")
+                clearGames()
+            else
+                chooseSplit()
             return
-        if (gamesDiskIndex === index && gamesMode !== "off" && gamesMode !== "split") {
+        }
+        if (gamesDiskIndex === index && (gamesMode === "keep" || gamesMode === "format")) {
             clearGames()
             return
         }
-        gamesMode = row.games || row.occupied ? "keep" : "format"
-        gamesDiskIndex = index
+        const row = disks.get(index)
+        if (canKeep(index))
+            beginConfirm("gamesKeep", index, false)
+        else if (!row.occupied && !row.windows)
+            beginConfirm("gamesWipe", index, false)
+    }
+
+    function openGamesSection() {
+        if (diskIndex < 0 || disks.count < 1)
+            return
+        if (disks.count === 1) {
+            if (gamesOpen) {
+                gamesOpen = false
+                if (gamesMode === "split")
+                    clearGames()
+                return
+            }
+            gamesOpen = true
+            if (splitFits())
+                chooseSplit()
+            return
+        }
+        gamesOpen = true
+    }
+
+    function toggleGamesOpen() {
+        if (gamesOpen) {
+            gamesOpen = false
+            if (gamesMode === "split")
+                clearGames()
+            return
+        }
+        openGamesSection()
     }
 
     function reconcileGames() {
@@ -472,8 +710,121 @@ Window {
         }
         if (gamesDiskIndex < 0 || gamesDiskIndex >= disks.count || gamesDiskIndex === diskIndex)
             clearGames()
-        else if (disks.get(gamesDiskIndex).windows)
-            clearGames()
+    }
+
+    function beginConfirm(action, index, startInstall) {
+        const picked = parseInt(index, 10)
+        if (picked < 0 || picked >= disks.count)
+            return
+        if (action === "gamesKeep" && !canKeep(picked))
+            return
+        confirmAction = action
+        confirmIndex = picked
+        confirmStartsInstall = !!startInstall
+        confirmStep = 1
+    }
+
+    function confirmNo() {
+        confirmStep = 0
+        confirmAction = ""
+        confirmStartsInstall = false
+    }
+
+    function confirmYes() {
+        if (confirmStep < 1)
+            return
+        if (confirmStep === 1) {
+            confirmStep = 2
+            return
+        }
+        const start = confirmStartsInstall && confirmAction === "system"
+        applyConfirm()
+        confirmStep = 0
+        confirmAction = ""
+        confirmStartsInstall = false
+        if (start)
+            saveChoices()
+    }
+
+    function applyConfirm() {
+        const index = confirmIndex
+        if (index < 0 || index >= disks.count)
+            return
+        const row = disks.get(index)
+        if (confirmAction === "system") {
+            removeWipe(row)
+            if (gamesDiskIndex === index)
+                clearGames()
+            diskIndex = index
+            systemConfirmed = true
+            return
+        }
+        if (confirmAction === "gamesWipe" || confirmAction === "gamesKeep") {
+            if (confirmAction === "gamesKeep" && !canKeep(index))
+                return
+            removeWipe(row)
+            if (diskIndex === index)
+                diskIndex = -1
+            gamesMode = confirmAction === "gamesKeep" ? "keep" : "format"
+            gamesDiskIndex = index
+            gamesConfirmed = true
+            return
+        }
+        if (confirmAction === "leave") {
+            if (diskIndex === index)
+                diskIndex = -1
+            if (gamesDiskIndex === index)
+                clearGames()
+            addWipe(row)
+        }
+    }
+
+    function confirmTitle() {
+        if (confirmIndex < 0 || confirmIndex >= disks.count)
+            return ""
+        const row = disks.get(confirmIndex)
+        if (confirmStep === 1 && row.windows)
+            return "Windows is on this drive."
+        if (confirmStep === 1 && confirmAction === "gamesKeep")
+            return "Use this drive for games?"
+        if (confirmStep === 1)
+            return "This drive will be wiped."
+        if (confirmAction === "system")
+            return row.windows ? "This erases Windows." : "Install WASD on this drive?"
+        if (confirmAction === "gamesWipe")
+            return "Wipe this drive and use it for games?"
+        if (confirmAction === "leave")
+            return "Wipe this drive and leave it empty?"
+        return "Use this drive for games?"
+    }
+
+    function confirmBody() {
+        if (confirmIndex < 0 || confirmIndex >= disks.count)
+            return ""
+        const row = disks.get(confirmIndex)
+        if (confirmStep === 1 && row.windows)
+            return "Are you sure Windows is here?"
+        if (confirmStep === 1 && confirmAction === "gamesKeep")
+            return "WASD will use this drive and will not erase it. Are you sure?"
+        if (confirmStep === 1)
+            return "Are you sure?"
+        if (confirmAction === "gamesKeep")
+            return "The files stay. The drive is mounted at /games. Are you sure?"
+        if (confirmAction === "leave")
+            return "The files will be deleted. WASD will not install here and will not use it for games. Are you sure?"
+        if (confirmAction === "gamesWipe")
+            return "Everything on it will be deleted. The drive is named games and mounted at /games. Are you sure?"
+        return "Everything on it will be deleted. Are you sure?"
+    }
+
+    function installOrConfirm() {
+        if (installBlocked || diskIndex < 0 || erasing)
+            return
+        if (!systemConfirmed) {
+            beginConfirm("system", diskIndex, true)
+            return
+        }
+        saveChoices()
     }
 
     function openLook(which) {
@@ -645,8 +996,24 @@ Window {
                 games.fstype = grow.fstype || ""
                 games.uuid = grow.uuid || ""
             }
+            if (gamesConfirmed)
+                games.confirmed = true
             payload.games = games
         }
+        const wipe = []
+        for (let w = 0; w < wipeDrives.length; w++) {
+            const item = wipeDrives[w]
+            if (/^(nvme[0-9]+n[0-9]+|sd[a-z]+|vd[a-z]+|mmcblk[0-9]+|hd[a-z]+)$/.test(item.device || ""))
+                wipe.push({ device: item.device, disk: item.disk, confirmed: true })
+        }
+        if (wipe.length)
+            payload.wipe = wipe
+        const savedWifi = wifiChoice()
+        if (savedWifi)
+            payload.wifi = savedWifi
+        const savedTcp = tcpChoice()
+        if (savedTcp)
+            payload.tcp = savedTcp
         return JSON.stringify(payload, null, 2)
     }
 
@@ -716,6 +1083,7 @@ Window {
                 pick = i
         }
         diskIndex = pick
+        actionIndex = pick
     }
 
     function diskSnapshot() {
@@ -750,7 +1118,10 @@ Window {
     }
 
     onAppQueryChanged: refreshShown()
-    onDiskIndexChanged: reconcileGames()
+    onDiskIndexChanged: {
+        systemConfirmed = false
+        reconcileGames()
+    }
 
     Component.onCompleted: boot()
 

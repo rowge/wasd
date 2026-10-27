@@ -151,9 +151,9 @@ The recipe is in this repo. It builds two images. AMD/Intel is the default. It c
 
 ## Agent
 
-Locked. Stubs only.
+Locked. Installed when chosen, not baked into the image.
 
-WASD does not include an agent of its own, and it does not include a local model. Updates, installs, and crashes are ordinary system behavior. The image ships tiny launchers for the subscription agents people already pay for (Claude, Codex, Grok, and the others Omarchy wires). Nothing downloads until that launcher is run, and the sign-in is to their account. The model stays on that company's servers.
+WASD does not include an agent of its own, and it does not include a local model. Updates, installs, and crashes are ordinary system behavior. Checked agents are installed on first boot. Web apps open in their own Brave window. Command-line agents with an official installer are downloaded then. The others get a menu entry and are not downloaded. The sign-in is to their account. The model stays on that company's servers.
 
 ## What we are not doing
 

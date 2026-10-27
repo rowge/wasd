@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install WASD and WASD Look — WASD</title>
+  <meta name="description" content="How to use Install WASD, WASD Look, and a games drive mounted at /games.">
+  <meta name="theme-color" content="#c4a574">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="stylesheet" href="styles.css?v=20261026-7">
+</head>
+<body class="guide shots">
+  <div class="sheet">
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <a href="#install"><span class="app">Install WASD</span></a>
+    <a class="sub" href="#user">User</a>
+    <a class="sub" href="#look">Look</a>
+    <a class="sub" href="#apps-agents">Apps &amp; Agents</a>
+    <a class="sub" href="#system">System</a>
+    <a class="sub" href="#disk">Disk</a>
+    <a href="#games">A drive for games</a>
+    <a class="sub" href="#another">Another drive</a>
+    <a class="sub" href="#wasd-drive">On the WASD drive</a>
+    <a class="sub" href="#where">Where the games are</a>
+    <a href="#first-boot">The first boot</a>
+    <a href="#wasd-look"><span class="app">WASD Look</span></a>
+  </nav>
+  <main>
+    <p class="back"><a href="/">WASD</a></p>
+    <h1><span class="app">Install WASD</span> and <span class="app">WASD Look</span></h1>
+    <p><span class="app">Install WASD</span> runs from the USB and writes the system to a drive. <span class="app">WASD Look</span> changes the loading screen, the login screen, or the desktop after install. The first boot opens a short window, <span class="app">Completing the install</span>.</p>
+    <aside class="notice">
+      <p>Turn off BitLocker and fast startup in Windows before you install. A locked or hibernated Windows volume can get in the way even when you are installing to a different drive. If the firmware is legacy BIOS, set it to UEFI. The motherboard manual explains how, and the install stays unavailable until then. If Secure Boot is on, the next boot asks you to enroll a key. Choose Enroll MOK and enter <code>universalblue</code>.</p>
+    </aside>
+
+    <h2 id="install"><span class="app">Install WASD</span></h2>
+    <p>Boot the USB and choose <span class="boot">Start WASD</span>, or <span class="boot">Start WASD (basic graphics)</span>. The live desktop opens <span class="app">Install WASD</span>. You can close the window and keep using the desktop. Open it again from the <span class="withicon"><img src="images/wasd-logo.png" alt="">desktop icon</span> or the menu. Both are named <span class="app">Install WASD</span>.</p>
+    <p>The steps are User, Look, Apps &amp; Agents, System, and Disk. Disk is last. That step erases a drive.</p>
+
+    <h3 id="user">User</h3>
+    <figure>
+      <img src="images/install-user.png" alt="Install WASD on the User step. The username is rowge, the knight is selected, and Set a password is unchecked.">
+      <figcaption>The name in this picture is an example. The box starts empty. One character picture starts selected. Click it again to clear it, and the account keeps the ordinary user picture.</figcaption>
+    </figure>
+    <p>Set a password is unchecked. Leave it unchecked and the computer signs itself in. Administrative prompts are accepted with Enter. Check it, and the password is typed the first time the installed computer starts, in two boxes that have to match. There is no skip. That password is also the administrator password. There is no separate root account, and the password is not stored in the installer file.</p>
+
+    <h3 id="look">Look</h3>
+    <figure>
+      <img src="images/install-look.png" alt="Install WASD on the Look step. Loading screen, Login screen, and Desktop are closed, with a small picture beside each one.">
+      <figcaption>Each row starts closed. Opening one shows its pictures and closes the other two.</figcaption>
+    </figure>
+    <p>Loading screen is the picture behind the bar while the computer starts. Login screen is the sign-in picture. The lock screen uses that same picture. Desktop is the wallpaper, with a theme name beside it. The defaults are the stained-glass loading picture, the throne login picture, and the stained-glass desktop.</p>
+    <p>The choices are saved with the install. A new system already uses those three defaults. <span class="app">WASD Look</span> changes them after install. Adding a picture file to the matching folder adds a choice:</p>
+    <p>Loading screens: <code>/usr/share/wasd/loading</code></p>
+    <p>Login screens: <code>/usr/share/wasd/login</code></p>
+    <p>Wallpapers: <code>/usr/share/wallpapers/wasd</code></p>
+    <p>Those folders belong to the system, so copying a file into one asks for the administrator password.</p>
+
+    <h3 id="apps-agents">Apps &amp; Agents</h3>
+    <figure>
+      <img src="images/install-apps.png" alt="Install WASD with Apps open. The suggested apps are checked, and a search box says Search for any other app.">
+      <figcaption>Apps starts open. <span class="btn line">Select All</span> and <span class="btn line">Select None</span> apply to this list. Search adds a Flathub desktop app, and <span class="btn line">Select All</span> does not check search results.</figcaption>
+    </figure>
+    <figure>
+      <img src="images/install-agents.png" alt="Install WASD with Agents open. Grok Build, Grok Bot, and Grok are checked. The other agents are unchecked.">
+      <figcaption>Agents starts closed. Grok Build, Grok Bot, and Grok start checked. The list continues past this picture.</figcaption>
+    </figure>
+    <p>Steam and the Brave browser are included. Apps selected here are downloaded after the first boot.</p>
+    <p>The agents are coding and chat tools. They are saved with your choices and installed on the first boot. Grok opens in its own Brave window. The others that are web apps do the same.</p>
+
+    <h3 id="system">System</h3>
+    <figure>
+      <img src="images/install-system.png" alt="Install WASD on the System step. The computer name is wasd, and the network line says Connected. Wired.">
+      <figcaption>The name box starts as wasd. The note says "Give your computer a name."</figcaption>
+    </figure>
+    <p>The saved name is lowercase. Letters, numbers, and hyphens are allowed.</p>
+    <p>A connection that is already up is named here. Wired looks like "Connected. Wired." Otherwise the line is "No connection detected, expand to configure."</p>
+    <p>Choose a Wi-Fi network if you want one. The passphrase is asked on the first boot, and it is not saved in the installer file. You can also set an address, a netmask, a gateway, and DNS. That is saved with the adapter you choose, including an adapter that is down.</p>
+
+    <h3 id="disk">Disk</h3>
+    <figure>
+      <img src="images/install-disk.png" alt="Install WASD on the Disk step. An example 2 TB drive is selected. Set up /games is above the install button.">
+      <figcaption>Click a drive to select it. <span class="btn alt">Set up /games</span> does not install. The button below it erases the selected drive.</figcaption>
+    </figure>
+    <p>Click a drive to select it. The install button erases that drive and asks twice. <span class="btn text">No</span> cancels. <span class="btn">Yes</span>, and then <span class="btn">Yes</span> again, installs it.</p>
+    <p>A Windows drive says "WARNING! This erases Windows." and the button says <span class="btn wide">Erase Windows and install WASD</span>. Any other drive says "WARNING! This drive will be wiped." and the button says <span class="btn wide">Erase the selected disk and install WASD</span>. If Windows is on the drive, the first question says "Windows is on this drive."</p>
+    <p>Turn off BitLocker and fast startup in Windows before you install. A locked or hibernated Windows volume can get in the way even when you are installing to a different drive. If the firmware is legacy BIOS, set it to UEFI. The motherboard manual explains how, and the install stays unavailable until then. If Secure Boot is on, the next boot asks you to enroll a key. Choose Enroll MOK and enter <code>universalblue</code>.</p>
+    <p>After the install, the PC starts WASD. Another system on another drive is started from the firmware boot menu. WASD does not add that system to its own menu.</p>
+    <p>Advanced stays closed. It holds the existing installer's partitioning and disk choices, including encryption. <span class="app">Install WASD</span> does not open it.</p>
+
+    <h2 id="games">A drive for games</h2>
+    <p><span class="btn alt">Set up /games</span> lets you select an existing drive with games already installed, wipe and use a second drive for games, or you can create a persistent partition for games that will survive a reinstall of WASD without having to re-download games if you only have one drive (recommended).</p>
+    <figure>
+      <img src="images/install-games.png" alt="The /games section is open. The WASD drive is selected and the size slider is open. The other drive is listed under it.">
+      <figcaption>Choose the WASD drive and the slider opens. Choose the other drive instead, and that slider turns off. The install button is still the step that writes the disk.</figcaption>
+    </figure>
+
+    <h3 id="another">Another drive</h3>
+    <p>With more than one drive, <span class="btn alt">Set up /games</span> lists the other drives and the drive selected for WASD. Choose another drive and the window asks twice. <span class="btn text">No</span> cancels. <span class="btn">Yes</span>, and then <span class="btn">Yes</span> again, applies it.</p>
+    <p>A drive with a Steam library, or a filesystem named <code>games</code>, is mounted at <code>/games</code> and is not erased. A Steam library is a <code>steamapps</code> folder, or <code>SteamLibrary/steamapps</code>. The name <code>games</code> can be any capitalization. A library on NTFS is mounted. It is not formatted.</p>
+    <p>An empty drive is formatted as btrfs, named <code>games</code>, and mounted at <code>/games</code>. A <code>SteamLibrary</code> folder is created.</p>
+    <p>A drive that already has files can be mounted without erasing them. The files stay in their folders.</p>
+    <p>A Windows drive can be used for /games when BitLocker is off. The first question says Windows is on the drive. The second says the files stay. If BitLocker is still on, that drive cannot be used for /games until it is turned off.</p>
+
+    <h3 id="wasd-drive">On the WASD drive</h3>
+    <p>With one drive, <span class="btn alt">Set up /games</span> shows a slider. With more than one, choose the WASD drive in that list and the same slider appears. Click <span class="btn alt">Set up /games</span> again on a single drive, or click the WASD drive again, to leave the whole drive for WASD.</p>
+    <p>The slider and the two boxes are in gigabytes. WASD keeps at least 64 GB. /games keeps at least 32 GB. About 4 GB is held for the boot partitions, so a drive that cannot hold both is not split. The slider starts at 128 GB for WASD, or less when the drive is smaller, and the rest goes to games. You can type either number. WASD uses the first part of the drive. The rest is its own partition, named <code>games</code>, mounted at <code>/games</code>.</p>
+    <p>A split and a separate games drive are not used together. Choosing one turns the other off.</p>
+
+    <h3 id="where">Where the games are</h3>
+    <p>The path is <code>/games</code>. In Steam, add a library folder at <code>/games/SteamLibrary</code> for new games. An existing library stays in its old folder.</p>
+    <p>The next install recognizes a drive named <code>games</code>, or a drive with a Steam library. It is still your choice. A games drive from Windows will not be named <code>games</code>. A Steam library on it is enough. If the drive is only files, choose it yourself. That choice keeps the files.</p>
+
+    <h2 id="first-boot">The first boot</h2>
+    <p>If you checked Set a password, that comes first. Two boxes, and they have to match. There is no skip. The window says this password is also the administrator password, and that the next boot asks for it. That boot shows the login window with the character picture, the username, and a password box. The background is the login picture. Clearing the character leaves the ordinary user picture. Automatic sign-in turns off for the following boot. The session you are in stays signed in. Closing the window before the password is set brings it back the next time the computer starts.</p>
+    <p>If you chose a Wi-Fi network, that comes next. When no password was asked for, it comes first. The line says Connect to, and then the saved name. Leave the box empty when the network is open. <span class="btn">Connect</span> joins it. <span class="btn line">Cancel</span> warns that the selected applications will not be installed without a connection. <span class="btn text">Go back</span> returns to the passphrase. <span class="btn">Continue</span> goes on without that network. A wrong passphrase stays on this step. Closing the window before you connect or continue brings it back. When no network was saved, this step is skipped. The passphrase is not stored in the installer file.</p>
+    <figure>
+      <img src="images/first-boot-wifi.png" alt="Completing the install. The line says Connect to Home, above a passphrase box, with Connect and Cancel.">
+      <figcaption>The line above the box names the network saved on the System step. The name in this picture is an example.</figcaption>
+    </figure>
+    <figure>
+      <img src="images/first-boot-wifi-cancel.png" alt="A warning over Completing the install. Continue without connecting, and the selected applications will not be installed.">
+      <figcaption><span class="btn line">Cancel</span> explains that those applications will not be installed without a connection. <span class="btn text">Go back</span> returns to the passphrase.</figcaption>
+    </figure>
+    <figure>
+      <img src="images/completing.png" alt="Completing the install. The WASD logo is above a ring of dots, and the line says Setting the desktop.">
+      <figcaption>The window shows one line at a time, then closes. The <span class="withicon"><img src="images/wasd-logo.png" alt="">desktop icon</span> goes to the trash. Closing the window early leaves that <span class="withicon"><img src="images/wasd-logo.png" alt="">icon</span> on the desktop.</figcaption>
+    </figure>
+    <p>The <span class="withicon"><img src="images/wasd-logo.png" alt="">desktop icon</span> is named <span class="app">Completing the install</span>. Closing the window leaves it. When the window finishes, the <span class="withicon"><img src="images/wasd-logo.png" alt="">icon</span> moves to the trash and is taken off the list of programs that start at login.</p>
+    <p>The lines are "Setting the desktop.", then "Installing the agents." when any were checked, then "Installing what you checked.", and "Finishing up." A saved Ethernet address is applied when those lines start. If the adapter is not connected yet, the window says the address was saved. A Wi-Fi address is used when that network connects. Skipping Wi-Fi does not create a Wi-Fi connection.</p>
+    <p>On "Installing what you checked." the selected apps are downloaded. Steam and Brave are already installed. If the computer is offline, the window stops and lets you choose a Wi-Fi network or set an address, a netmask, a gateway, and DNS. The passphrase is typed there and is not saved. You can skip that prompt. The window can still finish, and Discover can add an app later. Closing the window instead of skipping leaves the <span class="withicon"><img src="images/wasd-logo.png" alt="">desktop icon</span>.</p>
+    <p>If one app fails, the window names it. <span class="btn text">Retry</span> tries again. <span class="btn">Continue</span> leaves that one out and goes on. When OBS Studio is selected, its capture plugins are downloaded with it.</p>
+    <p>"Setting the desktop." applies the loading picture, the login picture, the theme, and the wallpaper from the Look step. The lock screen uses that same login picture. The session splash stays the WASD mark. <span class="btn text">Retry</span> tries the look again. That step does not offer <span class="btn">Continue</span>.</p>
+    <p>When agents were checked, "Installing the agents." installs them one at a time. Grok, and the other checked web apps, open in their own Brave window. Command-line agents that have an installer are downloaded here. <span class="btn text">Retry</span> tries again. <span class="btn">Continue</span> leaves that one out, and its menu entry stays. Sign-in uses your own account. <span class="app">WASD Look</span> can still change the pictures later.</p>
+    <p>To sign in automatically again after a password is set, open System Settings, then Security and Privacy, then Login Screen, and turn on Automatically log in.</p>
+
+    <h2 id="wasd-look"><span class="app">WASD Look</span></h2>
+    <figure>
+      <img src="images/wasd-look.png" alt="WASD Look. Loading screen, Login screen, Desktop wallpaper, and User picture are closed, each with a small picture.">
+      <figcaption><span class="app">WASD Look</span> matches the Look step, and it adds the user picture. <span class="btn">Apply</span> changes this computer.</figcaption>
+    </figure>
+    <p>Open <span class="app">WASD Look</span> from the menu after the system is installed. It uses the same folders. Loading screens are <code>/usr/share/wasd/loading</code>. Login screens are <code>/usr/share/wasd/login</code>. Wallpapers are <code>/usr/share/wallpapers/wasd</code>. The user picture is the same ten characters. Click the selected character again to clear it. <span class="btn">Apply</span> leaves the account picture alone unless you picked one or cleared it on that visit.</p>
+    <p>The wallpaper changes immediately. The user picture and the login screen change at the next login. The lock screen uses the same picture as the login screen, and it changes the next time the screen locks. The loading screen is rebuilt on that computer and shows on the next boot. That rebuild is not a new download of WASD. Theme choices stay in KDE's own settings.</p>
+    <p>The desktop note is on the <a href="/about">About</a> page. The stick is covered in <a href="/usb">How to make a bootable USB</a>.</p>
+  </main>
+  </div>
+</body>
+</html>
