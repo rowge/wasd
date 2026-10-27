@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep Windows on the WASD boot menu
+ConditionPathIsDirectory=/sys/firmware/efi
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/wasd-windows-boot --root /
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

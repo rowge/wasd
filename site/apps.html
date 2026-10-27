@@ -86,7 +86,7 @@
     <p>Click a drive to select it. The install button erases that drive and asks twice. <span class="btn text">No</span> cancels. <span class="btn">Yes</span>, and then <span class="btn">Yes</span> again, installs it.</p>
     <p>A Windows drive says "WARNING! This erases Windows." and the button says <span class="btn wide">Erase Windows and install WASD</span>. Any other drive says "WARNING! This drive will be wiped." and the button says <span class="btn wide">Erase the selected disk and install WASD</span>. If Windows is on the drive, the first question says "Windows is on this drive."</p>
     <p>Turn off BitLocker and fast startup in Windows before you install. A locked or hibernated Windows volume can get in the way even when you are installing to a different drive. If the firmware is legacy BIOS, set it to UEFI. The motherboard manual explains how, and the install stays unavailable until then. If Secure Boot is on, the next boot asks you to enroll a key. Choose Enroll MOK and enter <code>universalblue</code>.</p>
-    <p>After the install, the PC starts WASD. Another system on another drive is started from the firmware boot menu. WASD does not add that system to its own menu.</p>
+    <p>After the install, the PC starts WASD. Windows on another drive is on the WASD boot menu. Any other system is started from the firmware boot menu. WASD does not rewrite another system's boot files.</p>
     <p>Advanced stays closed. It holds the existing installer's partitioning and disk choices, including encryption. <span class="app">Install WASD</span> does not open it.</p>
 
     <h2 id="games">A drive for games</h2>

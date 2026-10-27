@@ -22,6 +22,7 @@ from agents import agents_problem  # noqa: E402
 from disks import DEVICE_NAME, display_name, is_live, live_disk_names, parse_disks  # noqa: E402
 from lookapply import look_problem  # noqa: E402
 from network import validate_tcp  # noqa: E402
+from windowsboot import windows_post  # noqa: E402
 
 HOST_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 USER_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
@@ -387,6 +388,7 @@ def render_kickstart(data, choices_text, defaults_text):
     storage = storage_lines(device, plan)
     games = games_post(plan)
     emptied = wipe_post(wiped)
+    windows = windows_post(device, plan, wiped)
     # The account is locked here. The post script clears that lock so the
     # first boot signs in with no password. The chosen password is typed
     # after install and is not part of this file.
@@ -477,6 +479,7 @@ fi
 %end
 {games}
 {emptied}
+{windows}
 reboot
 """
 
@@ -600,6 +603,7 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         "/usr/libexec/wasd-apply-choices",
         "--no-mark",
         "The look choices were saved. The first boot will apply them.",
+        "/usr/libexec/wasd-windows-boot --root /mnt/sysimage --skip nvme0n1",
     ):
         if needle not in kick:
             raise SystemExit(f"kickstart missing {needle}")
@@ -613,6 +617,14 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         raise SystemExit("the network copy was wrong")
     if "name=bazzite" in kick or "--password" in kick or "password=bazzite" in kick:
         raise SystemExit("kickstart kept a password or the default account")
+    if "grub2-mkconfig" in kick or "os-prober" in kick:
+        raise SystemExit("the windows menu rewrites the bootloader")
+    formatted = dict(choices)
+    formatted["games"] = {"mode": "format", "device": "nvme1n1", "disk": "WD Black", "confirmed": True}
+    format_data, format_text = load_choices(json.dumps(formatted))
+    format_kick = render_kickstart(format_data, format_text, defaults)
+    if "--skip nvme0n1 --skip nvme1n1" not in format_kick:
+        raise SystemExit("a formatted games drive stayed eligible for the windows menu")
     empty = dict(choices)
     empty["avatar"] = ""
     empty_data, empty_text = load_choices(json.dumps(empty))
@@ -879,8 +891,10 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
     else:
         raise SystemExit("an unconfirmed wipe was accepted")
     from disks import self_check as disks_check
+    from windowsboot import self_check as windows_check
 
     disks_check()
+    windows_check()
     try:
         refused = dict(choices)
         refused["theme"] = "Not a theme"

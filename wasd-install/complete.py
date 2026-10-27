@@ -1528,7 +1528,20 @@ def main():
     ask_agents = bool(choices["agents"]) and not AGENTS_MARKER.is_file()
     server = serve()
     port = server.server_address[1]
-    qml = "qml6" if shutil.which("qml6") else "qml"
+    qml = next(
+        (
+            found
+            for found in (
+                "/usr/bin/wasd-qml",
+                shutil.which("qml6"),
+                shutil.which("qml"),
+                shutil.which("qml-qt6"),
+                "/usr/lib64/qt6/bin/qml",
+            )
+            if found and os.access(found, os.X_OK)
+        ),
+        "/usr/bin/wasd-qml",
+    )
     command = [
         qml,
         str(QML),

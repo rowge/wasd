@@ -3,7 +3,14 @@
 
 set -euo pipefail
 
-if command -v qml6 >/dev/null 2>&1; then
-    exec qml6 /usr/share/wasd/look/Look.qml
-fi
-exec qml /usr/share/wasd/look/Look.qml
+for candidate in /usr/bin/wasd-qml qml6 qml qml-qt6 /usr/lib64/qt6/bin/qml; do
+    if [[ $candidate == /* ]]; then
+        [[ -x $candidate ]] || continue
+        exec "$candidate" /usr/share/wasd/look/Look.qml
+    fi
+    if command -v "$candidate" >/dev/null 2>&1; then
+        exec "$candidate" /usr/share/wasd/look/Look.qml
+    fi
+done
+echo "WASD Look needs its window tool, and this image does not have it." >&2
+exit 127

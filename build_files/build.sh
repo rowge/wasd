@@ -96,8 +96,31 @@ install -m 0755 /ctx/wasd-install/lookapply.py /usr/libexec/wasd-apply-choices
 install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/agents.py
 install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/wasd-install-agents
 install -m 0755 /ctx/wasd-install/wasd-webapp /usr/libexec/wasd-webapp
+install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/windowsboot.py
+install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/wasd-windows-boot
+install -d /usr/lib/systemd/system/multi-user.target.wants
+ln -sfn ../wasd-windows-boot.service /usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service
 install -m 0755 /ctx/wasd-install/complete.py /usr/bin/wasd-complete
 chmod 0755 /usr/bin/wasd-install
+
+# Plasma ships the Qt 6 libraries. It does not ship the qml command.
+# Compile a small opener, then drop the compiler and the headers.
+had_qml_devel=0
+had_cxx=0
+rpm -q qt6-qtdeclarative-devel >/dev/null 2>&1 && had_qml_devel=1
+rpm -q gcc-c++ >/dev/null 2>&1 && had_cxx=1
+dnf5 -y install --setopt=install_weak_deps=False qt6-qtdeclarative-devel gcc-c++ pkgconf
+g++ -O2 -std=c++17 -o /usr/bin/wasd-qml /ctx/build_files/wasd-qml.cpp \
+    $(pkg-config --cflags --libs Qt6Gui Qt6Qml Qt6Quick)
+if [[ $had_qml_devel -eq 0 ]]; then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=True qt6-qtdeclarative-devel
+fi
+if [[ $had_cxx -eq 0 ]]; then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=True gcc-c++
+fi
+rpm -q qt6-qtdeclarative
+test -x /usr/bin/wasd-qml
+ldd /usr/bin/wasd-qml | grep -q 'libQt6Qml.so'
 
 # Keep shared libraries. Only the Waydroid packages themselves go.
 dnf5 -y remove --setopt=clean_requirements_on_remove=False waydroid waydroid-selinux
@@ -268,6 +291,7 @@ test -s /usr/share/wasd/install/Complete.qml
 test -s /usr/share/wasd/install/UserPage.qml
 test -s /usr/share/wasd/install/LiveHost.qml
 test -x /usr/bin/wasd-install
+test -x /usr/bin/wasd-qml
 test -x /usr/bin/wasd-complete
 test -x /usr/libexec/wasd-erase
 test -x /usr/libexec/wasd-live-info
@@ -283,6 +307,9 @@ test -s /usr/libexec/lookapply.py
 test -x /usr/libexec/wasd-install-agents
 test -s /usr/libexec/agents.py
 test -x /usr/libexec/wasd-webapp
+test -x /usr/libexec/wasd-windows-boot
+test -s /usr/lib/systemd/system/wasd-windows-boot.service
+test -L /usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service
 test -s /usr/share/wasd/install/SystemPage.qml
 test -s /usr/share/polkit-1/actions/org.wasd.password.policy
 test -s /usr/share/polkit-1/actions/org.wasd.wifi.policy

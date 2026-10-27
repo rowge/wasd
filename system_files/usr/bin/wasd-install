@@ -25,8 +25,20 @@ if [[ $live -eq 1 && -x /usr/libexec/wasd-network ]]; then
     net_pid=$!
 fi
 
-if command -v qml6 >/dev/null 2>&1; then
-    qml6 /usr/share/wasd/install/Main.qml
-else
-    qml /usr/share/wasd/install/Main.qml
-fi
+open_qml() {
+    local candidate
+    for candidate in /usr/bin/wasd-qml qml6 qml qml-qt6 /usr/lib64/qt6/bin/qml; do
+        if [[ $candidate == /* ]]; then
+            [[ -x $candidate ]] || continue
+            "$candidate" "$@"
+            return
+        fi
+        if command -v "$candidate" >/dev/null 2>&1; then
+            "$candidate" "$@"
+            return
+        fi
+    done
+    echo "Install WASD needs its window tool, and this image does not have it." >&2
+    return 127
+}
+open_qml /usr/share/wasd/install/Main.qml
