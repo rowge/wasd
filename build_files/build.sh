@@ -110,7 +110,7 @@ had_cxx=0
 rpm -q qt6-qtdeclarative-devel >/dev/null 2>&1 && had_qml_devel=1
 rpm -q gcc-c++ >/dev/null 2>&1 && had_cxx=1
 dnf5 -y install --setopt=install_weak_deps=False qt6-qtdeclarative-devel gcc-c++ pkgconf
-g++ -O2 -std=c++17 -o /usr/bin/wasd-qml /ctx/build_files/wasd-qml.cpp \
+g++ -O2 -std=c++17 -o /usr/bin/wasd-qml /ctx/wasd-qml.cpp \
     $(pkg-config --cflags --libs Qt6Gui Qt6Qml Qt6Quick)
 if [[ $had_qml_devel -eq 0 ]]; then
     dnf5 -y remove --setopt=clean_requirements_on_remove=True qt6-qtdeclarative-devel
