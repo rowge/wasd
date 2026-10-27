@@ -1,0 +1,8 @@
+{
+  "HomepageLocation": "https://wasd.run",
+  "HomepageIsNewTabPage": false,
+  "ShowHomeButton": true,
+  "RestoreOnStartup": 4,
+  "RestoreOnStartupURLs": ["https://wasd.run"],
+  "PromotionalTabsEnabled": false
+}

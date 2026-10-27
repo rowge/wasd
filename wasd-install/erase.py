@@ -914,7 +914,24 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         pass
     else:
         raise SystemExit("an unknown agent was accepted")
+    kick_path = install_kickstart_path()
+    if kick_path.name != "wasd-install.ks" or kick_path.parent == Path("/run"):
+        raise SystemExit(f"kickstart path {kick_path}")
     print("erase self-check ok")
+
+
+def install_kickstart_path():
+    """A file the live user can write and the installer can read after it becomes root.
+
+    /run itself is not writable by the live user, so the old path failed
+    before liveinst started.
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        directory = Path(runtime)
+        if directory.is_dir() and os.access(directory, os.W_OK):
+            return directory / "wasd-install.ks"
+    return Path("/tmp/wasd-install.ks")
 
 
 def main():
@@ -953,10 +970,18 @@ def main():
     except Refuse as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    path = Path("/run/wasd-install.ks")
-    path.write_text(kick)
-    os.chmod(path, 0o600)
-    os.execvp("liveinst", ["liveinst", "--kickstart", str(path)])
+    path = install_kickstart_path()
+    try:
+        path.write_text(kick)
+        os.chmod(path, 0o600)
+    except OSError:
+        print("The installer could not be started. Nothing was erased.", file=sys.stderr)
+        return 1
+    try:
+        os.execvp("liveinst", ["liveinst", "--kickstart", str(path)])
+    except OSError:
+        print("The installer could not be started. Nothing was erased.", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

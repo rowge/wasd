@@ -1,0 +1,8 @@
+[Wallet]
+Default Wallet=kdewallet
+Enabled=true
+First Use=false
+Launch Manager=false
+Leave Open=true
+Prompt on Open=false
+Use One Wallet=true

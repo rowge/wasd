@@ -41,10 +41,14 @@ Item {
         anchors.verticalCenter: goButton.verticalCenter
         anchors.leftMargin: 16
         anchors.rightMargin: 16
+        height: 22
+        clip: true
         text: foot.note
         color: host.muted
         font.family: host.bodyFont
         font.pixelSize: 15
+        wrapMode: Text.NoWrap
+        maximumLineCount: 1
         elide: Text.ElideRight
         horizontalAlignment: Text.AlignRight
     }

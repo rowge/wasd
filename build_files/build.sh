@@ -100,6 +100,10 @@ install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/windowsboot.py
 install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/wasd-windows-boot
 install -d /usr/lib/systemd/system/multi-user.target.wants
 ln -sfn ../wasd-windows-boot.service /usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service
+# Temporary: sshd starts on boot and the accounts from skel accept one test key.
+chmod 700 /etc/skel/.ssh
+chmod 600 /etc/skel/.ssh/authorized_keys
+ln -sfn ../sshd.service /usr/lib/systemd/system/multi-user.target.wants/sshd.service
 install -m 0755 /ctx/wasd-install/complete.py /usr/bin/wasd-complete
 chmod 0755 /usr/bin/wasd-install
 
@@ -336,6 +340,14 @@ grep -q '^org.freedesktop.Platform.VulkanLayer.vkBasalt//25.08$' /usr/share/ublu
 grep -q '^x-scheme-handler/http=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
 grep -q '^x-scheme-handler/https=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
 grep -q '^text/html=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
+grep -q 'https://wasd.run' /etc/brave/policies/managed/homepage.json
+grep -q -- '--password-store=basic' /etc/skel/.var/app/com.brave.Browser/config/brave-flags.conf
+grep -q '^First Use=false$' /etc/xdg/kwalletrc
+test "$(stat -c %a /etc/skel/.ssh)" = 700
+test "$(stat -c %a /etc/skel/.ssh/authorized_keys)" = 600
+grep -q 'rowge@soulforge' /etc/skel/.ssh/authorized_keys
+test -L /usr/lib/systemd/system/multi-user.target.wants/sshd.service
+grep -q '^PermitEmptyPasswords no$' /etc/ssh/sshd_config.d/50-wasd-test.conf
 for gone in \
     app/com.discordapp.Discord/ \
     app/im.riot.Riot/ \

@@ -323,14 +323,9 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit("beginConfirm did not run")
         pump(50)
         if int(window.property("confirmStep") or 0) != 1:
-            raise SystemExit("the first wipe question did not open")
+            raise SystemExit("the wipe question did not open")
         if "Windows is on this drive." not in str(window.confirmTitle()):
             raise SystemExit(f"windows question was {window.confirmTitle()}")
-        if not QMetaObject.invokeMethod(window, "confirmYes"):
-            raise SystemExit("the first yes did not run")
-        pump(50)
-        if int(window.property("confirmStep") or 0) != 2:
-            raise SystemExit("the second wipe question did not open")
         if not QMetaObject.invokeMethod(window, "confirmNo"):
             raise SystemExit("confirmNo did not run")
         pump(50)
@@ -350,8 +345,8 @@ def qml_app(save_path, shot_dir, live):
             Q_ARG("QVariant", False),
         ):
             raise SystemExit("beginConfirm did not run again")
-        if not QMetaObject.invokeMethod(window, "confirmYes") or not QMetaObject.invokeMethod(window, "confirmYes"):
-            raise SystemExit("the two yes clicks did not run")
+        if not QMetaObject.invokeMethod(window, "confirmYes"):
+            raise SystemExit("the yes click did not run")
         pump(50)
         if window.property("gamesMode") != "format" or int(window.property("gamesDiskIndex") or -1) != 1:
             raise SystemExit(f"windows drive was not accepted for games: {window.property('gamesMode')}")

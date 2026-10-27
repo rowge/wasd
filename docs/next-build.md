@@ -14,6 +14,10 @@ This build puts Install WASD on the live desktop, on the desktop icon, and in th
 
 ## Waiting
 
+The Bazzite pins in `images.env` were checked on 2026-10-27 and both tags had moved. This build uses those digests.
+
+The disk page leaves out the live USB and zram. The five names on the left open that step. Erase asks once. The installer file is written where the live user can write it, and a failure stays one sentence. Brave opens https://wasd.run. Brave keeps its own passwords, so the KDE wallet setup does not appear. sshd starts on boot, and accounts copied from skel accept one test key. An empty password cannot be used over SSH. The key, the sshd enable, and the sshd drop-in come out together when the laptop no longer needs remote checks.
+
 The optional apps are out of the image lists in this tree. Brave, MangoHud, and vkBasalt stay. The ISO is smaller after the next build, not before.  The live desktop opens one window, Install WASD, and no other popup. Closing that window leaves the live desktop usable. Warnings (legacy BIOS / CSM, low memory, another operating system already on a disk) sit at the top of that window. If the firmware is legacy BIOS, the window says to switch it to UEFI and the install stays unavailable. They can still close the window.
 
 When nothing is blocking the install, the wizard steps are titled User, Look, Apps & Agents, System, and Disk. Disk is last.

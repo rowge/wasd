@@ -730,13 +730,18 @@ Window {
         confirmStartsInstall = false
     }
 
+    function showPage(next) {
+        const index = parseInt(next, 10)
+        if (index < 0 || index > 4 || erasing)
+            return
+        if (index !== page)
+            confirmNo()
+        page = index
+    }
+
     function confirmYes() {
         if (confirmStep < 1)
             return
-        if (confirmStep === 1) {
-            confirmStep = 2
-            return
-        }
         const start = confirmStartsInstall && confirmAction === "system"
         applyConfirm()
         confirmStep = 0
@@ -783,33 +788,24 @@ Window {
         if (confirmIndex < 0 || confirmIndex >= disks.count)
             return ""
         const row = disks.get(confirmIndex)
-        if (confirmStep === 1 && row.windows)
+        if (row.windows && confirmAction === "system")
+            return "This erases Windows."
+        if (row.windows)
             return "Windows is on this drive."
-        if (confirmStep === 1 && confirmAction === "gamesKeep")
+        if (confirmAction === "gamesKeep")
             return "Use this drive for games?"
-        if (confirmStep === 1)
-            return "This drive will be wiped."
-        if (confirmAction === "system")
-            return row.windows ? "This erases Windows." : "Install WASD on this drive?"
         if (confirmAction === "gamesWipe")
             return "Wipe this drive and use it for games?"
         if (confirmAction === "leave")
             return "Wipe this drive and leave it empty?"
-        return "Use this drive for games?"
+        return "This drive will be wiped."
     }
 
     function confirmBody() {
         if (confirmIndex < 0 || confirmIndex >= disks.count)
             return ""
-        const row = disks.get(confirmIndex)
-        if (confirmStep === 1 && row.windows)
-            return "Are you sure Windows is here?"
-        if (confirmStep === 1 && confirmAction === "gamesKeep")
-            return "WASD will use this drive and will not erase it. Are you sure?"
-        if (confirmStep === 1)
-            return "Are you sure?"
         if (confirmAction === "gamesKeep")
-            return "The files stay. The drive is mounted at /games. Are you sure?"
+            return "WASD will use this drive and will not erase it. Are you sure?"
         if (confirmAction === "leave")
             return "The files will be deleted. WASD will not install here and will not use it for games. Are you sure?"
         if (confirmAction === "gamesWipe")
@@ -1206,11 +1202,12 @@ Window {
                 Repeater {
                     model: ["User", "Look", "Apps & Agents", "System", "Disk"]
                     delegate: Rectangle {
+                        id: step
                         required property string modelData
                         required property int index
                         width: parent.width
                         height: 40
-                        color: win.page === index ? win.brass : "transparent"
+                        color: win.page === index ? win.brass : (stepArea.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
 
                         Text {
                             anchors.fill: parent
@@ -1221,6 +1218,15 @@ Window {
                             font.family: win.bodyFont
                             font.pixelSize: 16
                             font.bold: win.page === index
+                        }
+
+                        MouseArea {
+                            id: stepArea
+                            anchors.fill: parent
+                            enabled: !win.erasing
+                            hoverEnabled: true
+                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: win.showPage(index)
                         }
                     }
                 }
@@ -1291,7 +1297,11 @@ Window {
         }
         function onEraseFinished(code, line) {
             win.erasing = false
-            win.savedLine = line || (code === 0 ? "The installer finished." : "Nothing was erased.")
+            const text = (line || "").replace(/\s+/g, " ").trim()
+            if (!text || text.indexOf("Traceback") >= 0 || text.indexOf("File \"") >= 0)
+                win.savedLine = code === 0 ? "The installer finished." : "Nothing was erased."
+            else
+                win.savedLine = text.length > 160 ? text.slice(0, 160) : text
         }
     }
 }

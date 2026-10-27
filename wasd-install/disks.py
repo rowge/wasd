@@ -186,7 +186,8 @@ def live_disk_names(payload):
     def consider(node):
         name = str(node.get("name") or "")
         label = str(node.get("label") or "")
-        hit = label == "WASD"
+        fstype = (node.get("fstype") or "").lower()
+        hit = label.casefold() == "wasd" or fstype == "iso9660"
         for mount in _mounts(node):
             if mount == "/run/initramfs/live" or mount.startswith("/run/initramfs/"):
                 hit = True
@@ -228,6 +229,38 @@ def memory_kb():
     return 0
 
 
+def parent_disk(name):
+    if name.startswith(("nvme", "mmcblk")):
+        return re.sub(r"p\d+$", "", name)
+    return re.sub(r"\d+$", "", name)
+
+
+def live_usb_from_os():
+    """The disk behind /dev/disk/by-label/WASD, when this is the live system."""
+    found = set()
+    try:
+        link = Path("/dev/disk/by-label/WASD")
+        if link.exists():
+            parent = parent_disk(link.resolve().name)
+            if parent:
+                found.add(parent)
+    except OSError:
+        return found
+    return found
+
+
+def shown_disks(payload, extra_banned=()):
+    """Disks a person can install onto. The live USB and zram stay off the list."""
+    banned = set(live_disk_names(payload)) | set(extra_banned)
+    shown = []
+    for disk in parse_disks(payload):
+        device = disk["device"]
+        if not DEVICE_NAME.fullmatch(device) or device in banned:
+            continue
+        shown.append(disk)
+    return shown
+
+
 def live_disks():
     result = subprocess.run(
         ["lsblk", "-J", "-b", "-o", "NAME,SIZE,MODEL,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS"],
@@ -235,7 +268,7 @@ def live_disks():
         capture_output=True,
         text=True,
     )
-    return parse_disks(result.stdout)
+    return shown_disks(result.stdout, live_usb_from_os())
 
 
 def live_payload():
@@ -327,3 +360,22 @@ def self_check():
         raise SystemExit(f"windows disk became a games drive {marked[1]}")
     if marked[1]["part"] != "nvme1n1p2" or marked[1]["fstype"] != "ntfs" or not marked[1]["uuid"]:
         raise SystemExit(f"windows disk hid its ntfs partition {marked[1]}")
+    hidden = {
+        "blockdevices": [
+            payload["blockdevices"][0],
+            payload["blockdevices"][1],
+            {"name": "zram0", "type": "disk", "size": 16_000_000_000, "model": ""},
+            {
+                "name": "sdb",
+                "type": "disk",
+                "size": 32_000_000_000,
+                "model": "Cruzer Fit",
+                "children": [{"name": "sdb1", "type": "part", "fstype": "iso9660"}],
+            },
+        ]
+    }
+    visible = [disk["device"] for disk in shown_disks(hidden)]
+    if visible != ["nvme0n1"]:
+        raise SystemExit(f"live usb or zram stayed on the list {visible}")
+    if parent_disk("nvme0n1p1") != "nvme0n1" or parent_disk("sda1") != "sda":
+        raise SystemExit("parent disk names were wrong")
