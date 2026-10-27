@@ -124,7 +124,9 @@ if [[ $had_cxx -eq 0 ]]; then
 fi
 rpm -q qt6-qtdeclarative
 test -x /usr/bin/wasd-qml
-ldd /usr/bin/wasd-qml | grep -q 'libQt6Qml.so'
+# grep -q stops at the first hit. The writer then dies with SIGPIPE, and
+# pipefail fails the build. Read the whole listing.
+ldd /usr/bin/wasd-qml | grep 'libQt6Qml.so' >/dev/null
 
 # Keep shared libraries. Only the Waydroid packages themselves go.
 dnf5 -y remove --setopt=clean_requirements_on_remove=False waydroid waydroid-selinux
@@ -211,7 +213,8 @@ fi
 # We10XOS-dark, and that package's splash is removed so the session keeps the W.
 dnf5 -y install --setopt=install_weak_deps=False kvantum
 rpm -q kvantum
-rpm -ql kvantum | grep -q 'kvantum.so'
+# Same SIGPIPE rule as the initramfs check below.
+rpm -ql kvantum | grep 'kvantum.so' >/dev/null
 python3 /ctx/install-themes.py
 test -d /usr/share/icons/oxygen
 
