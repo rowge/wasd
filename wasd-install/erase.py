@@ -73,6 +73,16 @@ GAMES_LOG = Path("/tmp/wasd-install-games.log")
 ACCOUNT_LOG = Path("/tmp/wasd-install-account.log")
 POST_LOG = Path("/tmp/wasd-install-post.log")
 FLATPAK_SOURCE = Path("/var/lib/flatpak")
+# security.selinux cannot be removed on the new disk, so the copy skips it.
+# The label step writes those labels. File capabilities still copy. Once an
+# xattr filter is set, rsync no longer skips system.* on its own.
+RSYNC_APPS = [
+    "rsync",
+    "-aAXUHKP",
+    "--open-noatime",
+    "--filter=-x system.*",
+    "--filter=-x security.selinux",
+]
 SECUREBOOT_KEY = Path("/usr/share/ublue-os/sb_pubkey.der")
 # Public MOK password from the disk page. It is not an account password.
 ENROLLMENT_PASSWORD = "universalblue"
@@ -2187,7 +2197,7 @@ def checked_post(argv, jail):
     if host_root(jail_path):
         raise PostProblem(UPDATES_FAILED)
     if argv[0] == "rsync":
-        if argv != ["rsync", "-aAXUHKP", "--open-noatime", "/var/lib/flatpak", argv[-1]]:
+        if argv[:-1] != RSYNC_APPS or argv[-1] == RSYNC_APPS[-1]:
             raise PostProblem(APPS_FAILED)
         dest = Path(argv[-1])
         if not dest.is_absolute() or dest.is_symlink() or not inside_sysroot(dest, jail_path):
@@ -2320,7 +2330,7 @@ def flatpak_dir(deploy, jail):
 def flatpak_argv(dest, jail):
     if Path(dest).is_symlink():
         raise PostProblem(APPS_FAILED)
-    argv = ["rsync", "-aAXUHKP", "--open-noatime", "/var/lib/flatpak", str(Path(dest).resolve())]
+    argv = [*RSYNC_APPS, str(Path(dest).resolve())]
     checked_post(argv, jail)
     return argv
 
@@ -3417,7 +3427,7 @@ def check_post():
         raise SystemExit("the enrollment password was put on the command")
     if not stdin_ok(commands[1], import_stdin()) or stdin_ok(commands[1], "nope\n"):
         raise SystemExit("the enrollment password was not kept on standard input")
-    if stdin_ok(["rsync", "-aAXUHKP", "--open-noatime", "/var/lib/flatpak", "/run/wasd-sysroot/x"], import_stdin()):
+    if stdin_ok([*RSYNC_APPS, "/run/wasd-sysroot/x"], import_stdin()):
         raise SystemExit("a copy command was given the enrollment password")
     try:
         checked_post(["mokutil", "-t", str(SECUREBOOT_KEY)], Path("/tmp"))
@@ -3443,7 +3453,7 @@ def check_post():
         if dest != shared.resolve():
             raise SystemExit(f"the apps were aimed at {dest}")
         copied = flatpak_argv(dest, jail)
-        if copied != ["rsync", "-aAXUHKP", "--open-noatime", "/var/lib/flatpak", str(dest)]:
+        if copied != [*RSYNC_APPS, str(dest)]:
             raise SystemExit(f"the app copy was {copied}")
         if ENROLLMENT_PASSWORD in " ".join(copied):
             raise SystemExit("the enrollment password was put on the app copy")
