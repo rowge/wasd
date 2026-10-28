@@ -9,6 +9,7 @@ on:
       - system_files/**
       - wasd-icons/**
       - wasd-wallpapers/**
+      - wasd-install/**
       - installer/**
       - Justfile
       - image-template.env
@@ -215,13 +216,14 @@ jobs:
           set -u
           base=$(awk -F= -v key="${VARIANT}_base" '$1 == key { print substr($0, index($0, "=") + 1); exit }' images.env)
           podman rmi -f "localhost/wasd-live:${VARIANT}" || true
-          while read -r ref; do
-            [[ -n $ref ]] || continue
-            repo=${ref%:*}
-            if [[ ${repo##*/} == "$IMAGE_NAME" ]]; then
-              podman rmi -f "$ref" || true
+          # Untagged images print as <none>, and that name does not remove them.
+          while read -r id repo; do
+            [[ -n $id ]] || continue
+            name=${repo##*/}
+            if [[ $name == "$IMAGE_NAME" || $name == "wasd-live" ]]; then
+              podman rmi -f "$id" || true
             fi
-          done < <(podman images --format '{{.Repository}}:{{.Tag}}')
+          done < <(podman images --format '{{.ID}} {{.Repository}}')
           if [[ -n $base ]]; then
             podman rmi -f "$base" || true
           fi
