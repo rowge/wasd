@@ -8,11 +8,12 @@ Item {
     property bool showBack: true
     property string note: ""
     property string altText: ""
+    property bool showGo: true
     signal back()
     signal go()
     signal alt()
 
-    implicitHeight: foot.altText !== "" ? 108 : 64
+    implicitHeight: foot.altText !== "" && foot.showGo ? 108 : 64
 
     Text {
         id: backText
@@ -57,8 +58,8 @@ Item {
         id: altButton
         visible: foot.altText !== ""
         anchors.right: parent.right
-        anchors.bottom: goButton.top
-        anchors.bottomMargin: 8
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: foot.showGo && foot.altText !== "" ? 52 : 10
         width: altLabel.implicitWidth + 36
         height: 44
         color: "transparent"
@@ -86,15 +87,17 @@ Item {
 
     Rectangle {
         id: goButton
+        visible: foot.showGo
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: foot.altText === "" ? 10 : 0
+        anchors.bottomMargin: foot.altText !== "" && foot.showGo ? 0 : 10
         width: goLabel.implicitWidth + 36
         height: 44
         color: foot.nextEnabled ? host.brass : Qt.rgba(196 / 255, 165 / 255, 116 / 255, 0.35)
 
         Text {
             id: goLabel
+            objectName: "eraseButtonLabel"
             anchors.centerIn: parent
             text: foot.nextText
             color: "#24160e"

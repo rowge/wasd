@@ -16,10 +16,47 @@ mkdir -p /var/lib/rpm-state # Needed for Anaconda Web UI
 dnf install -qy --setopt=install_weak_deps=0 qrencode yad
 
 # Variables
-imageref="$(podman images --format '{{ index .Names 0 }}\n' '*wasd*' | head -1)"
-imageref="${imageref##*://}"
-imageref="${imageref%%:*}"
-imagetag="$(podman images --format '{{ .Tag }}\n' "$imageref" | head -1)"
+# The image is pulled by digest, so podman lists it as
+# ghcr.io/rowge/wasd@sha256:<hex> and the tag is <none>.
+# Cutting that name at the first colon left ghcr.io/rowge/wasd@sha256
+# and an empty tag. The installer then told bootc to copy a blank digest.
+image_line="$(podman images --format '{{.Repository}} {{.Tag}} {{.Digest}}' '*wasd*')"
+if [[ -z $image_line ]]; then
+    echo "no WASD image is loaded for the installer" >&2
+    exit 1
+fi
+image_count=$(wc -l <<<"$image_line")
+if [[ $image_count -ne 1 ]]; then
+    echo "expected one WASD image for the installer, found ${image_count}" >&2
+    printf '%s\n' "$image_line" >&2
+    exit 1
+fi
+read -r image_repo image_tag image_digest <<<"$image_line"
+if [[ -z $image_repo || $image_repo == "<none>" || $image_repo == *:* || $image_repo == *@* || $image_repo == *..* ]]; then
+    echo "the WASD image name is not usable: ${image_repo}" >&2
+    exit 1
+fi
+if [[ ! $image_digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "the WASD image has no digest" >&2
+    exit 1
+fi
+# Published images use the latest tag. A digest-only load has no tag, so
+# name it latest. The copy and later updates then both use that name.
+if [[ -z $image_tag || $image_tag == "<none>" ]]; then
+    image_tag=latest
+    podman tag "${image_repo}@${image_digest}" "${image_repo}:${image_tag}"
+elif [[ $image_tag == *[!A-Za-z0-9._-]* || $image_tag == -* || $image_tag == *..* ]]; then
+    echo "the WASD image tag is not usable: ${image_tag}" >&2
+    exit 1
+fi
+imageref="$image_repo"
+imagetag="$image_tag"
+image_ref="${imageref}:${imagetag}"
+if [[ $image_ref == *[!A-Za-z0-9._:/-]* || $image_ref == -* || $image_ref == *..* ]]; then
+    echo "the installer image reference is not usable: ${image_ref}" >&2
+    exit 1
+fi
+podman image exists "$image_ref"
 sbkey='https://github.com/ublue-os/akmods/raw/main/certs/public_key.der'
 SECUREBOOT_KEY="/usr/share/ublue-os/sb_pubkey.der"
 SECUREBOOT_DOC_URL="https://docs.bazzite.gg/sb"

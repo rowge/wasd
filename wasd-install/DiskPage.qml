@@ -438,11 +438,16 @@ Item {
         host: page.host
         nextText: host.eraseLabel
         nextEnabled: !host.installBlocked && host.diskIndex >= 0 && !host.erasing
-        altText: "Set up /games"
+        showGo: host.showEraseButton
+        altText: host.gamesAltLabel
         note: host.savedLine
         onBack: host.page = 3
         onGo: host.installOrConfirm()
         onAlt: {
+            if (host.gamesOpen) {
+                host.useWholeDrive()
+                return
+            }
             host.openGamesSection()
             Qt.callLater(function() {
                 scroller.contentY = Math.max(0, gamesHead.y - 12)

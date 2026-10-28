@@ -119,9 +119,21 @@ Window {
     readonly property var wallpaperFiles: files.wallpapers || []
     readonly property bool hostnameOk: /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(hostname)
     readonly property bool userOk: userName.trim() === "" || (/^[a-z][a-z0-9-]{0,31}$/.test(userName.trim()) && userName.trim() !== "root")
-    readonly property string eraseLabel: diskIndex >= 0 && diskIndex < disks.count && disks.get(diskIndex).windows
-            ? "Erase Windows and install WASD"
-            : "Erase the selected disk and install WASD"
+    readonly property bool gamesChosen: gamesMode === "split" || gamesMode === "keep" || gamesMode === "format"
+    readonly property bool showEraseButton: !gamesOpen || gamesChosen
+    readonly property string gamesAltLabel: gamesOpen
+            ? "I changed my mind. Use the whole drive."
+            : "Set up /games"
+    readonly property string eraseLabel: {
+        const windows = diskIndex >= 0 && diskIndex < disks.count && disks.get(diskIndex).windows
+        if (gamesChosen)
+            return windows
+                    ? "Erase Windows and install with the games partition"
+                    : "Erase the disk and install with the games partition"
+        return windows
+                ? "Erase Windows and install WASD"
+                : "Erase the selected disk and install WASD"
+    }
     readonly property string appSummary: appCount() + " selected"
     readonly property string agentSummary: selectedAgentNames().join(", ") || "None selected"
     property bool networkConnected: true
@@ -674,32 +686,22 @@ Window {
             beginConfirm("gamesWipe", index, false)
     }
 
+    function useWholeDrive() {
+        clearGames()
+        gamesOpen = false
+    }
+
     function openGamesSection() {
-        if (diskIndex < 0 || disks.count < 1)
+        if (diskIndex < 0 || disks.count < 1 || gamesOpen)
             return
-        if (disks.count === 1) {
-            if (gamesOpen) {
-                gamesOpen = false
-                if (gamesMode === "split")
-                    clearGames()
-                return
-            }
-            gamesOpen = true
-            if (splitFits())
-                chooseSplit()
-            return
-        }
         gamesOpen = true
+        if (disks.count === 1 && splitFits())
+            chooseSplit()
     }
 
     function toggleGamesOpen() {
-        if (gamesOpen) {
-            gamesOpen = false
-            if (gamesMode === "split")
-                clearGames()
-            return
-        }
-        openGamesSection()
+        if (!gamesOpen)
+            openGamesSection()
     }
 
     function reconcileGames() {
@@ -1160,6 +1162,7 @@ Window {
         warnings = data.warnings || []
         installBlocked = !!data.blocked
         clearGames()
+        gamesOpen = false
         diskIndex = -1
         disks.clear()
         const rows = data.disks || []

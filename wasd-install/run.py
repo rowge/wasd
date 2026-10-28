@@ -283,6 +283,13 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit("/games stayed closed")
         if window.property("gamesMode") != "off":
             raise SystemExit("Set up /games split a second drive before a drive was chosen")
+        if window.property("showEraseButton") is not False:
+            raise SystemExit("the whole-disk button stayed up before a games choice")
+        early_erase = quick.findChild(QQuickItem, "eraseButtonLabel")
+        if early_erase is not None and _shown(early_erase):
+            raise SystemExit("the whole-disk button was still visible")
+        if label.property("text") != "I changed my mind. Use the whole drive.":
+            raise SystemExit(f"the games button was {label.property('text')}")
         if not QMetaObject.invokeMethod(window, "pickGamesDrive", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 0)):
             raise SystemExit("pickGamesDrive did not run for the install drive")
         pump(50)
@@ -466,12 +473,31 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit(f"games choice {games_data.get('games')}")
         if b"passphrase" in games_raw or b"wpakey" in games_raw:
             raise SystemExit("the games choice kept a secret")
+        erase_label = quick.findChild(QQuickItem, "eraseButtonLabel")
+        whole_drive = quick.findChild(QQuickItem, "chooseGamesLabel")
+        if erase_label is None or not _shown(erase_label) or erase_label.property("text") != "Erase the disk and install with the games partition":
+            actual = None if erase_label is None else erase_label.property("text")
+            raise SystemExit(f"the games install button was {actual}")
+        if whole_drive is None or not _shown(whole_drive) or whole_drive.property("text") != "I changed my mind. Use the whole drive.":
+            actual = None if whole_drive is None else whole_drive.property("text")
+            raise SystemExit(f"the whole-drive button was {actual}")
         grab(shot / "disk-one.png")
         if not QMetaObject.invokeMethod(window, "openGamesSection"):
             raise SystemExit("the second Set up /games did not run")
         pump(50)
+        if window.property("gamesMode") != "split" or window.property("gamesOpen") is not True:
+            raise SystemExit("Set up /games cleared the games partition")
+        if not QMetaObject.invokeMethod(window, "useWholeDrive"):
+            raise SystemExit("useWholeDrive did not run")
+        pump(50)
         if window.property("gamesMode") != "off" or window.property("gamesOpen") is not False:
-            raise SystemExit("Set up /games did not close the slider")
+            raise SystemExit("the whole-drive button did not clear games")
+        if window.property("eraseLabel") != "Erase the selected disk and install WASD":
+            raise SystemExit(f"the whole-disk button was {window.property('eraseLabel')}")
+        if not _shown(erase_label) or erase_label.property("text") != "Erase the selected disk and install WASD":
+            raise SystemExit(f"the whole-disk button text was {erase_label.property('text')}")
+        if whole_drive.property("text") != "Set up /games":
+            raise SystemExit(f"Set up /games did not return: {whole_drive.property('text')}")
         window.applyLive(json.dumps({"warnings": [], "blocked": False, "disks": parse_disks(FIXTURE)}))
         pump(50)
         snap = json.loads(window.diskSnapshot())
