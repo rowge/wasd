@@ -152,9 +152,17 @@ cp -av /usr/lib/efi/*/*/EFI /boot/efi/
 # Remove fallback efi
 cp -v /boot/efi/EFI/fedora/grubx64.efi /boot/efi/EFI/BOOT/fbx64.efi # NOTE: remove this line if breaks bootloader
 
-# Set the timezone to UTC
+# Pacific Time, including daylight saving. The hardware clock stays UTC.
 rm -f /etc/localtime
-systemd-firstboot --timezone UTC
+systemd-firstboot --timezone America/Los_Angeles
+zone_now=$(readlink -f /etc/localtime)
+case $zone_now in
+    */America/Los_Angeles) ;;
+    *)
+        echo "time zone was not set to Pacific Time" >&2
+        exit 1
+        ;;
+esac
 
 # / in a booted live ISO is an overlayfs with upperdir pointed somewhere under /run
 # This means that /var/tmp is also technically under /run.

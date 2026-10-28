@@ -35,6 +35,10 @@ Window {
     property bool setPassword: false
     property bool liveSession: false
     property bool erasing: false
+    property string installStage: ""
+    property string stagesSeen: ""
+    property bool restartAsked: false
+    property bool restartSent: false
     property string encodedChoices: ""
     property string lookOpen: ""
     property string loadingChoice: "stained-glass.jpg"
@@ -732,11 +736,112 @@ Window {
 
     function showPage(next) {
         const index = parseInt(next, 10)
-        if (index < 0 || index > 4 || erasing)
+        if (index < 0 || index > 4 || erasing || installStage === "done")
             return
+        if (installStage === "failed")
+            installStage = ""
         if (index !== page)
             confirmNo()
         page = index
+    }
+
+    function stageRank(stage) {
+        const order = ["prepare", "copy", "account", "boot", "done"]
+        for (let i = 0; i < order.length; i++) {
+            if (order[i] === stage)
+                return i
+        }
+        return -1
+    }
+
+    function stageForLine(line) {
+        if (line === "Preparing the disk.")
+            return "prepare"
+        if (line === "Copying WASD.")
+            return "copy"
+        if (line === "Setting up your account.")
+            return "account"
+        if (line === "Installing the bootloader.")
+            return "boot"
+        if (line === "You can remove the USB stick. Press Enter to restart.")
+            return "done"
+        return ""
+    }
+
+    function installLine() {
+        if (installStage === "prepare")
+            return "Preparing the disk."
+        if (installStage === "copy")
+            return "Copying WASD."
+        if (installStage === "account")
+            return "Setting up your account."
+        if (installStage === "boot")
+            return "Installing the bootloader."
+        if (installStage === "done")
+            return "You can remove the USB stick. Press Enter to restart."
+        if (installStage === "failed")
+            return savedLine
+        return ""
+    }
+
+    function applyInstallLine(text) {
+        const line = String(text || "").replace(/\s+/g, " ").trim()
+        const next = stageForLine(line)
+        if (!next || installStage === "failed" || installStage === "done")
+            return false
+        if (installStage !== "" && stageRank(next) < stageRank(installStage))
+            return false
+        installStage = next
+        if ((" " + stagesSeen + " ").indexOf(" " + next + " ") < 0)
+            stagesSeen = stagesSeen ? stagesSeen + " " + next : next
+        erasing = true
+        savedLine = installLine()
+        return true
+    }
+
+    function noteInstall(text) {
+        const lines = String(text || "").split("\n")
+        let moved = false
+        for (let i = 0; i < lines.length; i++) {
+            if (applyInstallLine(lines[i]))
+                moved = true
+        }
+        return moved
+    }
+
+    function stageSeen(stage) {
+        return (" " + stagesSeen + " ").indexOf(" " + stage + " ") >= 0
+    }
+
+    function beginInstallStatus() {
+        installStage = "prepare"
+        stagesSeen = "prepare"
+        erasing = true
+        restartSent = false
+        savedLine = installLine()
+        confirmNo()
+    }
+
+    function failInstall(text) {
+        if (installStage === "done")
+            return
+        const line = String(text || "").replace(/\s+/g, " ").trim()
+        if (!line || line.indexOf("Traceback") >= 0 || line.indexOf("File \"") >= 0)
+            savedLine = "Nothing was erased."
+        else
+            savedLine = line.length > 160 ? line.slice(0, 160) : line
+        installStage = "failed"
+        erasing = false
+    }
+
+    function restartNow() {
+        if (installStage !== "done" || restartSent)
+            return
+        restartSent = true
+        restartAsked = true
+        if (!liveSession || !liveLoader.item)
+            return
+        liveLoader.item.restart()
     }
 
     function confirmYes() {
@@ -1046,8 +1151,7 @@ Window {
             savedLine = "The installer is not ready. Nothing was erased."
             return
         }
-        erasing = true
-        savedLine = "Starting the install."
+        beginInstallStatus()
         liveLoader.item.erase(utf8Base64(choicesJson()))
     }
 
@@ -1159,7 +1263,8 @@ Window {
 
                 MouseArea {
                     anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
+                    enabled: win.installStage === "" || win.installStage === "failed" || win.installStage === "done"
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: Qt.quit()
                 }
             }
@@ -1248,9 +1353,26 @@ Window {
 
             Loader {
                 anchors.fill: parent
-                sourceComponent: win.page === 0 ? userComp : win.page === 1 ? lookComp : win.page === 2 ? appsComp : win.page === 3 ? systemComp : diskComp
+                sourceComponent: win.installStage !== "" ? statusComp : win.page === 0 ? userComp : win.page === 1 ? lookComp : win.page === 2 ? appsComp : win.page === 3 ? systemComp : diskComp
             }
         }
+    }
+
+    Shortcut {
+        sequence: "Return"
+        enabled: win.installStage === "done"
+        onActivated: win.restartNow()
+    }
+
+    Shortcut {
+        sequence: "Enter"
+        enabled: win.installStage === "done"
+        onActivated: win.restartNow()
+    }
+
+    Component {
+        id: statusComp
+        InstallStatus { host: win }
     }
 
     Component {
@@ -1295,13 +1417,39 @@ Window {
         function onFilesReady(payload) {
             win.files = JSON.parse(payload)
         }
-        function onEraseFinished(code, line) {
-            win.erasing = false
+        function onStatusLine(line) {
+            if (win.installStage === "done" || win.installStage === "failed")
+                return
             const text = (line || "").replace(/\s+/g, " ").trim()
-            if (!text || text.indexOf("Traceback") >= 0 || text.indexOf("File \"") >= 0)
-                win.savedLine = code === 0 ? "The installer finished." : "Nothing was erased."
+            if (!text)
+                return
+            if (
+                text.indexOf("Nothing was erased.") >= 0
+                || text === "The disk was erased. The install did not finish."
+                || text.indexOf("The games partition was not created.") >= 0
+                || text.indexOf("The account was not set up.") >= 0
+                || text.indexOf("The installed apps were not copied.") >= 0
+                || text.indexOf("Later updates were not pointed at WASD.") >= 0
+                || text.indexOf("The security labels were not restored.") >= 0
+            ) {
+                win.failInstall(text)
+                return
+            }
+            win.noteInstall(text)
+        }
+        function onEraseFinished(code, line) {
+            if (win.installStage === "done")
+                return
+            win.noteInstall(line || "")
+            if (code === 0 && win.installStage === "done")
+                return
+            if (win.installStage === "failed")
+                return
+            const text = (line || "").replace(/\s+/g, " ").trim()
+            if (code === 0)
+                win.failInstall(text || "The installer finished.")
             else
-                win.savedLine = text.length > 160 ? text.slice(0, 160) : text
+                win.failInstall(text)
         }
     }
 }

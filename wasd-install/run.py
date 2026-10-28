@@ -681,6 +681,97 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit("the account picture stayed selected")
         grab(shot / "user-no-avatar.png")
         window.setProperty("avatar", "knight.jpg")
+        if window.property("installStage"):
+            raise SystemExit(f"install status started early: {window.property('installStage')}")
+        if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", "Copying WASD.")):
+            raise SystemExit("noteInstall did not run")
+        pump(50)
+        if window.property("installStage") != "copy" or window.installLine() != "Copying WASD.":
+            raise SystemExit(f"copy status was {window.property('installStage')} {window.installLine()}")
+        if window.stageSeen("account"):
+            raise SystemExit("the account step was marked during the copy")
+        if window.property("erasing") is not True:
+            raise SystemExit("the steps stayed clickable during the copy")
+        held_page = int(window.property("page") or 0)
+        if not QMetaObject.invokeMethod(window, "showPage", Q_ARG("QVariant", 0)):
+            raise SystemExit("showPage did not run during the copy")
+        pump(50)
+        if int(window.property("page") or 0) != held_page:
+            raise SystemExit("a step click left the status")
+        if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", "Preparing the disk.")):
+            raise SystemExit("noteInstall did not run for the earlier stage")
+        pump(50)
+        if window.property("installStage") != "copy":
+            raise SystemExit("the status moved backward")
+        if not QMetaObject.invokeMethod(window, "restartNow"):
+            raise SystemExit("restartNow did not run during the copy")
+        pump(50)
+        if window.property("restartAsked") is True:
+            raise SystemExit("Enter restarted before the copy finished")
+        grab(shot / "install-status.png")
+        for sentence, stage in (
+            ("Setting up your account.", "account"),
+            ("Installing the bootloader.", "boot"),
+            ("You can remove the USB stick. Press Enter to restart.", "done"),
+        ):
+            if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", sentence)):
+                raise SystemExit(f"noteInstall did not run for {sentence}")
+            pump(50)
+            if window.property("installStage") != stage or window.installLine() != sentence:
+                raise SystemExit(f"status {sentence} was {window.property('installStage')} {window.installLine()}")
+            if not window.stageSeen(stage):
+                raise SystemExit(f"the {stage} step was not recorded")
+        if window.property("erasing") is not True:
+            raise SystemExit("the steps unlocked before restart")
+        if not QMetaObject.invokeMethod(window, "showPage", Q_ARG("QVariant", 4)):
+            raise SystemExit("showPage did not run on the last line")
+        pump(50)
+        if int(window.property("page") or 0) != held_page:
+            raise SystemExit("a step click left the last line")
+        grab(shot / "install-done.png")
+        if not QMetaObject.invokeMethod(window, "restartNow"):
+            raise SystemExit("restartNow did not run on the last line")
+        pump(50)
+        if window.property("restartAsked") is not True:
+            raise SystemExit("Enter did not ask to restart")
+        if window.property("liveSession") is True:
+            raise SystemExit("the check restarted a live session")
+        if not QMetaObject.invokeMethod(window, "restartNow"):
+            raise SystemExit("restartNow did not run a second time")
+        pump(50)
+        if not QMetaObject.invokeMethod(window, "failInstall", Q_ARG("QVariant", "Nothing was erased.")):
+            raise SystemExit("failInstall did not run after the last line")
+        pump(50)
+        if window.property("installStage") != "done":
+            raise SystemExit("a failure replaced the last line")
+        window.setProperty("installStage", "")
+        window.setProperty("erasing", False)
+        window.setProperty("restartAsked", False)
+        window.setProperty("restartSent", False)
+        if not QMetaObject.invokeMethod(window, "failInstall", Q_ARG("QVariant", 'Traceback (most recent call last):\n  File "erase.py"')):
+            raise SystemExit("failInstall did not run")
+        pump(50)
+        if window.property("installStage") != "failed" or window.installLine() != "Nothing was erased.":
+            raise SystemExit(f"failure status was {window.property('installStage')} {window.installLine()}")
+        if window.property("restartAsked") is True:
+            raise SystemExit("Enter restarted after a failure")
+        if not QMetaObject.invokeMethod(
+            window,
+            "failInstall",
+            Q_ARG("QVariant", "The disk was erased. The install did not finish."),
+        ):
+            raise SystemExit("failInstall did not run for a wiped disk")
+        pump(50)
+        if window.property("installStage") != "failed" or window.installLine() != "The disk was erased. The install did not finish.":
+            raise SystemExit(f"wiped status was {window.property('installStage')} {window.installLine()}")
+        if window.property("restartAsked") is True:
+            raise SystemExit("Enter restarted after the disk was erased")
+        grab(shot / "install-failed.png")
+        if not QMetaObject.invokeMethod(window, "showPage", Q_ARG("QVariant", 4)):
+            raise SystemExit("showPage did not leave the failure")
+        pump(50)
+        if window.property("installStage") or int(window.property("page") or 0) != 4:
+            raise SystemExit(f"the failure stayed up: {window.property('installStage')} page {window.property('page')}")
         print(f"saved {save_path}")
         return
 

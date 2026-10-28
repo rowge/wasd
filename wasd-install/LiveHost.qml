@@ -7,6 +7,10 @@ Item {
     signal disks(string payload)
     signal filesReady(string payload)
     signal eraseFinished(int code, string line)
+    signal statusLine(string line)
+
+    property bool installRunning: false
+    property string statusId: ""
 
     function codeOf(data) {
         if (data["exit code"] !== undefined)
@@ -67,7 +71,18 @@ Item {
     }
 
     function erase(payload) {
-        exec.connectSource("/usr/libexec/wasd-erase --install " + payload)
+        const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        let id = ""
+        for (let i = 0; i < 16; i++)
+            id += alphabet.charAt(Math.floor(Math.random() * alphabet.length))
+        statusId = id
+        installRunning = true
+        statusTimer.start()
+        exec.connectSource("/usr/libexec/wasd-erase --install --status-id " + id + " " + payload)
+    }
+
+    function restart() {
+        exec.connectSource("/usr/bin/systemctl reboot")
     }
 
     P5Support.DataSource {
@@ -79,6 +94,12 @@ Item {
             const stdout = (data.stdout || "").trim()
             const stderr = (data.stderr || "").trim()
             disconnectSource(sourceName)
+            if (sourceName.indexOf("wasd-install.status") >= 0) {
+                const parts = (data.stdout || "").split("\n")
+                if (parts.length >= 2 && parts[0].trim() === host.statusId && parts[1].trim())
+                    host.statusLine(parts[1].trim())
+                return
+            }
             if (sourceName.indexOf("wasd-live-info") >= 0) {
                 if (code !== 0 || !stdout)
                     host.disks("{\"warnings\":[\"The disks could not be read.\"],\"blocked\":true,\"disks\":[]}")
@@ -86,7 +107,27 @@ Item {
                     host.disks(stdout)
                 return
             }
+            host.installRunning = false
+            statusTimer.stop()
             host.eraseFinished(code, stderr || stdout)
+        }
+    }
+
+    Timer {
+        id: statusTimer
+        interval: 1000
+        repeat: true
+        running: false
+        onTriggered: {
+            if (!host.installRunning || !host.statusId)
+                return
+            const source = "/usr/bin/cat /tmp/wasd-install.status"
+            const sources = exec.connectedSources
+            for (let i = 0; i < sources.length; i++) {
+                if (sources[i] === source)
+                    return
+            }
+            exec.connectSource(source)
         }
     }
 

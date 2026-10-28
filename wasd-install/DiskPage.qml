@@ -420,7 +420,7 @@ Item {
                 visible: host.advancedOpen
                 topPadding: 8
                 wrapMode: Text.WordWrap
-                text: "Partitioning and encryption stay in the existing installer. This app does not open it yet. The recommended install is the drive selected above."
+                text: "Partitioning and encryption are not part of this install. The recommended install is the drive selected above."
                 color: host.muted
                 font.family: host.bodyFont
                 font.pixelSize: 14

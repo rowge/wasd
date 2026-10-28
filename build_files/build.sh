@@ -8,6 +8,13 @@ cp -avf /ctx/system_files/. /
 # in the image or the installed system cannot mount over it.
 install -d /games
 
+# Pacific Time, including daylight saving. The hardware clock stays UTC.
+if [[ ! -f /usr/share/zoneinfo/America/Los_Angeles ]]; then
+    echo "Pacific time zone data is missing" >&2
+    exit 1
+fi
+ln -sfn ../usr/share/zoneinfo/America/Los_Angeles /etc/localtime
+
 # The portal is Bazzite's setup window. The live desktop opens Install WASD.
 rm -f \
     /etc/skel/.config/autostart/bazzite-portal.desktop \
@@ -78,7 +85,7 @@ chmod 0755 /usr/bin/wasd-look /usr/libexec/wasd-apply-look
 # Keep every other lock setting. Only the picture is set, to the login picture.
 /usr/libexec/wasd-apply-look --sync-lock throne.jpg
 install -d /usr/share/wasd/install
-for qml in Main.qml DiskPage.qml UserPage.qml LookPage.qml AppsPage.qml SystemPage.qml PageFooter.qml Complete.qml LiveHost.qml; do
+for qml in Main.qml DiskPage.qml UserPage.qml LookPage.qml AppsPage.qml SystemPage.qml PageFooter.qml Complete.qml LiveHost.qml InstallStatus.qml; do
     install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/install/${qml}"
 done
 install -m 0644 /ctx/wasd-install/disks.py /usr/libexec/disks.py
@@ -100,10 +107,6 @@ install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/windowsboot.py
 install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/wasd-windows-boot
 install -d /usr/lib/systemd/system/multi-user.target.wants
 ln -sfn ../wasd-windows-boot.service /usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service
-# Temporary: sshd starts on boot and the accounts from skel accept one test key.
-chmod 700 /etc/skel/.ssh
-chmod 600 /etc/skel/.ssh/authorized_keys
-ln -sfn ../sshd.service /usr/lib/systemd/system/multi-user.target.wants/sshd.service
 install -m 0755 /ctx/wasd-install/complete.py /usr/bin/wasd-complete
 chmod 0755 /usr/bin/wasd-install
 
@@ -301,6 +304,10 @@ test -x /usr/bin/wasd-install
 test -x /usr/bin/wasd-qml
 test -x /usr/bin/wasd-complete
 test -x /usr/libexec/wasd-erase
+test -s /usr/share/polkit-1/actions/org.wasd.erase.policy
+grep -F '/usr/libexec/wasd-erase' /usr/share/polkit-1/actions/org.wasd.erase.policy >/dev/null
+grep -F '<allow_active>yes</allow_active>' /usr/share/polkit-1/actions/org.wasd.erase.policy >/dev/null
+grep -F -- '--install' /usr/share/polkit-1/actions/org.wasd.erase.policy >/dev/null
 test -x /usr/libexec/wasd-live-info
 test -x /usr/libexec/wasd-set-password
 test -s /usr/libexec/set_password.py
@@ -346,11 +353,10 @@ grep -q '^text/html=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
 grep -q 'https://wasd.run' /etc/brave/policies/managed/homepage.json
 grep -q -- '--password-store=basic' /etc/skel/.var/app/com.brave.Browser/config/brave-flags.conf
 grep -q '^First Use=false$' /etc/xdg/kwalletrc
-test "$(stat -c %a /etc/skel/.ssh)" = 700
-test "$(stat -c %a /etc/skel/.ssh/authorized_keys)" = 600
-grep -q 'rowge@soulforge' /etc/skel/.ssh/authorized_keys
-test -L /usr/lib/systemd/system/multi-user.target.wants/sshd.service
-grep -q '^PermitEmptyPasswords no$' /etc/ssh/sshd_config.d/50-wasd-test.conf
+test ! -e /etc/skel/.ssh/authorized_keys
+test ! -e /etc/ssh/sshd_config.d/50-wasd-test.conf
+test ! -e /usr/lib/systemd/system/multi-user.target.wants/sshd.service
+test "$(readlink /etc/localtime)" = "../usr/share/zoneinfo/America/Los_Angeles"
 for gone in \
     app/com.discordapp.Discord/ \
     app/im.riot.Riot/ \
