@@ -61,8 +61,8 @@ Item {
                 text: "Apps & Agents"
                 color: host.ink
                 font.family: host.titleFont
-                font.pixelSize: 40
-                font.weight: Font.Medium
+                font.pixelSize: 28
+                font.weight: Font.DemiBold
                 bottomPadding: 18
             }
 
@@ -142,6 +142,7 @@ Item {
                     width: parent.width - 26
                     height: 42
                     color: Qt.rgba(0, 0, 0, 0.28)
+                    radius: 8
                     border.width: 1
                     border.color: host.line
 
@@ -157,7 +158,7 @@ Item {
                         selectByMouse: true
                         clip: true
                         selectionColor: host.brass
-                        selectedTextColor: "#24160e"
+                        selectedTextColor: host.buttonInk
                         onTextEdited: host.queryEdited(text)
                     }
 

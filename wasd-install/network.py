@@ -378,9 +378,13 @@ def parse_wifi_list(text):
     return rows[:12]
 
 
-def _detail():
-    active = _nmcli(["-t", "-f", "NAME,TYPE", "connection", "show", "--active"])
-    for line in active.stdout.splitlines():
+def _link_up(state):
+    text = (state or "").strip().lower()
+    return text == "connected" or text.startswith("connected (")
+
+
+def _detail_from(active_text):
+    for line in (active_text or "").splitlines():
         parts = _split_terse(line)
         if len(parts) < 2:
             continue
@@ -391,17 +395,61 @@ def _detail():
     return ""
 
 
+def connection_view(general_text, device_text, active_text):
+    """Whether a real adapter is up.
+
+    NetworkManager's overall state stays at "connected (site only)" or
+    "connected (local only)" while it checks past the local network. A wired
+    adapter in "connected" is already up. Loopback and virtual adapters are
+    not a connection.
+    """
+    wired = False
+    wireless = False
+    for line in (device_text or "").splitlines():
+        parts = _split_terse(line)
+        if len(parts) < 3:
+            continue
+        kind = _device_allowed(parts[0], parts[1])
+        if not _link_up(parts[2]):
+            continue
+        if kind == "ethernet":
+            wired = True
+        elif kind == "wifi":
+            wireless = True
+    general = ""
+    for line in (general_text or "").splitlines():
+        if line.strip():
+            general = line.strip()
+            break
+    connected = _link_up(general) or wired or wireless
+    if not connected:
+        return False, ""
+    detail = _detail_from(active_text)
+    if not detail and wired:
+        detail = "Wired"
+    if not detail and wireless:
+        detail = "Wi-Fi"
+    return True, detail
+
+
 def status(rescan=False):
     if not shutil.which("nmcli"):
         return {"connected": False, "detail": "", "networks": []}
-    general = _nmcli(["-t", "-f", "STATE", "general"])
-    connected = general.stdout.strip() == "connected"
     networks = []
     if rescan:
         _nmcli(["radio", "wifi", "on"])
         listed = _nmcli(["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes"])
-        networks = parse_wifi_list(listed.stdout)
-    return {"connected": connected, "detail": _detail() if connected else "", "networks": networks}
+        if listed.returncode == 0:
+            networks = parse_wifi_list(listed.stdout)
+    general = _nmcli(["-t", "-f", "STATE", "general"])
+    devices = _nmcli(["-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"])
+    active = _nmcli(["-t", "-f", "NAME,TYPE", "connection", "show", "--active"])
+    connected, detail = connection_view(
+        general.stdout if general.returncode == 0 else "",
+        devices.stdout if devices.returncode == 0 else "",
+        active.stdout if active.returncode == 0 else "",
+    )
+    return {"connected": connected, "detail": detail, "networks": networks}
 
 
 def connect_wifi(data):
@@ -731,6 +779,38 @@ def self_check():
         raise SystemExit(f"adapters parsed wrong: {devices}")
     if devices[0]["label"] != "Wi-Fi" or devices[0]["kind"] != "wifi" or devices[2]["kind"] != "ethernet":
         raise SystemExit(f"adapter labels were wrong: {devices}")
+    wired_devices = "\n".join([
+        "enp1s0:ethernet:connected:Wired connection 1",
+        "lo:loopback:connected (externally):lo",
+        "docker0:bridge:connected:docker0",
+    ])
+    site_only, site_detail = connection_view("connected (site only)\n", wired_devices, "")
+    if not site_only or site_detail != "Wired":
+        raise SystemExit(f"a wired link still being checked was {site_only} {site_detail}")
+    local_only, local_detail = connection_view(
+        "connected (local only)",
+        "enp1s0:ethernet:connected:Wired connection 1",
+        "Wired connection 1:802-3-ethernet",
+    )
+    if not local_only or local_detail != "Wired":
+        raise SystemExit(f"a local wired link was {local_only} {local_detail}")
+    coming_up, coming_detail = connection_view(
+        "connecting",
+        "enp1s0:ethernet:connecting (getting IP configuration):",
+        "",
+    )
+    if coming_up or coming_detail:
+        raise SystemExit(f"a cable still connecting looked up: {coming_up} {coming_detail}")
+    virtual, virtual_detail = connection_view(
+        "disconnected",
+        "lo:loopback:connected (externally):lo\ndocker0:bridge:connected:docker0\ndocker1:ethernet:connected:docker1",
+        "",
+    )
+    if virtual or virtual_detail:
+        raise SystemExit(f"a virtual adapter looked connected: {virtual} {virtual_detail}")
+    offline, offline_detail = connection_view("disconnected\n", "enp1s0:ethernet:unavailable:\nwlp3s0:wifi:disconnected:", "")
+    if offline or offline_detail:
+        raise SystemExit(f"no cable looked connected: {offline} {offline_detail}")
     try:
         list_devices()
     except Refuse as exc:

@@ -62,9 +62,11 @@ Item {
         anchors.bottomMargin: foot.showGo && foot.altText !== "" ? 52 : 10
         width: altLabel.implicitWidth + 36
         height: 44
+        radius: 9
         color: "transparent"
         border.width: 1
-        border.color: foot.nextEnabled ? host.brass : Qt.rgba(196 / 255, 165 / 255, 116 / 255, 0.35)
+        border.color: foot.nextEnabled ? Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.55) : Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.28)
+        antialiasing: true
 
         Text {
             id: altLabel
@@ -93,14 +95,16 @@ Item {
         anchors.bottomMargin: foot.altText !== "" && foot.showGo ? 0 : 10
         width: goLabel.implicitWidth + 36
         height: 44
-        color: foot.nextEnabled ? host.brass : Qt.rgba(196 / 255, 165 / 255, 116 / 255, 0.35)
+        radius: 9
+        color: foot.nextEnabled ? host.button : Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35)
+        antialiasing: true
 
         Text {
             id: goLabel
             objectName: "eraseButtonLabel"
             anchors.centerIn: parent
             text: foot.nextText
-            color: "#24160e"
+            color: host.buttonInk
             font.family: host.bodyFont
             font.pixelSize: 16
             font.bold: true

@@ -28,8 +28,8 @@ Item {
                 text: "System"
                 color: host.ink
                 font.family: host.titleFont
-                font.pixelSize: 44
-                font.weight: Font.Medium
+                font.pixelSize: 28
+                font.weight: Font.DemiBold
             }
 
             Text {
@@ -45,6 +45,7 @@ Item {
                 width: Math.min(420, parent.width)
                 height: 48
                 color: Qt.rgba(0, 0, 0, 0.28)
+                radius: 8
                 border.width: 1
                 border.color: host.hostnameOk ? host.line : host.danger
 
@@ -60,7 +61,7 @@ Item {
                     selectByMouse: true
                     clip: true
                     selectionColor: host.brass
-                    selectedTextColor: "#24160e"
+                    selectedTextColor: host.buttonInk
                     onTextEdited: host.hostname = text
                 }
             }
@@ -199,6 +200,7 @@ Item {
                     width: Math.min(420, parent.width - 28)
                     height: 44
                     color: Qt.rgba(0, 0, 0, 0.28)
+                    radius: 8
                     border.width: 1
                     border.color: host.line
 
@@ -214,7 +216,7 @@ Item {
                         selectByMouse: true
                         clip: true
                         selectionColor: host.brass
-                        selectedTextColor: "#24160e"
+                        selectedTextColor: host.buttonInk
                         Text {
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
@@ -383,6 +385,7 @@ Item {
                             width: Math.min(420, parent.width)
                             height: 44
                             color: Qt.rgba(0, 0, 0, 0.28)
+                            radius: 8
                             border.width: 1
                             border.color: host.line
 
@@ -397,7 +400,7 @@ Item {
                                 selectByMouse: true
                                 clip: true
                                 selectionColor: host.brass
-                                selectedTextColor: "#24160e"
+                                selectedTextColor: host.buttonInk
                                 Text {
                                     anchors.left: parent.left
                                     anchors.verticalCenter: parent.verticalCenter
@@ -425,13 +428,15 @@ Item {
                 Rectangle {
                     width: tcpLabel.implicitWidth + 28
                     height: 36
-                    color: host.networkBusy ? Qt.rgba(196 / 255, 165 / 255, 116 / 255, 0.35) : host.brass
+                    radius: 9
+                    color: host.networkBusy ? Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35) : host.button
+                    antialiasing: true
 
                     Text {
                         id: tcpLabel
                         anchors.centerIn: parent
                         text: "Save these settings"
-                        color: "#24160e"
+                        color: host.buttonInk
                         font.family: host.bodyFont
                         font.pixelSize: 15
                         font.bold: true

@@ -72,7 +72,7 @@ Window {
     property var netDevices: []
     property string workNote: ""
     readonly property string appsFailTitle: failKind === "look"
-            ? "The desktop was not set."
+            ? (failedApp.length > 0 ? failedApp : "The desktop was not set.")
             : (failedApp === "That app was refused." ? failedApp : failedApp + " did not install.")
     readonly property string appsFailBody: failKind === "look"
             ? "Retry tries again."
@@ -81,12 +81,16 @@ Window {
     readonly property string wifiWarnTitle: "Continue without connecting?"
     readonly property string wifiWarnBody: "If you are not connected, you will not be able to install the applications you selected during installation."
 
-    readonly property color bg: "#24160e"
-    readonly property color ink: "#f6ead8"
-    readonly property color muted: "#e7d3b6"
-    readonly property color brass: "#c4a574"
+    readonly property color bg: "#14161a"
+    readonly property color titlebar: "#101114"
+    readonly property color card: "#22252b"
+    readonly property color ink: "#f4f2ee"
+    readonly property color muted: "#a9a59e"
+    readonly property color brass: "#7aa2ff"
+    readonly property color button: "#f4f2ee"
+    readonly property color buttonInk: "#16181c"
     readonly property color danger: "#ff5c5c"
-    readonly property color line: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.22)
+    readonly property color line: Qt.rgba(1, 1, 1, 0.12)
     property var lines: [
         "Setting the desktop.",
         "Installing what you checked.",
@@ -883,7 +887,7 @@ Window {
     Rectangle {
         anchors.fill: parent
         color: win.bg
-        border.color: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.16)
+        border.color: Qt.rgba(1, 1, 1, 0.08)
         border.width: 1
 
         Rectangle {
@@ -891,7 +895,7 @@ Window {
             height: 38
             anchors.left: parent.left
             anchors.right: parent.right
-            color: "#1a0f0b"
+            color: win.titlebar
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -911,7 +915,7 @@ Window {
                 height: 14
                 radius: 7
                 color: "transparent"
-                border.color: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.35)
+                border.color: Qt.rgba(1, 1, 1, 0.28)
                 border.width: 1
 
                 MouseArea {
@@ -977,6 +981,7 @@ Window {
                 width: parent.width
                 height: 48
                 color: Qt.rgba(0, 0, 0, 0.28)
+                radius: 8
                 border.width: 1
                 border.color: win.line
 
@@ -992,7 +997,7 @@ Window {
                     echoMode: TextInput.Password
                     selectByMouse: true
                     selectionColor: win.brass
-                    selectedTextColor: "#24160e"
+                    selectedTextColor: win.buttonInk
                     onTextEdited: win.passwordDraft = text
                 }
             }
@@ -1009,6 +1014,7 @@ Window {
                 width: parent.width
                 height: 48
                 color: Qt.rgba(0, 0, 0, 0.28)
+                radius: 8
                 border.width: 1
                 border.color: win.line
 
@@ -1024,7 +1030,7 @@ Window {
                     echoMode: TextInput.Password
                     selectByMouse: true
                     selectionColor: win.brass
-                    selectedTextColor: "#24160e"
+                    selectedTextColor: win.buttonInk
                     onTextEdited: win.passwordAgainDraft = text
                 }
             }
@@ -1049,14 +1055,16 @@ Window {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: setLabel.implicitWidth + 36
                 height: 44
+                radius: 9
                 enabled: !win.settingPassword
-                color: enabled ? win.brass : Qt.rgba(196 / 255, 165 / 255, 116 / 255, 0.35)
+                color: enabled ? win.button : Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35)
+                antialiasing: true
 
                 Text {
                     id: setLabel
                     anchors.centerIn: parent
                     text: win.settingPassword ? "Setting the password." : "Set password"
-                    color: "#24160e"
+                    color: win.buttonInk
                     font.family: win.bodyFont
                     font.pixelSize: 16
                     font.bold: true
@@ -1114,6 +1122,7 @@ Window {
                 width: parent.width
                 height: 48
                 color: Qt.rgba(0, 0, 0, 0.28)
+                radius: 8
                 border.width: 1
                 border.color: win.line
 
@@ -1129,7 +1138,7 @@ Window {
                     echoMode: TextInput.Password
                     selectByMouse: true
                     selectionColor: win.brass
-                    selectedTextColor: "#24160e"
+                    selectedTextColor: win.buttonInk
                     onTextEdited: win.wifiDraft = text
                 }
             }
@@ -1157,14 +1166,16 @@ Window {
                 Rectangle {
                     width: connectLabel.implicitWidth + 36
                     height: 44
+                    radius: 9
                     enabled: !win.connectingWifi
-                    color: enabled ? win.brass : Qt.rgba(196 / 255, 165 / 255, 116 / 255, 0.35)
+                    color: enabled ? win.button : Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35)
+                    antialiasing: true
 
                     Text {
                         id: connectLabel
                         anchors.centerIn: parent
                         text: win.connectingWifi ? "Connecting." : "Connect"
-                        color: "#24160e"
+                        color: win.buttonInk
                         font.family: win.bodyFont
                         font.pixelSize: 16
                         font.bold: true
@@ -1181,10 +1192,12 @@ Window {
                 Rectangle {
                     width: cancelLabel.implicitWidth + 36
                     height: 44
+                    radius: 9
                     enabled: !win.connectingWifi
                     color: "transparent"
                     border.width: 1
                     border.color: win.line
+                    antialiasing: true
 
                     Text {
                         id: cancelLabel
@@ -1351,6 +1364,7 @@ Window {
                     width: Math.min(420, parent.width)
                     height: 44
                     color: Qt.rgba(0, 0, 0, 0.28)
+                    radius: 8
                     border.width: 1
                     border.color: win.line
 
@@ -1366,7 +1380,7 @@ Window {
                         selectByMouse: true
                         clip: true
                         selectionColor: win.brass
-                        selectedTextColor: "#24160e"
+                        selectedTextColor: win.buttonInk
                         Text {
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
@@ -1388,6 +1402,7 @@ Window {
                     width: Math.min(420, parent.width)
                     height: 44
                     color: Qt.rgba(0, 0, 0, 0.28)
+                    radius: 8
                     border.width: 1
                     border.color: win.line
 
@@ -1404,7 +1419,7 @@ Window {
                         selectByMouse: true
                         clip: true
                         selectionColor: win.brass
-                        selectedTextColor: "#24160e"
+                        selectedTextColor: win.buttonInk
                         Text {
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
@@ -1535,6 +1550,7 @@ Window {
                             width: Math.min(420, netColumn.width)
                             height: 44
                             color: Qt.rgba(0, 0, 0, 0.28)
+                            radius: 8
                             border.width: 1
                             border.color: win.line
 
@@ -1549,7 +1565,7 @@ Window {
                                 selectByMouse: true
                                 clip: true
                                 selectionColor: win.brass
-                                selectedTextColor: "#24160e"
+                                selectedTextColor: win.buttonInk
                                 Text {
                                     anchors.left: parent.left
                                     anchors.verticalCenter: parent.verticalCenter
@@ -1590,13 +1606,15 @@ Window {
                     Rectangle {
                         width: netConnectLabel.implicitWidth + 28
                         height: 40
-                        color: win.netBusy ? Qt.rgba(196 / 255, 165 / 255, 116 / 255, 0.35) : win.brass
+                        radius: 9
+                        color: win.netBusy ? Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35) : win.button
+                        antialiasing: true
 
                         Text {
                             id: netConnectLabel
                             anchors.centerIn: parent
                             text: "Connect"
-                            color: "#24160e"
+                            color: win.buttonInk
                             font.family: win.bodyFont
                             font.pixelSize: 16
                             font.bold: true
@@ -1614,9 +1632,11 @@ Window {
                         objectName: "skipAppsButton"
                         width: netSkipLabel.implicitWidth + 28
                         height: 40
+                        radius: 9
                         color: "transparent"
                         border.width: 1
-                        border.color: win.brass
+                        border.color: Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.55)
+                        antialiasing: true
 
                         Text {
                             id: netSkipLabel
@@ -1648,9 +1668,11 @@ Window {
                 anchors.centerIn: parent
                 width: Math.min(520, parent.width - 80)
                 height: appsFailColumn.height + 36
-                color: "#1a0f0b"
+                radius: 14
+                color: win.card
                 border.width: 1
-                border.color: win.brass
+                border.color: win.line
+                antialiasing: true
 
                 Column {
                     id: appsFailColumn
@@ -1681,15 +1703,26 @@ Window {
                     Row {
                         spacing: 18
 
-                        Text {
-                            text: "Retry"
-                            color: win.muted
-                            font.family: win.bodyFont
-                            font.pixelSize: 16
+                        Rectangle {
+                            objectName: "retryAppButton"
+                            width: retryAppLabel.implicitWidth + 28
+                            height: 36
+                            radius: 9
+                            color: win.button
+                            antialiasing: true
+
+                            Text {
+                                id: retryAppLabel
+                                anchors.centerIn: parent
+                                text: "Retry"
+                                color: win.buttonInk
+                                font.family: win.bodyFont
+                                font.pixelSize: 16
+                                font.bold: true
+                            }
 
                             MouseArea {
                                 anchors.fill: parent
-                                anchors.margins: -8
                                 enabled: !win.appsBusy && !win.agentsBusy && !win.lookBusy
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
@@ -1708,13 +1741,15 @@ Window {
                             visible: win.failKind !== "look"
                             width: appsContinueLabel.implicitWidth + 28
                             height: 36
-                            color: win.brass
+                            radius: 9
+                            color: win.button
+                            antialiasing: true
 
                             Text {
                                 id: appsContinueLabel
                                 anchors.centerIn: parent
                                 text: "Continue"
-                                color: "#24160e"
+                                color: win.buttonInk
                                 font.family: win.bodyFont
                                 font.pixelSize: 16
                                 font.bold: true
@@ -1752,9 +1787,11 @@ Window {
                 anchors.centerIn: parent
                 width: Math.min(520, parent.width - 80)
                 height: warnColumn.height + 36
-                color: "#1a0f0b"
+                radius: 14
+                color: win.card
                 border.width: 1
-                border.color: win.brass
+                border.color: win.line
+                antialiasing: true
 
                 MouseArea {
                     anchors.fill: parent
@@ -1806,13 +1843,15 @@ Window {
                         Rectangle {
                             width: continueLabel.implicitWidth + 28
                             height: 36
-                            color: win.brass
+                            radius: 9
+                            color: win.button
+                            antialiasing: true
 
                             Text {
                                 id: continueLabel
                                 anchors.centerIn: parent
                                 text: "Continue"
-                                color: "#24160e"
+                                color: win.buttonInk
                                 font.family: win.bodyFont
                                 font.pixelSize: 16
                                 font.bold: true

@@ -223,6 +223,12 @@ def qml_app(save_path, shot_dir, live):
 
     if shot_dir:
         shot = Path(shot_dir)
+        quick.requestActivate()
+        app.processEvents()
+        opened_name = quick.findChild(QQuickItem, "userNameField")
+        if opened_name is None or opened_name.property("activeFocus") is not True:
+            focused = None if opened_name is None else opened_name.property("activeFocus")
+            raise SystemExit(f"username field did not take focus: {focused}")
         if window.property("hostname") != "wasd":
             raise SystemExit("hostname did not start as wasd")
         if window.property("userName") not in ("", None):
@@ -755,6 +761,12 @@ def qml_app(save_path, shot_dir, live):
         if int(window.property("page") or 0) != held_page:
             raise SystemExit("a step click left the last line")
         grab(shot / "install-done.png")
+        restart = quick.findChild(QQuickItem, "restartButtonLabel")
+        if restart is None or not _shown(restart) or restart.property("text") != "Restart":
+            raise SystemExit("the Restart button is missing from the last line")
+        done_usb = quick.findChild(QQuickItem, "removeUsbLine")
+        if done_usb is not None and _shown(done_usb):
+            raise SystemExit("the last line repeated the USB note")
         if not QMetaObject.invokeMethod(window, "restartNow"):
             raise SystemExit("restartNow did not run on the last line")
         pump(50)
@@ -779,6 +791,12 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if window.property("installStage") != "failed" or window.installLine() != "Nothing was erased.":
             raise SystemExit(f"failure status was {window.property('installStage')} {window.installLine()}")
+        early_restart = quick.findChild(QQuickItem, "restartButtonLabel")
+        if early_restart is not None and _shown(early_restart):
+            raise SystemExit("Restart was offered before the copy")
+        if not QMetaObject.invokeMethod(window, "restartNow"):
+            raise SystemExit("restartNow did not run before the copy")
+        pump(50)
         if window.property("restartAsked") is True:
             raise SystemExit("Enter restarted after a failure")
         if not QMetaObject.invokeMethod(
@@ -792,7 +810,34 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit(f"wiped status was {window.property('installStage')} {window.installLine()}")
         if window.property("restartAsked") is True:
             raise SystemExit("Enter restarted after the disk was erased")
+        wiped_restart = quick.findChild(QQuickItem, "restartButtonLabel")
+        if wiped_restart is not None and _shown(wiped_restart):
+            raise SystemExit("Restart was offered when the install did not finish")
         grab(shot / "install-failed.png")
+        window.setProperty("restartAsked", False)
+        window.setProperty("restartSent", False)
+        if not QMetaObject.invokeMethod(
+            window,
+            "failInstall",
+            Q_ARG("QVariant", "WASD was copied. Later updates were not pointed at WASD."),
+        ):
+            raise SystemExit("failInstall did not run after the copy")
+        pump(50)
+        if window.installLine() != "WASD was copied. Later updates were not pointed at WASD.":
+            raise SystemExit(f"update status was {window.installLine()}")
+        copied_usb = quick.findChild(QQuickItem, "removeUsbLine")
+        copied_restart = quick.findChild(QQuickItem, "restartButtonLabel")
+        if copied_usb is None or not _shown(copied_usb) or copied_usb.property("text") != "You can remove the USB stick.":
+            raise SystemExit("the copied failure did not say to remove the USB")
+        if copied_restart is None or not _shown(copied_restart):
+            raise SystemExit("Restart was missing after the copy")
+        if not QMetaObject.invokeMethod(window, "restartNow"):
+            raise SystemExit("restartNow did not run after the copy")
+        pump(50)
+        if window.property("restartAsked") is not True:
+            raise SystemExit("Restart did nothing after the copy")
+        if window.property("liveSession") is True:
+            raise SystemExit("the check restarted a live session")
         if not QMetaObject.invokeMethod(window, "showPage", Q_ARG("QVariant", 4)):
             raise SystemExit("showPage did not leave the failure")
         pump(50)
@@ -812,7 +857,7 @@ def open_complete(shot_dir=None):
     from PySide6.QtCore import QEventLoop, QMetaObject, QTimer, QUrl
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtQml import QQmlApplicationEngine
-    from PySide6.QtQuick import QQuickWindow
+    from PySide6.QtQuick import QQuickItem, QQuickWindow
     import shiboken6
 
     app = QGuiApplication(sys.argv)
@@ -932,6 +977,20 @@ def open_complete(shot_dir=None):
     for index, name in enumerate(names):
         window.setProperty("stepIndex", index)
         grab(shot / f"{name}.png")
+    window.setProperty("phase", "work")
+    window.setProperty("failKind", "look")
+    window.setProperty("failedApp", "The wallpaper did not change.")
+    pump(50)
+    if window.property("appsFailTitle") != "The wallpaper did not change.":
+        raise SystemExit(f"look failure title was {window.property('appsFailTitle')}")
+    if window.property("appsFailBody") != "Retry tries again.":
+        raise SystemExit(f"look failure body was {window.property('appsFailBody')}")
+    retry = quick.findChild(QQuickItem, "retryAppButton")
+    carry_on = quick.findChild(QQuickItem, "continueAppButton")
+    if retry is None or not _shown(retry):
+        raise SystemExit("Retry was missing when the desktop was not set")
+    if carry_on is not None and _shown(carry_on):
+        raise SystemExit("Continue was offered when the desktop was not set")
     print(f"complete {shot}")
 
 

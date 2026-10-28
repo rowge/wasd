@@ -27,8 +27,8 @@ Item {
                 text: "User"
                 color: host.ink
                 font.family: host.titleFont
-                font.pixelSize: 44
-                font.weight: Font.Medium
+                font.pixelSize: 28
+                font.weight: Font.DemiBold
             }
 
             Text {
@@ -44,6 +44,7 @@ Item {
                 width: Math.min(420, parent.width)
                 height: 48
                 color: Qt.rgba(0, 0, 0, 0.28)
+                radius: 8
                 border.width: 1
                 border.color: host.userOk ? host.line : host.danger
 
@@ -59,8 +60,9 @@ Item {
                     font.family: host.bodyFont
                     selectByMouse: true
                     clip: true
+                    focus: true
                     selectionColor: host.brass
-                    selectedTextColor: "#24160e"
+                    selectedTextColor: host.buttonInk
                     onTextEdited: host.userName = text
                 }
             }
@@ -197,5 +199,8 @@ Item {
         onGo: host.page = 1
     }
 
-    Component.onCompleted: nameField.text = host.userName
+    Component.onCompleted: {
+        nameField.text = host.userName
+        nameField.forceActiveFocus()
+    }
 }

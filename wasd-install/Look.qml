@@ -32,7 +32,7 @@ Window {
     property bool tool: true
     property string shareRoot: initialRoot()
     property var bridge: null
-    property string titleFont: "Liberation Serif"
+    property string titleFont: "Liberation Sans"
     property string bodyFont: "Liberation Sans"
     property int page: 0
     property string lookOpen: ""
@@ -48,13 +48,18 @@ Window {
     property bool applying: false
     property var files: initialFiles()
 
-    readonly property color bg: "#24160e"
-    readonly property color rail: "#1c100b"
-    readonly property color ink: "#f6ead8"
-    readonly property color muted: "#e7d3b6"
-    readonly property color brass: "#c4a574"
+    readonly property color bg: "#14161a"
+    readonly property color rail: "#101114"
+    readonly property color titlebar: "#101114"
+    readonly property color card: "#22252b"
+    readonly property color ink: "#f4f2ee"
+    readonly property color muted: "#a9a59e"
+    readonly property color brass: "#7aa2ff"
+    readonly property color button: "#f4f2ee"
+    readonly property color buttonInk: "#16181c"
+    readonly property color navOn: "#2a2d34"
     readonly property color danger: "#ff5c5c"
-    readonly property color line: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.22)
+    readonly property color line: Qt.rgba(1, 1, 1, 0.12)
     readonly property var iconFiles: files.icons || []
     readonly property var loadingFiles: files.loading || []
     readonly property var loginFiles: files.login || []
@@ -85,7 +90,7 @@ Window {
                 files = JSON.parse(WasdFilesJson)
         } catch (e) {
         }
-        titleFont = pickFont(["Palatino Linotype", "Palatino", "TeX Gyre Pagella", "Liberation Serif", "Noto Serif", "FreeSerif"], titleFont)
+        titleFont = pickFont(["Noto Sans", "Liberation Sans", "Segoe UI", "DejaVu Sans"], titleFont)
         bodyFont = pickFont(["Segoe UI", "Liberation Sans", "Noto Sans", "DejaVu Sans"], bodyFont)
         if (bridge) {
             avatarReady = true
@@ -208,7 +213,7 @@ Window {
         id: shell
         anchors.fill: parent
         color: look.bg
-        border.color: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.16)
+        border.color: Qt.rgba(1, 1, 1, 0.08)
         border.width: 1
 
         Rectangle {
@@ -216,7 +221,7 @@ Window {
             height: 38
             anchors.left: parent.left
             anchors.right: parent.right
-            color: "#1a0f0b"
+            color: look.titlebar
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -236,7 +241,7 @@ Window {
                 height: 14
                 radius: 7
                 color: "transparent"
-                border.color: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.35)
+                border.color: Qt.rgba(1, 1, 1, 0.28)
                 border.width: 1
 
                 MouseArea {
@@ -280,14 +285,16 @@ Window {
                 anchors.leftMargin: 22
                 anchors.rightMargin: 22
                 height: 40
-                color: look.brass
+                radius: 10
+                color: look.navOn
+                antialiasing: true
 
                 Text {
                     anchors.fill: parent
                     anchors.leftMargin: 12
                     verticalAlignment: Text.AlignVCenter
                     text: "Look"
-                    color: "#24160e"
+                    color: look.ink
                     font.family: look.bodyFont
                     font.pixelSize: 16
                     font.bold: true

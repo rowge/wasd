@@ -28,8 +28,8 @@ Item {
                 text: "Disk"
                 color: host.ink
                 font.family: host.titleFont
-                font.pixelSize: 44
-                font.weight: Font.Medium
+                font.pixelSize: 28
+                font.weight: Font.DemiBold
             }
 
             Text {
@@ -314,6 +314,7 @@ Item {
                                 width: 140
                                 height: 40
                                 color: Qt.rgba(0, 0, 0, 0.28)
+                                radius: 8
                                 border.width: 1
                                 border.color: host.line
 
@@ -351,6 +352,7 @@ Item {
                                 width: 140
                                 height: 40
                                 color: Qt.rgba(0, 0, 0, 0.28)
+                                radius: 8
                                 border.width: 1
                                 border.color: host.line
 
@@ -403,7 +405,7 @@ Item {
                 topPadding: 14
                 wrapMode: Text.WordWrap
                 textFormat: Text.StyledText
-                text: "<b><font color='#f6ead8'>Advanced.</font></b> <font color='#e7d3b6'>Partitioning and the other disk choices. This is not the recommended install.</font>"
+                text: "<b><font color='#f4f2ee'>Advanced.</font></b> <font color='#a9a59e'>Partitioning and the other disk choices. This is not the recommended install.</font>"
                 font.family: host.bodyFont
                 font.pixelSize: 15
                 color: host.muted
@@ -470,9 +472,11 @@ Item {
             anchors.centerIn: parent
             width: Math.min(560, parent.width - 80)
             height: dialogColumn.height + 36
-            color: "#1a0f0b"
+            radius: 14
+            color: host.card
             border.width: 1
-            border.color: host.brass
+            border.color: host.line
+            antialiasing: true
 
             MouseArea {
                 anchors.fill: parent
@@ -525,13 +529,15 @@ Item {
                     Rectangle {
                         width: yesLabel.implicitWidth + 28
                         height: 36
-                        color: host.brass
+                        radius: 9
+                        color: host.button
+                        antialiasing: true
 
                         Text {
                             id: yesLabel
                             anchors.centerIn: parent
                             text: "Yes"
-                            color: "#24160e"
+                            color: host.buttonInk
                             font.family: host.bodyFont
                             font.pixelSize: 16
                             font.bold: true

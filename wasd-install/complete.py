@@ -39,7 +39,7 @@ from apps import (  # noqa: E402
     read_app_entries,
 )
 from disks import is_live  # noqa: E402
-from lookapply import LookError, look_from  # noqa: E402
+from lookapply import LookError, look_from, look_sentence  # noqa: E402
 from network import passphrase_problem, read_saved_tcp, read_saved_wifi  # noqa: E402
 from set_password import validate_password  # noqa: E402
 
@@ -356,7 +356,8 @@ def pkexec_look():
         capture_output=True,
     )
     if proc.returncode != 0:
-        raise LookError("The desktop was not set.")
+        err = (proc.stderr or b"").decode("utf-8", "replace")
+        raise LookError(look_sentence(err))
 
 
 def pkexec_agents_mark():
@@ -675,8 +676,8 @@ def look_apply():
         return 200, "ok"
     try:
         LOOK_APPLY()
-    except LookError:
-        return 500, "The desktop was not set."
+    except LookError as exc:
+        return 500, look_sentence(str(exc))
     except Exception:
         return 500, "The desktop was not set."
     return 200, "ok"
@@ -1414,6 +1415,24 @@ def self_check():
         look_marker.unlink()
     if agents_marker.exists():
         agents_marker.unlink()
+
+    def fail_look():
+        raise LookError("The wallpaper did not change.")
+
+    def unknown_look():
+        raise LookError("boom")
+
+    LOOK_APPLY = fail_look
+    code, text = look_apply()
+    if code != 500 or text != "The wallpaper did not change.":
+        raise SystemExit(f"the wallpaper failure was {code} {text}")
+    if look_marker.exists():
+        raise SystemExit("a failed look wrote the marker")
+    LOOK_APPLY = unknown_look
+    code, text = look_apply()
+    if code != 500 or text != "The desktop was not set.":
+        raise SystemExit(f"an unknown look failure was {code} {text}")
+    LOOK_APPLY = fake_look
     if finish_allowed():
         raise SystemExit("finish ran before the look was applied")
     server = serve()

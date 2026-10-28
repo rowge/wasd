@@ -25,7 +25,7 @@ Window {
     property bool applying: false
     property bool avatarReady: true
     property var bridge: null
-    property string titleFont: "Liberation Serif"
+    property string titleFont: "Liberation Sans"
     property string bodyFont: "Liberation Sans"
     property int page: 0
     property int diskIndex: 0
@@ -36,6 +36,7 @@ Window {
     property bool liveSession: false
     property bool erasing: false
     property string installStage: ""
+    readonly property bool restartReady: installStage === "done" || (installStage === "failed" && savedLine.indexOf("WASD was copied.") === 0)
     property string stagesSeen: ""
     property bool restartAsked: false
     property bool restartSent: false
@@ -75,13 +76,18 @@ Window {
         "Set the firmware to UEFI in the BIOS. The motherboard manual explains how."
     ]
 
-    readonly property color bg: "#24160e"
-    readonly property color rail: "#1c100b"
-    readonly property color ink: "#f6ead8"
-    readonly property color muted: "#e7d3b6"
-    readonly property color brass: "#c4a574"
+    readonly property color bg: "#14161a"
+    readonly property color rail: "#101114"
+    readonly property color titlebar: "#101114"
+    readonly property color card: "#22252b"
+    readonly property color ink: "#f4f2ee"
+    readonly property color muted: "#a9a59e"
+    readonly property color brass: "#7aa2ff"
+    readonly property color button: "#f4f2ee"
+    readonly property color buttonInk: "#16181c"
+    readonly property color navOn: "#2a2d34"
     readonly property color danger: "#ff5c5c"
-    readonly property color line: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.22)
+    readonly property color line: Qt.rgba(1, 1, 1, 0.12)
 
     readonly property var themes: [
         "Sweet KDE", "Layan", "We10XOS-dark", "Ant-Dark", "Nordic", "ChromeOS",
@@ -138,6 +144,7 @@ Window {
     readonly property string agentSummary: selectedAgentNames().join(", ") || "None selected"
     property bool networkConnected: true
     property string networkDetail: "Wired"
+    property int networkSerial: 0
     property bool networkOpen: false
     property bool networkBusy: false
     property string networkLine: ""
@@ -218,7 +225,7 @@ Window {
                 files = JSON.parse(WasdFilesJson)
         } catch (e) {
         }
-        titleFont = pickFont(["Palatino Linotype", "Palatino", "TeX Gyre Pagella", "Liberation Serif", "Noto Serif", "FreeSerif"], titleFont)
+        titleFont = pickFont(["Noto Sans", "Liberation Sans", "Segoe UI", "DejaVu Sans"], titleFont)
         bodyFont = pickFont(["Segoe UI", "Liberation Sans", "Noto Sans", "DejaVu Sans"], bodyFont)
         const apps = {}
         for (let i = 0; i < appNames.length; i++)
@@ -263,7 +270,27 @@ Window {
     }
 
     function refreshNetwork(rescan) {
-        networkRequest("GET", rescan ? "/status?rescan=1" : "/status", "")
+        const serial = ++networkSerial
+        const xhr = new XMLHttpRequest()
+        xhr.timeout = rescan ? 25000 : 8000
+        xhr.open("GET", "http://127.0.0.1:8765" + (rescan ? "/status?rescan=1" : "/status"))
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE || serial !== win.networkSerial)
+                return
+            if (xhr.status !== 200)
+                return
+            let data = {}
+            try {
+                data = JSON.parse(xhr.responseText || "{}")
+            } catch (e) {
+                return
+            }
+            win.networkConnected = !!data.connected
+            win.networkDetail = data.detail || ""
+            if (data.networks && data.networks.length)
+                win.wifiNetworks = data.networks
+        }
+        xhr.send()
     }
 
     function chooseWifi(name) {
@@ -837,7 +864,7 @@ Window {
     }
 
     function restartNow() {
-        if (installStage !== "done" || restartSent)
+        if (!restartReady || restartSent)
             return
         restartSent = true
         restartAsked = true
@@ -1199,6 +1226,13 @@ Window {
     }
 
     Timer {
+        interval: 3000
+        repeat: true
+        running: win.liveSession && win.installStage === ""
+        onTriggered: win.refreshNetwork(false)
+    }
+
+    Timer {
         id: searchTimer
         interval: 300
         onTriggered: {
@@ -1233,7 +1267,7 @@ Window {
         objectName: "shell"
         anchors.fill: parent
         color: win.bg
-        border.color: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.16)
+        border.color: Qt.rgba(1, 1, 1, 0.08)
         border.width: 1
 
         Rectangle {
@@ -1241,7 +1275,7 @@ Window {
             height: 38
             anchors.left: parent.left
             anchors.right: parent.right
-            color: "#1a0f0b"
+            color: win.titlebar
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -1261,7 +1295,7 @@ Window {
                 height: 14
                 radius: 7
                 color: "transparent"
-                border.color: Qt.rgba(246 / 255, 226 / 255, 196 / 255, 0.35)
+                border.color: Qt.rgba(1, 1, 1, 0.28)
                 border.width: 1
 
                 MouseArea {
@@ -1315,14 +1349,16 @@ Window {
                         required property int index
                         width: parent.width
                         height: 40
-                        color: win.page === index ? win.brass : (stepArea.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
+                        radius: 10
+                        color: win.page === index ? win.navOn : (stepArea.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
+                        antialiasing: true
 
                         Text {
                             anchors.fill: parent
                             anchors.leftMargin: 12
                             verticalAlignment: Text.AlignVCenter
                             text: modelData
-                            color: win.page === index ? "#24160e" : win.muted
+                            color: win.page === index ? win.ink : win.muted
                             font.family: win.bodyFont
                             font.pixelSize: 16
                             font.bold: win.page === index
@@ -1363,13 +1399,13 @@ Window {
 
     Shortcut {
         sequence: "Return"
-        enabled: win.installStage === "done"
+        enabled: win.restartReady
         onActivated: win.restartNow()
     }
 
     Shortcut {
         sequence: "Enter"
-        enabled: win.installStage === "done"
+        enabled: win.restartReady
         onActivated: win.restartNow()
     }
 

@@ -34,8 +34,15 @@ chmod 0644 /etc/ssh/sshd_config.d/50-wasd-open.conf
 add_key() {
     local user="$1" home group file
     home=$(getent passwd "$user" | cut -d: -f6)
-    [[ -n $home && -d $home ]] || return 0
+    # The installed account can exist before its home folder does.
+    case $home in
+        /home/*|/var/home/*) ;;
+        *) return 0 ;;
+    esac
     group=$(id -gn "$user")
+    if [[ ! -d $home ]]; then
+        install -d -m 0700 -o "$user" -g "$group" "$home"
+    fi
     install -d -m 0700 -o "$user" -g "$group" "$home/.ssh"
     file="$home/.ssh/authorized_keys"
     if [[ ! -f $file ]]; then

@@ -702,6 +702,11 @@ def bootc_argv(device, plan, source):
         "--skip-fetch-check",
         "--source-imgref",
         source,
+        # Without these, the installed boot prints the text log over the loading screen.
+        "--karg",
+        "quiet",
+        "--karg",
+        "rhgb",
     ]
     if plan.get("mode") == "split":
         os_gb = plan.get("osGb")
@@ -768,8 +773,9 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
     account runs after the copy and before the bootloader sentence.
     post runs after that sentence and before games. It copies the apps
     already on the USB, points later updates at the registry image, and
-    enrolls the Secure Boot key. finish runs after post and before the
-    USB sentence. A failure in any of those steps skips the USB sentence.
+    enrolls the Secure Boot key. finish runs after post, including when
+    post reports a failure, and before the USB sentence. A failure in any
+    of those steps skips the USB sentence. The sentence is the first failure.
     """
     if not argv or argv[0] != "bootc" or "to-disk" not in argv or "liveinst" in argv:
         raise Refuse(NOT_STARTED)
@@ -818,6 +824,7 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
             raise Started(ACCOUNT_FAILED) from exc
     if "boot" not in spoken:
         announce_stage(status_id, "boot", spoken)
+    post_problem = None
     if post is not None:
         try:
             post()
@@ -827,20 +834,22 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
             text = str(exc).strip()
             if text not in {APPS_FAILED, UPDATES_FAILED, LABELS_FAILED} or "Nothing was erased." in text:
                 text = UPDATES_FAILED
-            raise Started(text) from exc
-        except Exception as exc:
-            # The disk is already copied. This must not say it was left
-            # alone, and it must not offer the restart line.
-            raise Started(UPDATES_FAILED) from exc
+            post_problem = text
+        except Exception:
+            # The disk is already copied. This must not say it was left alone.
+            post_problem = UPDATES_FAILED
     if finish is not None:
         try:
             finish()
         except Started:
             raise
         except Exception as exc:
-            # The disk is already copied. Any failure here must not say it
-            # was left alone, and it must not offer the restart line.
-            raise Started(GAMES_FAILED) from exc
+            # The disk is already copied. The games failure is the sentence
+            # when the earlier steps returned. An earlier failure stays.
+            if post_problem is None:
+                raise Started(GAMES_FAILED) from exc
+    if post_problem:
+        raise Started(post_problem)
     announce_stage(status_id, "done", spoken)
     return 0
 
@@ -1672,6 +1681,45 @@ def write_exact(path, data, mode, jail):
     os.chmod(path, mode)
 
 
+def link_shared_var(deploy, jail):
+    """Use the var the booted system mounts, not the copy inside the deployment.
+
+    bootc leaves a real var directory in the deployment. After boot, that
+    directory is hidden by ostree/deploy/<name>/var. The home and the account
+    picture have to be written through a symlink to that shared var.
+    """
+    deploy = Path(deploy)
+    jail_path = Path(jail).resolve()
+    if host_root(deploy) or host_root(jail) or deploy.is_symlink() or not deploy.is_dir():
+        raise AccountProblem("the new system is not mounted")
+    if not deploy.resolve().is_relative_to(jail_path):
+        raise AccountProblem("the new system is not mounted")
+    shared = deploy.parent.parent / "var"
+    if shared.is_symlink() or not shared.is_dir() or host_root(shared):
+        raise AccountProblem("the new system is not mounted")
+    if not shared.resolve().is_relative_to(jail_path):
+        raise AccountProblem("the new system is not mounted")
+    local = deploy / "var"
+    if local.is_symlink():
+        if local.resolve() != shared.resolve():
+            raise AccountProblem("the new system is not mounted")
+        return
+    if local.exists():
+        same = False
+        try:
+            same = local.stat().st_ino == shared.stat().st_ino and local.stat().st_dev == shared.stat().st_dev
+        except OSError as exc:
+            raise AccountProblem("the new system is not mounted") from exc
+        if same:
+            return
+        if not local.is_dir() or not local.resolve().is_relative_to(deploy.resolve()):
+            raise AccountProblem("the new system is not mounted")
+        shutil.rmtree(local)
+    local.symlink_to("../../var")
+    if not local.is_symlink() or local.resolve() != shared.resolve():
+        raise AccountProblem("the new system is not mounted")
+
+
 def ensure_tree_links(deploy, jail):
     """The deployment's home and var must stay on the mounted system.
 
@@ -2073,6 +2121,7 @@ def write_account(os_device, data, choices_text, wifi_source=None):
         if host_root(deploy) or not deploy.resolve().is_relative_to(SYSROOT.resolve()):
             raise AccountProblem("the new system is not mounted")
         ensure_tree_links(deploy, SYSROOT)
+        link_shared_var(deploy, SYSROOT)
         ensure_user(deploy, SYSROOT, user)
         place_account(deploy, SYSROOT, data, choices_text, wifi_source)
         finished = True
@@ -2159,7 +2208,6 @@ def switch_argv(image):
         "bootc",
         "switch",
         "--mutate-in-place",
-        "--enforce-container-sigpolicy",
         "--transport",
         "registry",
         image,
@@ -2197,13 +2245,17 @@ def checked_post(argv, jail):
     if host_root(jail_path):
         raise PostProblem(UPDATES_FAILED)
     if argv[0] == "rsync":
-        if argv[:-1] != RSYNC_APPS or argv[-1] == RSYNC_APPS[-1]:
+        if len(argv) != len(RSYNC_APPS) + 2 or argv[: len(RSYNC_APPS)] != RSYNC_APPS:
+            raise PostProblem(APPS_FAILED)
+        if argv[-2] != str(FLATPAK_SOURCE):
             raise PostProblem(APPS_FAILED)
         dest = Path(argv[-1])
         if not dest.is_absolute() or dest.is_symlink() or not inside_sysroot(dest, jail_path):
             raise PostProblem(APPS_FAILED)
         resolved = dest.resolve()
         if str(resolved) == "/var/lib" or str(resolved).startswith("/var/lib/"):
+            raise PostProblem(APPS_FAILED)
+        if resolved == Path(FLATPAK_SOURCE).resolve() or str(resolved).startswith(str(FLATPAK_SOURCE) + "/"):
             raise PostProblem(APPS_FAILED)
         return argv
     if argv[0] == "sync":
@@ -2225,7 +2277,7 @@ def checked_post(argv, jail):
             raise PostProblem(UPDATES_FAILED)
         return argv
     if argv[0] == "chroot":
-        if len(argv) != 9 or Path(argv[1]).is_symlink() or argv[2] != "bootc":
+        if len(argv) < 3 or Path(argv[1]).is_symlink() or argv[2] != "bootc":
             raise PostProblem(UPDATES_FAILED)
         root = Path(argv[1]).resolve()
         if not deployment_name_ok(root) or not inside_sysroot(root, jail_path):
@@ -2251,7 +2303,7 @@ def checked_post(argv, jail):
             relative = path.relative_to(root)
         except ValueError as exc:
             raise PostProblem(LABELS_FAILED) from exc
-        if relative.as_posix() not in {"etc/selinux", "var/lib/flatpak"}:
+        if relative.as_posix() not in {"etc/selinux", "var/lib/flatpak", "var/home", "var/lib/AccountsService"}:
             raise PostProblem(LABELS_FAILED)
         if spec.name != "file_contexts" or not spec.as_posix().endswith(
             "etc/selinux/targeted/contexts/files/file_contexts"
@@ -2328,9 +2380,14 @@ def flatpak_dir(deploy, jail):
 
 
 def flatpak_argv(dest, jail):
+    """Copy /var/lib/flatpak into the new system's var/lib.
+
+    The source has to be named. One path makes rsync list that directory
+    and exit 0, which copies nothing.
+    """
     if Path(dest).is_symlink():
         raise PostProblem(APPS_FAILED)
-    argv = [*RSYNC_APPS, str(Path(dest).resolve())]
+    argv = [*RSYNC_APPS, str(FLATPAK_SOURCE), str(Path(dest).resolve())]
     checked_post(argv, jail)
     return argv
 
@@ -2479,8 +2536,10 @@ def label_paths(deploy, jail):
     """setfiles commands that label the new system as it will look after boot.
 
     The files are still mounted under the install tree. setfiles -r matches
-    them against /etc/selinux and /var/lib/flatpak, which is the same
-    labeling restorecon does once that system is running.
+    them against /etc/selinux, /var/lib/flatpak, /var/home, and the account
+    picture directory. That is the same labeling restorecon does once that
+    system is running. The home and the account picture are labeled when
+    they are real directories. A missing avatar directory is left alone.
     """
     policy = policy_spec(deploy, jail)
     deploy_root = Path(deploy).resolve()
@@ -2499,10 +2558,18 @@ def label_paths(deploy, jail):
         or (stateroot / "var" / "lib" / "flatpak").resolve() != flatpak.resolve()
     ):
         raise PostProblem(LABELS_FAILED)
-    return [
+    commands = [
         setfiles_argv(deploy_root, policy, etc, jail),
         setfiles_argv(stateroot.resolve(), policy, flatpak, jail),
     ]
+    for relative in ("var/home", "var/lib/AccountsService"):
+        path = stateroot / relative
+        if path.is_symlink() or not path.is_dir():
+            continue
+        if host_root(path) or not inside_sysroot(path, jail):
+            raise PostProblem(LABELS_FAILED)
+        commands.append(setfiles_argv(stateroot.resolve(), policy, path, jail))
+    return commands
 
 
 def setfiles_argv(root, spec, path, jail):
@@ -2514,7 +2581,11 @@ def setfiles_argv(root, spec, path, jail):
 
 
 def restore_labels(deploy, jail):
-    """Relabel the policy store and the copied Flatpak tree. A failure stops the install."""
+    """Relabel the policy store and the copied Flatpak tree.
+
+    The caller still enrolls the key and creates the games partition when
+    this fails. The window hears this failure when nothing earlier failed.
+    """
     stop_if_checking("restore security labels")
     require_live()
     require_sysroot(jail)
@@ -2598,6 +2669,13 @@ def enroll_secure_boot():
 
 
 def write_post(os_device, source):
+    """Copy apps, point updates, restore labels, then enroll the key.
+
+    The app copy has to succeed before the update step and the labels.
+    An update failure still restores labels and still enrolls the key.
+    The caller creates the games partition after this, then shows the
+    first failure. The USB sentence is not printed.
+    """
     stop_if_checking("write the installed system")
     require_live()
     registry_image(source)
@@ -2606,7 +2684,8 @@ def write_post(os_device, source):
     assert_not_live(os_device)
     fresh_mount(SYSROOT)
     mounted = False
-    finished = False
+    copied = False
+    failure = None
     try:
         root_name = only_root(typed_rows(os_device, read_table(os_device)))
         run_disk(["mount", "-t", "btrfs", f"/dev/{root_name}", str(SYSROOT)])
@@ -2614,20 +2693,41 @@ def write_post(os_device, source):
         deploy = deployment_dir(SYSROOT, read_rev(SYSROOT))
         if host_root(deploy) or not deploy.resolve().is_relative_to(SYSROOT.resolve()):
             raise PostProblem(APPS_FAILED)
-        copy_flatpak(deploy, SYSROOT)
-        point_updates(deploy, SYSROOT, source)
-        restore_labels(deploy, SYSROOT)
-        finished = True
+        try:
+            copy_flatpak(deploy, SYSROOT)
+            copied = True
+        except PostProblem:
+            failure = APPS_FAILED
+        if copied:
+            try:
+                point_updates(deploy, SYSROOT, source)
+            except PostProblem:
+                if failure is None:
+                    failure = UPDATES_FAILED
+            try:
+                restore_labels(deploy, SYSROOT)
+            except PostProblem:
+                if failure is None:
+                    failure = LABELS_FAILED
     except PostProblem:
         raise
     except (GamesProblem, AccountProblem, OSError) as exc:
         post_log(redact(str(exc)))
-        raise PostProblem(APPS_FAILED) from exc
+        if failure is None:
+            failure = APPS_FAILED
     finally:
         root_ok = quiet_umount(SYSROOT) if mounted else True
-        if finished and not root_ok:
-            raise PostProblem(UPDATES_FAILED)
-    enroll_secure_boot()
+        if failure is None and mounted and not root_ok:
+            failure = UPDATES_FAILED
+    if mounted:
+        try:
+            enroll_secure_boot()
+        except PostProblem as exc:
+            post_log(redact(str(exc)))
+            if failure is None:
+                failure = UPDATES_FAILED
+    if failure:
+        raise PostProblem(failure)
 
 
 def finish_post(os_device, source):
@@ -3056,6 +3156,21 @@ def check_account():
         deploy.mkdir(parents=True)
         (deploy / "var").symlink_to("../../var")
         (deploy / "home").symlink_to("var/home")
+        link_shared_var(deploy, jail)
+        if not (deploy / "var").is_symlink() or (deploy / "var").resolve() != shared.resolve():
+            raise SystemExit("the shared var symlink was replaced")
+        hidden = jail / "ostree/deploy/default/deploy" / f"{'ab' * 32}.hidden"
+        hidden.mkdir()
+        (hidden / "var").mkdir()
+        (hidden / "var" / "marker").write_text("hide")
+        (hidden / "home").symlink_to("var/home")
+        link_shared_var(hidden, jail)
+        if not (hidden / "var").is_symlink() or (hidden / "var").resolve() != shared.resolve():
+            raise SystemExit("a real deployment var was left in place")
+        if (hidden / "var" / "marker").exists():
+            raise SystemExit("the hidden var was kept")
+        if not (shared / "home").is_dir():
+            raise SystemExit("the shared home was removed")
         (deploy / "etc").mkdir()
         (deploy / "etc/passwd").write_text("alex:x:1000:1000:Alex:/home/alex:/bin/bash\n")
         icons = deploy / "usr/share/wasd/icons"
@@ -3386,12 +3501,13 @@ def check_post():
         "bootc",
         "switch",
         "--mutate-in-place",
-        "--enforce-container-sigpolicy",
         "--transport",
         "registry",
         "example:latest",
     ]:
         raise SystemExit(f"the switch command was {switched}")
+    if "--enforce-container-sigpolicy" in switched:
+        raise SystemExit("the switch command requires a signature policy this image does not have")
     if "--apply" in switched or "containers-storage" in " ".join(switched):
         raise SystemExit("the switch command would fetch or reboot")
     for bad in (
@@ -3453,8 +3569,14 @@ def check_post():
         if dest != shared.resolve():
             raise SystemExit(f"the apps were aimed at {dest}")
         copied = flatpak_argv(dest, jail)
-        if copied != [*RSYNC_APPS, str(dest)]:
+        if copied != [*RSYNC_APPS, str(FLATPAK_SOURCE), str(dest)]:
             raise SystemExit(f"the app copy was {copied}")
+        try:
+            checked_post([*RSYNC_APPS, str(dest)], jail)
+        except PostProblem:
+            pass
+        else:
+            raise SystemExit("a copy with no source was accepted")
         if ENROLLMENT_PASSWORD in " ".join(copied):
             raise SystemExit("the enrollment password was put on the app copy")
         spec_dir = deploy / "etc/selinux/targeted/contexts/files"
@@ -3463,16 +3585,17 @@ def check_post():
         spec.write_text("# contexts\n")
         flat = shared / "flatpak"
         flat.mkdir()
+        home = shared.parent / "home"
+        accounts = shared / "AccountsService"
+        home.mkdir()
+        accounts.mkdir()
         labeled = label_paths(deploy, jail)
+        root = shared.parent.parent.resolve()
         expected_labels = [
             ["setfiles", "-r", str(deploy.resolve()), str(spec.resolve()), str((deploy / "etc/selinux").resolve())],
-            [
-                "setfiles",
-                "-r",
-                str(shared.parent.parent.resolve()),
-                str(spec.resolve()),
-                str(flat.resolve()),
-            ],
+            ["setfiles", "-r", str(root), str(spec.resolve()), str(flat.resolve())],
+            ["setfiles", "-r", str(root), str(spec.resolve()), str(home.resolve())],
+            ["setfiles", "-r", str(root), str(spec.resolve()), str(accounts.resolve())],
         ]
         if labeled != expected_labels:
             raise SystemExit(f"the label commands were {labeled}")
@@ -3605,6 +3728,15 @@ def check_post():
     install_body = inspect.getsource(install)
     if "finish_post" not in install_body or "universalblue" in install_body or "--apply" in install_body:
         raise SystemExit("install does not finish the installed system")
+    post_body = inspect.getsource(write_post)
+    try:
+        between = post_body.split("point_updates(", 1)[1].split("restore_labels(", 1)[0]
+    except IndexError as exc:
+        raise SystemExit("the update step or the labels are missing") from exc
+    if "except PostProblem" not in between:
+        raise SystemExit("an update failure skips the security labels")
+    if "enroll_secure_boot(" not in post_body.split("restore_labels(", 1)[1]:
+        raise SystemExit("enrollment was skipped after the labels")
     status = "abcd1234efgh5678"
     disk_argv = bootc_argv("nvme0n1", {"mode": "off"}, "containers-storage:example:latest")
 
@@ -3641,16 +3773,26 @@ def check_post():
         raise PostProblem(APPS_FAILED)
 
     def no_games():
-        raise SystemExit("games ran after the post failed")
+        raise SystemExit("games ran after the account failed")
+
+    def games_after(kind):
+        def step():
+            seen[kind] = True
+
+        return step
 
     spoken = []
+    seen = {}
     try:
-        run_bootc(disk_argv, status, runner, spoken, account=mark, post=apps_fail, finish=no_games)
+        run_bootc(disk_argv, status, runner, spoken, account=mark, post=apps_fail, finish=games_after("apps"))
     except Started as exc:
-        if str(exc) != APPS_FAILED or "Nothing was erased." in str(exc) or spoken != ["copy", "account", "boot"]:
-            raise SystemExit(f"an app copy failure was {exc} after {spoken}") from exc
-    except SystemExit as exc:
-        raise SystemExit(f"an app copy failure ran games: {exc}") from exc
+        if (
+            str(exc) != APPS_FAILED
+            or "Nothing was erased." in str(exc)
+            or spoken != ["copy", "account", "boot"]
+            or not seen.get("apps")
+        ):
+            raise SystemExit(f"an app copy failure was {exc} after {spoken} {seen}") from exc
     else:
         raise SystemExit("an app copy failure printed the USB line")
 
@@ -3658,13 +3800,12 @@ def check_post():
         raise OSError("disk")
 
     spoken = []
+    seen = {}
     try:
-        run_bootc(disk_argv, status, runner, spoken, account=mark, post=updates_fail, finish=no_games)
+        run_bootc(disk_argv, status, runner, spoken, account=mark, post=updates_fail, finish=games_after("updates"))
     except Started as exc:
-        if str(exc) != UPDATES_FAILED or "Nothing was erased." in str(exc) or "done" in spoken:
-            raise SystemExit(f"an update failure was {exc} after {spoken}") from exc
-    except SystemExit as exc:
-        raise SystemExit(f"an update failure ran games: {exc}") from exc
+        if str(exc) != UPDATES_FAILED or "Nothing was erased." in str(exc) or "done" in spoken or not seen.get("updates"):
+            raise SystemExit(f"an update failure was {exc} after {spoken} {seen}") from exc
     else:
         raise SystemExit("an update failure printed the USB line")
 
@@ -3672,13 +3813,12 @@ def check_post():
         raise PostProblem(LABELS_FAILED)
 
     spoken = []
+    seen = {}
     try:
-        run_bootc(disk_argv, status, runner, spoken, account=mark, post=labels_fail, finish=no_games)
+        run_bootc(disk_argv, status, runner, spoken, account=mark, post=labels_fail, finish=games_after("labels"))
     except Started as exc:
-        if str(exc) != LABELS_FAILED or "Nothing was erased." in str(exc) or "done" in spoken:
-            raise SystemExit(f"a label failure was {exc} after {spoken}") from exc
-    except SystemExit as exc:
-        raise SystemExit(f"a label failure ran games: {exc}") from exc
+        if str(exc) != LABELS_FAILED or "Nothing was erased." in str(exc) or "done" in spoken or not seen.get("labels"):
+            raise SystemExit(f"a label failure was {exc} after {spoken} {seen}") from exc
     else:
         raise SystemExit("a label failure printed the USB line")
 
@@ -3757,6 +3897,10 @@ def check_writer():
             "--skip-fetch-check",
             "--source-imgref",
             "containers-storage:example:latest",
+            "--karg",
+            "quiet",
+            "--karg",
+            "rhgb",
             "/dev/nvme0n1",
         ]
         if whole != expected:

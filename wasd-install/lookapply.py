@@ -388,24 +388,177 @@ def apply_files(root, home, user, look):
     prepare_loading(root, root / "usr/share/wasd/loading" / look["loading"])
 
 
-def run_session(user, look):
+SESSION_KEYS = (
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "WAYLAND_DISPLAY",
+    "DISPLAY",
+    "XAUTHORITY",
+    "XDG_CURRENT_DESKTOP",
+)
+
+
+def look_sentence(text):
+    """The last line of a look failure, when it is one this window can show."""
+    line = ""
+    if text:
+        lines = str(text).strip().splitlines()
+        line = lines[-1].strip() if lines else ""
+    if line in LOOK_MESSAGES:
+        return line
+    return "The desktop was not set."
+
+
+def _runtime_uid(runtime):
+    match = re.fullmatch(r"/run/user/([0-9]+)", runtime or "")
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _accept_session_value(key, value, runtime):
+    if key == "XDG_RUNTIME_DIR":
+        return value == runtime and _runtime_uid(runtime) is not None
+    if key == "DBUS_SESSION_BUS_ADDRESS":
+        return value == f"unix:path={runtime}/bus"
+    if key == "WAYLAND_DISPLAY":
+        return re.fullmatch(r"wayland-[0-9]+", value or "") is not None
+    if key == "DISPLAY":
+        return re.fullmatch(r":[0-9]+(\.[0-9]+)?", value or "") is not None
+    if key == "XAUTHORITY":
+        path = Path(value)
+        return value.startswith(runtime + "/") and ".." not in path.parts and "\n" not in value and "\0" not in value
+    if key == "XDG_CURRENT_DESKTOP":
+        return value == "KDE"
+    return False
+
+
+def session_values(uid, present, found):
+    """Session variables for one user. This does not read the process table.
+
+    present names entries under /run/user/<uid>, such as bus and wayland-0.
+    found is that session's environment. Other variables are ignored.
+    """
+    if isinstance(uid, bool) or not isinstance(uid, int) or uid < 0:
+        raise LookError("The desktop was not set.")
+    runtime = f"/run/user/{uid}"
+    names = set(present or ())
+    found = found if isinstance(found, dict) else {}
+    env = {}
+    if "bus" in names:
+        env["XDG_RUNTIME_DIR"] = runtime
+        env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={runtime}/bus"
+    wayland = found.get("WAYLAND_DISPLAY") or ""
+    if re.fullmatch(r"wayland-[0-9]+", wayland) and wayland in names:
+        env["WAYLAND_DISPLAY"] = wayland
+    elif "wayland-0" in names:
+        env["WAYLAND_DISPLAY"] = "wayland-0"
+    display = found.get("DISPLAY") or ""
+    if _accept_session_value("DISPLAY", display, runtime):
+        env["DISPLAY"] = display
+    auth = found.get("XAUTHORITY") or ""
+    if _accept_session_value("XAUTHORITY", auth, runtime):
+        env["XAUTHORITY"] = auth
+    if found.get("XDG_CURRENT_DESKTOP") == "KDE":
+        env["XDG_CURRENT_DESKTOP"] = "KDE"
+    if "DBUS_SESSION_BUS_ADDRESS" not in env:
+        raise LookError("The wallpaper did not change.")
+    return env
+
+
+def parse_environ(blob):
+    env = {}
+    if isinstance(blob, str):
+        blob = blob.encode()
+    for part in blob.split(b"\0"):
+        if b"=" not in part:
+            continue
+        key, value = part.split(b"=", 1)
+        try:
+            env[key.decode("utf-8")] = value.decode("utf-8")
+        except UnicodeError:
+            continue
+    return env
+
+
+def live_session_env(user):
+    """The Plasma session for this user. The tools do nothing without its bus."""
     if USER_NAME.fullmatch(user) is None or user == "root":
         raise LookError("The desktop was not set.")
-    subprocess.run(
-        ["runuser", "-u", user, "--", "lookandfeeltool", "--apply", look["package"]],
-        capture_output=True,
+    try:
+        uid = pwd.getpwnam(user).pw_uid
+    except KeyError as exc:
+        raise LookError("The desktop was not set.") from exc
+    runtime = Path(f"/run/user/{uid}")
+    if runtime.is_symlink() or not runtime.is_dir():
+        raise LookError("The wallpaper did not change.")
+    present = set()
+    bus = runtime / "bus"
+    if bus.exists() and not bus.is_symlink():
+        present.add("bus")
+    try:
+        children = list(runtime.iterdir())
+    except OSError as exc:
+        raise LookError("The wallpaper did not change.") from exc
+    for child in children:
+        if re.fullmatch(r"wayland-[0-9]+", child.name) and not child.is_symlink():
+            present.add(child.name)
+    found = {}
+    proc = Path("/proc")
+    if proc.is_dir() and not proc.is_symlink():
+        for entry in proc.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                if entry.stat().st_uid != uid:
+                    continue
+                command = (entry / "cmdline").read_bytes().split(b"\0", 1)[0]
+                if command != b"plasmashell" and not command.endswith(b"/plasmashell"):
+                    continue
+                found = parse_environ((entry / "environ").read_bytes())
+                break
+            except OSError:
+                continue
+    return session_values(uid, present, found)
+
+
+def session_command(user, env, argv):
+    """runuser plus the session variables, then the tool. The bus is required."""
+    if USER_NAME.fullmatch(user) is None or user == "root":
+        raise LookError("The desktop was not set.")
+    if not isinstance(env, dict) or not argv or any(not isinstance(item, str) or item == "" for item in argv):
+        raise LookError("The desktop was not set.")
+    runtime = env.get("XDG_RUNTIME_DIR") or ""
+    if _runtime_uid(runtime) is None:
+        raise LookError("The wallpaper did not change.")
+    if any(char in item for item in argv for char in ("\n", "\0")):
+        raise LookError("The desktop was not set.")
+    command = ["runuser", "-u", user, "--", "env"]
+    for key in SESSION_KEYS:
+        value = env.get(key)
+        if not isinstance(value, str) or not _accept_session_value(key, value, runtime):
+            continue
+        command.append(f"{key}={value}")
+    if not any(item.startswith("DBUS_SESSION_BUS_ADDRESS=") for item in command):
+        raise LookError("The wallpaper did not change.")
+    return command + list(argv)
+
+
+def run_session(user, look):
+    env = live_session_env(user)
+    theme = session_command(user, env, ["lookandfeeltool", "--apply", look["package"]])
+    if not safe_file(look["wallpaper"]):
+        raise LookError("The wallpaper did not change.")
+    wall_cmd = session_command(
+        user,
+        env,
+        ["plasma-apply-wallpaperimage", f"/usr/share/wallpapers/wasd/{look['wallpaper']}"],
     )
-    wall = subprocess.run(
-        [
-            "runuser",
-            "-u",
-            user,
-            "--",
-            "plasma-apply-wallpaperimage",
-            f"/usr/share/wallpapers/wasd/{look['wallpaper']}",
-        ],
-        capture_output=True,
-    )
+    theme_proc = subprocess.run(theme, capture_output=True)
+    if theme_proc.returncode != 0:
+        err = (theme_proc.stderr or b"").decode("utf-8", "replace")
+        raise LookError(look_sentence(err))
+    wall = subprocess.run(wall_cmd, capture_output=True)
     if wall.returncode != 0:
         raise LookError("The wallpaper did not change.")
 
@@ -445,9 +598,11 @@ def apply_look(root, home, user, look, session=False, rebuild=False):
     home.mkdir(parents=True, exist_ok=True)
     apply_files(root, home, user, look)
     if session and _live(root):
-        run_session(user, look)
-        # The theme tool can put its own splash and wallpaper back.
-        apply_files(root, home, user, look)
+        try:
+            run_session(user, look)
+        finally:
+            # The theme tool can put its own splash and wallpaper back.
+            apply_files(root, home, user, look)
     note = ""
     if rebuild and _live(root):
         note = rebuild_initramfs(root / "etc/wasd/loading-background.png")
@@ -542,6 +697,7 @@ def _sample_root(root, package, defaults):
 
 
 def self_check():
+    import inspect
     import tempfile
 
     os.environ["WASD_SELF_CHECK"] = "1"
@@ -646,6 +802,60 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
                 raise SystemExit(f"a bad look was accepted {bad}")
         if look_from({"password": False}) is not None:
             raise SystemExit("a choice file without a look was treated as one")
+    env = session_values(
+        1000,
+        {"bus", "wayland-0"},
+        {
+            "WAYLAND_DISPLAY": "wayland-0",
+            "DISPLAY": ":0",
+            "XAUTHORITY": "/run/user/1000/.Xauthority",
+            "XDG_CURRENT_DESKTOP": "KDE",
+            "SECRET": "nope",
+        },
+    )
+    wall = session_command("alex", env, ["plasma-apply-wallpaperimage", "/usr/share/wallpapers/wasd/camp.png"])
+    if wall[:5] != ["runuser", "-u", "alex", "--", "env"]:
+        raise SystemExit(f"the session command was {wall[:5]}")
+    if "XDG_RUNTIME_DIR=/run/user/1000" not in wall:
+        raise SystemExit("the wallpaper command had no runtime dir")
+    if "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus" not in wall:
+        raise SystemExit("the wallpaper command had no session bus")
+    if "WAYLAND_DISPLAY=wayland-0" not in wall or "DISPLAY=:0" not in wall:
+        raise SystemExit("the wallpaper command had no display")
+    if "XAUTHORITY=/run/user/1000/.Xauthority" not in wall or "XDG_CURRENT_DESKTOP=KDE" not in wall:
+        raise SystemExit("the wallpaper command dropped the session")
+    if any("SECRET" in item or "nope" in item for item in wall):
+        raise SystemExit("the session command kept another variable")
+    if wall[-2:] != ["plasma-apply-wallpaperimage", "/usr/share/wallpapers/wasd/camp.png"]:
+        raise SystemExit("the wallpaper tool was not the command")
+    theme = session_command("alex", env, ["lookandfeeltool", "--apply", "com.github.yeyushengfan258.We10XOS-dark"])
+    if theme[-2:] != ["--apply", "com.github.yeyushengfan258.We10XOS-dark"]:
+        raise SystemExit("the theme command was wrong")
+    if "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus" not in theme:
+        raise SystemExit("the theme command had no session bus")
+    try:
+        bare = session_values(1000, set(), {})
+    except LookError as exc:
+        if str(exc) != "The wallpaper did not change.":
+            raise SystemExit(f"a missing bus said {exc}") from exc
+    else:
+        raise SystemExit(f"a missing session bus was accepted: {bare}")
+    try:
+        session_command("root", env, ["plasma-apply-wallpaperimage", "x"])
+    except LookError:
+        pass
+    else:
+        raise SystemExit("root was given the session")
+    rejected = session_values(1000, {"bus"}, {"DISPLAY": "not-a-display", "XAUTHORITY": "/etc/shadow"})
+    if "DISPLAY" in rejected or "XAUTHORITY" in rejected:
+        raise SystemExit(f"a bad session value was kept: {rejected}")
+    body = inspect.getsource(run_session)
+    if "live_session_env" not in body or "session_command" not in body or "returncode" not in body:
+        raise SystemExit("the desktop tools do not use the session bus")
+    if look_sentence("The wallpaper did not change.\n") != "The wallpaper did not change.":
+        raise SystemExit("the wallpaper sentence was replaced")
+    if look_sentence("traceback") != "The desktop was not set.":
+        raise SystemExit("an unknown look failure was shown")
     print("look self-check ok")
 
 

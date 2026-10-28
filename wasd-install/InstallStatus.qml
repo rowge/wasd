@@ -29,6 +29,44 @@ Item {
             font.pixelSize: host.installStage === "done" || host.installStage === "failed" ? 32 : 28
         }
 
+        Text {
+            objectName: "removeUsbLine"
+            visible: host.restartReady && host.installStage === "failed"
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "You can remove the USB stick."
+            color: host.ink
+            font.family: host.bodyFont
+            font.pixelSize: 18
+        }
+
+        Rectangle {
+            objectName: "restartButton"
+            visible: host.restartReady
+            width: restartLabel.implicitWidth + 36
+            height: 44
+            radius: 9
+            color: host.button
+            antialiasing: true
+
+            Text {
+                id: restartLabel
+                objectName: "restartButtonLabel"
+                anchors.centerIn: parent
+                text: "Restart"
+                color: host.buttonInk
+                font.family: host.bodyFont
+                font.pixelSize: 16
+                font.bold: true
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: host.restartNow()
+            }
+        }
+
         Column {
             visible: host.installStage !== "done" && host.installStage !== "failed"
             width: parent.width
