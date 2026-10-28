@@ -95,6 +95,27 @@ GAMES_MOUNT = Path("/run/wasd-games")
 MOUNT_POINTS = {str(SYSROOT), str(GAMES_MOUNT)}
 MOUNT_FS = {"btrfs", "ext4", "xfs", "ntfs3", "exfat"}
 REV_NAME = re.compile(r"^[0-9a-f]{64}$")
+# The deployment directory on the disk names the checksum. A fixed ostree
+# index does not match what bootc writes.
+DEPLOYMENT_SHELL = """
+deployment=
+found=0
+for dir in /mnt/sysimage/ostree/deploy/default/deploy/*.0; do
+    [ -d "$dir" ] || continue
+    base=${dir##*/}
+    rev=${base%.0}
+    case $rev in
+        *[!0-9a-f]*) continue ;;
+    esac
+    if [ ${#rev} -eq 64 ]; then
+        deployment=$rev
+        found=$((found + 1))
+    fi
+done
+if [ "$found" -ne 1 ]; then
+    deployment=
+fi
+""".strip()
 DISK_COMMANDS = {
     "blkid",
     "mkfs.btrfs",
@@ -435,7 +456,7 @@ if [ -z "$uuid" ]; then
     echo "The games drive has no id." >&2
     exit 1
 fi
-deployment=$(ostree rev-parse --repo=/mnt/sysimage/ostree/repo ostree/0/1/0 || true)
+{DEPLOYMENT_SHELL}
 fstab=/mnt/sysimage/etc/fstab
 if [ -n "$deployment" ]; then
     alt="/mnt/sysimage/ostree/deploy/default/deploy/${{deployment}}.0/etc/fstab"
@@ -546,7 +567,7 @@ fi
 set -u
 src=/etc/NetworkManager/system-connections
 if [ -d "$src" ] && [ -n "$(ls -A "$src" 2>/dev/null || true)" ]; then
-    deployment=$(ostree rev-parse --repo=/mnt/sysimage/ostree/repo ostree/0/1/0 || true)
+    {DEPLOYMENT_SHELL}
     if [ -n "$deployment" ]; then
         dest="/mnt/sysimage/ostree/deploy/default/deploy/${{deployment}}.0/etc/NetworkManager/system-connections"
         mkdir -p "$dest"
@@ -1263,19 +1284,37 @@ def typed_rows(device, blob):
     return rows
 
 
+def deployment_rev(sysroot):
+    """The checksum of the one deployment directory on the mounted system."""
+    root = Path(sysroot)
+    if root.is_symlink():
+        raise GamesProblem("the new system is not mounted")
+    deploy_root = root / "ostree" / "deploy" / "default" / "deploy"
+    if deploy_root.is_symlink() or not deploy_root.is_dir():
+        raise GamesProblem("the installed system has no deployment")
+    found = []
+    for child in deploy_root.iterdir():
+        if child.is_symlink() or not child.is_dir():
+            continue
+        if not child.name.endswith(".0"):
+            continue
+        rev = child.name[:-2]
+        if not REV_NAME.fullmatch(rev):
+            continue
+        if not child.resolve().is_relative_to(root.resolve()):
+            raise GamesProblem("the installed system has no deployment")
+        found.append(rev)
+    if len(found) != 1:
+        raise GamesProblem("the installed system has no deployment")
+    return found[0]
+
+
 def read_rev(sysroot):
     stop_if_checking("read the deployment")
     root = Path(sysroot).resolve()
     if root != SYSROOT.resolve():
         raise GamesProblem("the new system is not mounted")
-    repo = root / "ostree" / "repo"
-    if not repo.is_dir() or repo.is_symlink():
-        raise GamesProblem("the install repository is missing")
-    result = run_disk(["ostree", "rev-parse", f"--repo={repo}", "ostree/0/1/0"])
-    rev = result.stdout.strip()
-    if not REV_NAME.fullmatch(rev):
-        raise GamesProblem("the installed system has no deployment")
-    return rev
+    return deployment_rev(root)
 
 
 def reread(device):
@@ -3015,6 +3054,24 @@ def check_account():
         found = deployment_dir(jail, rev)
         if found.resolve() != deploy.resolve():
             raise SystemExit(f"the deployment path was {found}")
+        if deployment_rev(jail) != rev:
+            raise SystemExit("the deployment directory was not read")
+        (deploy.parent / f"{'cd' * 32}.0").mkdir()
+        try:
+            deployment_rev(jail)
+        except GamesProblem:
+            pass
+        else:
+            raise SystemExit("two deployments were accepted")
+        (deploy.parent / f"{'cd' * 32}.0").rmdir()
+        link = deploy.parent / f"{'ef' * 32}.0"
+        link.symlink_to(deploy.name)
+        if deployment_rev(jail) != rev:
+            raise SystemExit("a deployment link was followed")
+        link.unlink()
+        lookup = inspect.getsource(read_rev) + inspect.getsource(deployment_rev)
+        if "ostree/0/" in lookup or "ostree/1/" in lookup or "rev-parse" in lookup:
+            raise SystemExit("the deployment lookup uses a fixed name")
         try:
             deployment_dir(jail, "AB" * 32)
         except AccountProblem:

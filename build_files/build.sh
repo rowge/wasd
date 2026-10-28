@@ -304,6 +304,10 @@ test -x /usr/bin/wasd-install
 test -x /usr/bin/wasd-qml
 test -x /usr/bin/wasd-complete
 test -x /usr/libexec/wasd-erase
+if grep -F 'ostree/0/1/0' /usr/libexec/wasd-erase >/dev/null; then
+    echo "the installer still asks for a fixed deployment name" >&2
+    exit 1
+fi
 test -s /usr/share/polkit-1/actions/org.wasd.erase.policy
 grep -F '/usr/libexec/wasd-erase' /usr/share/polkit-1/actions/org.wasd.erase.policy >/dev/null
 grep -F '<allow_active>yes</allow_active>' /usr/share/polkit-1/actions/org.wasd.erase.policy >/dev/null
