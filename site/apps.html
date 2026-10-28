@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Install WASD and WASD Look — WASD</title>
   <meta name="description" content="How to use Install WASD, WASD Look, and a games drive mounted at /games.">
-  <meta name="theme-color" content="#c4a574">
+  <meta name="theme-color" content="#14161a">
   <link rel="icon" href="favicon.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20261026-7">
+  <link rel="stylesheet" href="styles.css?v=20261028-2">
 </head>
 <body class="guide shots">
   <div class="sheet">
@@ -47,10 +47,10 @@
 
     <h3 id="look">Look</h3>
     <figure>
-      <img src="images/install-look.png" alt="Install WASD on the Look step. Loading screen, Login screen, and Desktop are closed, with a small picture beside each one.">
-      <figcaption>Each row starts closed. Opening one shows its pictures and closes the other two.</figcaption>
+      <img src="images/install-look.png" alt="Install WASD on the Look step. Loading screen, Login/lock screen, and Desktop are open, each with a large picture.">
+      <figcaption>Loading screen, Login/lock screen, and Desktop stay open. The blue edge marks the picture in use.</figcaption>
     </figure>
-    <p>Loading screen is the picture behind the bar while the computer starts. Login screen is the sign-in picture. The lock screen uses that same picture. Desktop is the wallpaper, with a theme name beside it. The defaults are the stained-glass loading picture, the throne login picture, and the stained-glass desktop.</p>
+    <p>Loading screen is the picture behind the bar while the computer starts. Login/lock screen is the sign-in picture and the lock screen. Desktop is the wallpaper, with the theme above it. The defaults are the stained-glass loading picture, the throne login picture, and the stained-glass desktop.</p>
     <p>The choices are saved with the install. A new system already uses those three defaults. <span class="app">WASD Look</span> changes them after install. Adding a picture file to the matching folder adds a choice:</p>
     <p>Loading screens: <code>/usr/share/wasd/loading</code></p>
     <p>Login screens: <code>/usr/share/wasd/login</code></p>
@@ -130,18 +130,18 @@
     <p>The <span class="withicon"><img src="images/wasd-logo.png" alt="">desktop icon</span> is named <span class="app">Completing the install</span>. Closing the window leaves it. When the window finishes, the <span class="withicon"><img src="images/wasd-logo.png" alt="">icon</span> moves to the trash and is taken off the list of programs that start at login.</p>
     <p>The lines are "Setting the desktop.", then "Installing the agents." when any were checked, then "Installing what you checked.", and "Finishing up." A saved Ethernet address is applied when those lines start. If the adapter is not connected yet, the window says the address was saved. A Wi-Fi address is used when that network connects. Skipping Wi-Fi does not create a Wi-Fi connection.</p>
     <p>On "Installing what you checked." the selected apps are downloaded. Steam and Brave are already installed. If the computer is offline, the window stops and lets you choose a Wi-Fi network or set an address, a netmask, a gateway, and DNS. The passphrase is typed there and is not saved. You can skip that prompt. The window can still finish, and Discover can add an app later. Closing the window instead of skipping leaves the <span class="withicon"><img src="images/wasd-logo.png" alt="">desktop icon</span>.</p>
-    <p>If one app fails, the window names it. <span class="btn text">Retry</span> tries again. <span class="btn">Continue</span> leaves that one out and goes on. When OBS Studio is selected, its capture plugins are downloaded with it.</p>
-    <p>"Setting the desktop." applies the loading picture, the login picture, the theme, and the wallpaper from the Look step. The lock screen uses that same login picture. The session splash stays the WASD mark. <span class="btn text">Retry</span> tries the look again. That step does not offer <span class="btn">Continue</span>.</p>
-    <p>When agents were checked, "Installing the agents." installs them one at a time. Grok, and the other checked web apps, open in their own Brave window. Command-line agents that have an installer are downloaded here. <span class="btn text">Retry</span> tries again. <span class="btn">Continue</span> leaves that one out, and its menu entry stays. Sign-in uses your own account. <span class="app">WASD Look</span> can still change the pictures later.</p>
+    <p>If one app fails, the window names it. <span class="btn">Retry</span> tries again. <span class="btn">Continue</span> leaves that one out and goes on. When OBS Studio is selected, its capture plugins are downloaded with it.</p>
+    <p>"Setting the desktop." applies the loading picture, the login picture, the theme, and the wallpaper from the Look step. The lock screen uses that same login picture. The session splash stays the WASD mark. <span class="btn">Retry</span> tries the look again. That step does not offer <span class="btn">Continue</span>.</p>
+    <p>When agents were checked, "Installing the agents." installs them one at a time. Grok, and the other checked web apps, open in their own Brave window. Command-line agents that have an installer are downloaded here. <span class="btn">Retry</span> tries again. <span class="btn">Continue</span> leaves that one out, and its menu entry stays. Sign-in uses your own account. <span class="app">WASD Look</span> can still change the pictures later.</p>
     <p>To sign in automatically again after a password is set, open System Settings, then Security and Privacy, then Login Screen, and turn on Automatically log in.</p>
 
     <h2 id="wasd-look"><span class="app">WASD Look</span></h2>
     <figure>
-      <img src="images/wasd-look.png" alt="WASD Look. Loading screen, Login screen, Desktop wallpaper, and User picture are closed, each with a small picture.">
+      <img src="images/wasd-look.png" alt="WASD Look. Loading screen, Login/lock screen, Desktop wallpaper, and User picture, each shown as a large picture.">
       <figcaption><span class="app">WASD Look</span> matches the Look step, and it adds the user picture. <span class="btn">Apply</span> changes this computer.</figcaption>
     </figure>
     <p>Open <span class="app">WASD Look</span> from the menu after the system is installed. It uses the same folders. Loading screens are <code>/usr/share/wasd/loading</code>. Login screens are <code>/usr/share/wasd/login</code>. Wallpapers are <code>/usr/share/wallpapers/wasd</code>. The user picture is the same ten characters. Click the selected character again to clear it. <span class="btn">Apply</span> leaves the account picture alone unless you picked one or cleared it on that visit.</p>
-    <p>The wallpaper changes immediately. The user picture and the login screen change at the next login. The lock screen uses the same picture as the login screen, and it changes the next time the screen locks. The loading screen is rebuilt on that computer and shows on the next boot. That rebuild is not a new download of WASD. Theme choices stay in KDE's own settings.</p>
+    <p>The wallpaper changes immediately. The user picture and the login/lock screen change at the next login. The lock screen uses that same picture, and it changes the next time the screen locks. The loading screen is rebuilt on that computer and shows on the next boot. That rebuild is not a new download of WASD. Theme choices stay in KDE's own settings.</p>
     <p>The desktop note is on the <a href="/about">About</a> page. The stick is covered in <a href="/usb">How to make a bootable USB</a>.</p>
   </main>
   </div>

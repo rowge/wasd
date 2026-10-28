@@ -1,8 +1,12 @@
 :root {
   color-scheme: dark;
-  --ink: #f6ead8;
-  --muted: #e7d3b6;
-  --line: rgba(246, 226, 196, 0.28);
+  --ink: #f4f2ee;
+  --muted: #a9a59e;
+  --line: rgba(255, 255, 255, 0.14);
+  --card: #22252b;
+  --accent: #7aa2ff;
+  --button: #f4f2ee;
+  --button-ink: #16181c;
 }
 
 * { box-sizing: border-box; }
@@ -15,7 +19,7 @@ body {
   display: flex;
   flex-direction: column;
   color: var(--ink);
-  background: #24160e;
+  background: #14161a;
   font-family: "Segoe UI", "Helvetica Neue", sans-serif;
   font-size: 1.05rem;
   line-height: 1.45;
@@ -32,7 +36,7 @@ body:not(.guide) {
   height: min(64vh, 56.25vw, max(6rem, calc(100dvh - 28rem)));
   min-height: 0;
   overflow: hidden;
-  background: #c4a574;
+  background: #14161a;
 }
 
 .wood {
@@ -53,15 +57,14 @@ main {
 .eyebrow {
   margin: 0;
   letter-spacing: 0.28em;
-  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
   font-size: 0.95rem;
 }
 
 h1 {
   margin: 0.35rem 0 0;
-  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
   font-size: 2.15rem;
-  font-weight: 500;
+  font-weight: 650;
+  letter-spacing: -0.03em;
   line-height: 1.1;
 }
 
@@ -99,10 +102,10 @@ a {
   text-underline-offset: 0.18em;
 }
 
-a:hover { color: #fff8ee; }
+a:hover { color: #ffffff; }
 
 a:focus-visible {
-  outline: 2px solid #f3e0c4;
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
@@ -114,8 +117,8 @@ body.guide main {
 
 body.guide h2,
 body.guide h3 {
-  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
-  font-weight: 500;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 body.guide h2 {
@@ -133,7 +136,6 @@ body.guide p { margin: 0.55rem 0 0; }
 body.guide .back {
   margin: 0 0 1.2rem;
   letter-spacing: 0.28em;
-  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
 }
 
 body.guide .checks {
@@ -155,25 +157,24 @@ body.guide code {
   font-size: 0.92em;
   letter-spacing: 0;
   white-space: nowrap;
-  color: #d8ffcf;
-  background: #100a07;
-  border: 1px solid rgba(184, 230, 170, 0.4);
-  border-radius: 0.2rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
   padding: 0.04em 0.38em;
 }
 
 .app {
-  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
-  font-style: italic;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-style: normal;
+  font-weight: 650;
+  letter-spacing: 0;
   white-space: nowrap;
-  color: #e4c48a;
+  color: var(--accent);
 }
 
 a:hover .app,
 a:focus-visible .app {
-  color: #fff8ee;
+  color: #ffffff;
 }
 
 .btn {
@@ -189,32 +190,32 @@ a:focus-visible .app {
   white-space: nowrap;
   text-align: center;
   vertical-align: middle;
-  color: #24160e;
-  background: #c4a574;
-  border: 1px solid #c4a574;
-  border-radius: 0;
+  color: var(--button-ink);
+  background: var(--button);
+  border: 1px solid var(--button);
+  border-radius: 9px;
   padding: 0.42em 0.9em;
 }
 
 .btn.alt {
   font-weight: 600;
-  color: #f6ead8;
+  color: var(--ink);
   background: transparent;
-  border-color: #c4a574;
+  border-color: rgba(244, 242, 238, 0.55);
 }
 
 .btn.line {
   font-weight: 500;
   font-size: 0.82em;
-  color: #f6ead8;
+  color: var(--ink);
   background: transparent;
-  border-color: rgba(246, 226, 196, 0.45);
+  border-color: rgba(244, 242, 238, 0.45);
   padding: 0.28em 0.7em;
 }
 
 .btn.text {
   font-weight: 500;
-  color: #e7d3b6;
+  color: var(--muted);
   background: transparent;
   border-color: transparent;
   padding: 0.12em 0.28em;
@@ -237,8 +238,9 @@ body.guide pre {
   padding: 0.7rem 0.85rem;
   overflow-x: auto;
   color: var(--ink);
-  background: #1a100b;
+  background: var(--card);
   border: 1px solid var(--line);
+  border-radius: 10px;
 }
 
 body.guide.shots .sheet {
@@ -267,7 +269,6 @@ body.guide.shots main {
 .toc p {
   margin: 0;
   letter-spacing: 0.16em;
-  font-family: Palatino, "Palatino Linotype", "Iowan Old Style", Georgia, serif;
   font-size: 0.82rem;
 }
 
@@ -280,13 +281,14 @@ body.guide.shots main {
 
 .toc a.sub { margin-left: 0.95rem; }
 
-.toc a:hover { color: #fff8ee; }
+.toc a:hover { color: #ffffff; }
 
 .notice {
   margin: 1.15rem 0 0;
   padding: 0.9rem 1rem;
-  background: #1c100b;
-  border: 1px solid #c4a574;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
 }
 
 .notice p { margin: 0; }
@@ -294,7 +296,7 @@ body.guide.shots main {
 body.guide.shots h2 {
   margin: 1.45rem 0 0;
   padding-top: 1.45rem;
-  border-top: 1px solid #c4a574;
+  border-top: 1px solid var(--line);
   font-size: 1.9rem;
 }
 
@@ -325,8 +327,9 @@ body.guide figure > img {
   display: block;
   width: 100%;
   height: auto;
-  background: #1a100b;
+  background: var(--card);
   border: 1px solid var(--line);
+  border-radius: 10px;
 }
 
 body.guide figcaption {
