@@ -2794,7 +2794,23 @@ def checked_post(argv, jail):
             relative = path.relative_to(root)
         except ValueError as exc:
             raise PostProblem(LABELS_FAILED) from exc
-        if relative.as_posix() not in {"etc/selinux", "var/lib/flatpak", "var/home", "var/lib/AccountsService"}:
+        allowed = {
+            "etc/selinux",
+            "var/lib/flatpak",
+            "var/home",
+            "var/lib/AccountsService",
+            "etc/passwd",
+            "etc/group",
+            "etc/shadow",
+            "etc/gshadow",
+            "etc/subuid",
+            "etc/subgid",
+            "etc/passwd-",
+            "etc/group-",
+            "etc/shadow-",
+            "etc/gshadow-",
+        }
+        if relative.as_posix() not in allowed:
             raise PostProblem(LABELS_FAILED)
         if spec.name != "file_contexts" or not spec.as_posix().endswith(
             "etc/selinux/targeted/contexts/files/file_contexts"
@@ -3112,6 +3128,26 @@ def label_paths(deploy, jail):
         if host_root(path) or not inside_sysroot(path, jail):
             raise PostProblem(LABELS_FAILED)
         commands.append(setfiles_argv(stateroot.resolve(), policy, path, jail))
+    # useradd writes these as plain etc files. chpasswd cannot change them
+    # until they have the password-file labels.
+    for name in (
+        "passwd",
+        "group",
+        "shadow",
+        "gshadow",
+        "subuid",
+        "subgid",
+        "passwd-",
+        "group-",
+        "shadow-",
+        "gshadow-",
+    ):
+        path = deploy_root / "etc" / name
+        if path.is_symlink() or not path.is_file():
+            continue
+        if host_root(path) or not inside_sysroot(path, jail):
+            raise PostProblem(LABELS_FAILED)
+        commands.append(setfiles_argv(deploy_root, policy, path, jail))
     return commands
 
 
@@ -4178,6 +4214,14 @@ def check_post():
         ]
         if labeled != expected_labels:
             raise SystemExit(f"the label commands were {labeled}")
+        (deploy / "etc/passwd").write_text("alex:x:1000:1000::/var/home/alex:/bin/bash\n")
+        (deploy / "etc/shadow").write_text("alex:!!:::::::\n")
+        (deploy / "etc/group").symlink_to("/etc/group")
+        again = label_paths(deploy, jail)
+        labeled_names = [Path(item[-1]).name for item in again]
+        if "passwd" not in labeled_names or "shadow" not in labeled_names or "group" in labeled_names:
+            raise SystemExit(f"the account files were labeled wrong: {again}")
+        (deploy / "etc/group").unlink()
         if any(ENROLLMENT_PASSWORD in " ".join(item) for item in labeled):
             raise SystemExit("the enrollment password was put on the label command")
         if checked_post(["setenforce", "0"], jail) != ["setenforce", "0"]:
