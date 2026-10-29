@@ -107,7 +107,33 @@ Window {
     }
     readonly property string status: lines[Math.min(stepIndex, lines.length - 1)]
     readonly property bool showAppTerm: phase === "work" && status === "Installing what you checked."
+    property bool awakeHeld: false
     property string appOutput: ""
+
+    onShowAppTermChanged: syncScreen()
+    onClosing: function(event) { win.releaseScreen() }
+
+    function releaseScreen() {
+        if (!awakeHeld || preview || helperPort <= 0)
+            return
+        awakeHeld = false
+        postApps("/awake/release", "", function(xhr) {})
+    }
+
+    function syncScreen() {
+        if (preview || helperPort <= 0) {
+            awakeHeld = false
+            return
+        }
+        if (showAppTerm) {
+            if (awakeHeld)
+                return
+            awakeHeld = true
+            postApps("/awake", "", function(xhr) {})
+        } else {
+            releaseScreen()
+        }
+    }
     property string monoFont: "monospace"
 
     function art(fileName) {

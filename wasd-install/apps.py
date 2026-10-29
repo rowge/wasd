@@ -6,9 +6,12 @@ A passphrase never belongs in this file's arguments or in the choice file.
 The self-check does not call Flatpak or NetworkManager.
 """
 
+import errno
 import json
 import os
+import pty
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -211,12 +214,20 @@ def session_problem():
     return ""
 
 
-def install_one(app_id, runner):
-    if not valid_id(app_id) or app_id in BAKED:
+def install_ids(ids, runner):
+    """One Flatpak transaction. A separate install per app repeats the download setup."""
+    if not isinstance(ids, list) or not ids or len(ids) > 40:
         raise InstallError("That app was refused.")
-    result = runner(["install", "-y", "--noninteractive", "--system", "flathub", app_id])
+    for app_id in ids:
+        if not valid_id(app_id) or app_id in BAKED:
+            raise InstallError("That app was refused.")
+    result = runner(["install", "-y", "--noninteractive", "--system", "flathub", *ids])
     if getattr(result, "returncode", 1) != 0:
-        raise InstallError(app_label(app_id))
+        raise InstallError(app_label(ids[0]))
+
+
+def install_one(app_id, runner):
+    install_ids([app_id], runner)
 
 
 def connect_picked(pick, passphrase, runner, key_dir):
@@ -308,27 +319,90 @@ class TerminalLog:
         os.replace(temporary, path)
 
 
+def _read_ready(fd, log):
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError as exc:
+        if exc.errno == errno.EIO:
+            return False
+        raise
+    if not chunk:
+        return False
+    log.feed(chunk.decode("utf-8", "replace"))
+    return True
+
+
 def _flatpak(args):
     if os.environ.get("WASD_SELF_CHECK") == "1":
         raise SystemExit("self-check tried to run flatpak")
     if not shutil.which("flatpak"):
         raise InstallError("Flatpak is not available.")
     log = TerminalLog(app_log_path())
-    if args and args[0] == "install" and args[-1]:
-        log.feed(f"\n{args[-1]}\n")
-    proc = subprocess.Popen(
-        ["flatpak", *args],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    assert proc.stdout is not None
-    while True:
-        chunk = proc.stdout.read(4096)
-        if not chunk:
-            break
-        log.feed(chunk.decode("utf-8", "replace"))
-    code = proc.wait()
+    names = [item for item in args if FLATPAK_ID.fullmatch(item or "")]
+    if names:
+        log.feed("\n" + "\n".join(names) + "\n")
+    # A pipe hides the download bar and holds the text until the app finishes.
+    try:
+        master, slave = pty.openpty()
+    except OSError:
+        master, slave = None, None
+    if slave is not None:
+        try:
+            import fcntl
+            import struct
+            import termios
+
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
+        except (OSError, ImportError):
+            pass
+    try:
+        proc = subprocess.Popen(
+            ["flatpak", *args],
+            stdin=subprocess.DEVNULL,
+            stdout=slave if slave is not None else subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
+        )
+    except OSError as exc:
+        if slave is not None:
+            os.close(slave)
+        if master is not None:
+            os.close(master)
+        raise InstallError("Flatpak is not available.") from exc
+    if slave is not None:
+        os.close(slave)
+    try:
+        if master is not None:
+            while True:
+                try:
+                    ready, _, _ = select.select([master], [], [], 0.2)
+                except (OSError, ValueError):
+                    break
+                if ready:
+                    if not _read_ready(master, log):
+                        break
+                    continue
+                if proc.poll() is None:
+                    continue
+                while True:
+                    try:
+                        leftover, _, _ = select.select([master], [], [], 0)
+                    except (OSError, ValueError):
+                        leftover = []
+                    if not leftover or not _read_ready(master, log):
+                        break
+                break
+        else:
+            assert proc.stdout is not None
+            while True:
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                log.feed(chunk.decode("utf-8", "replace"))
+        code = proc.wait()
+    finally:
+        if master is not None:
+            os.close(master)
     if code == 0:
         log.feed("installed\n")
     return subprocess.CompletedProcess(["flatpak", *args], code)
@@ -386,8 +460,8 @@ def list_main():
 def install_main():
     if not _require():
         return 1
-    blob = sys.stdin.buffer.read(256)
-    if len(blob) >= 256:
+    blob = sys.stdin.buffer.read(8193)
+    if len(blob) > 8192:
         print("That app was refused.", file=sys.stderr)
         return 1
     try:
@@ -397,11 +471,11 @@ def install_main():
         return 1
     blob = b""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) != 1:
+    if not lines or len(lines) > 40:
         print("That app was refused.", file=sys.stderr)
         return 1
     try:
-        install_one(lines[0], _flatpak)
+        install_ids(lines, _flatpak)
     except InstallError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -621,6 +695,18 @@ def self_check():
     install_one("com.discordapp.Discord", install_runner)
     if installed != [["install", "-y", "--noninteractive", "--system", "flathub", "com.discordapp.Discord"]]:
         raise SystemExit(f"flatpak was invoked wrong: {installed}")
+    install_ids(["com.discordapp.Discord", "org.freedesktop.Piper"], install_runner)
+    if installed[-1] != [
+        "install", "-y", "--noninteractive", "--system", "flathub",
+        "com.discordapp.Discord", "org.freedesktop.Piper",
+    ]:
+        raise SystemExit(f"a shared download was {installed[-1]}")
+    try:
+        install_ids(["com.discordapp.Discord"] * 41, install_runner)
+    except InstallError:
+        pass
+    else:
+        raise SystemExit("a huge download was accepted")
     try:
         install_one("com.brave.Browser", install_runner)
     except InstallError as exc:
@@ -634,8 +720,11 @@ def self_check():
         pass
     else:
         raise SystemExit("a bad id was installed")
-    if len(installed) != 1:
+    if len(installed) != 2:
         raise SystemExit("a refused app reached flatpak")
+    import inspect
+    if "pty.openpty" not in inspect.getsource(_flatpak):
+        raise SystemExit("flatpak output would stay buffered")
     try:
         _nmcli(["device", "wifi", "list", "--rescan", "yes"])
     except SystemExit as exc:

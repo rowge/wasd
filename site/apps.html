@@ -84,8 +84,8 @@
       <img src="images/install-disk.png?v=20261028-3" alt="Install WASD on the Disk step. An example 2 TB drive is selected. Set up /games is above the install button.">
       <figcaption>Click a drive to select it. <span class="btn alt">Set up /games</span> does not install. The button below it erases the selected drive.</figcaption>
     </figure>
-    <p>Click a drive to select it. The install button erases that drive and asks twice. <span class="btn text">No</span> cancels. <span class="btn">Yes</span>, and then <span class="btn">Yes</span> again, installs it.</p>
-    <p>A Windows drive says "WARNING! This erases Windows." and the button says <span class="btn wide">Erase Windows and install WASD</span>. Any other drive says "WARNING! This drive will be wiped." and the button says <span class="btn wide">Erase the selected disk and install WASD</span>. If Windows is on the drive, the first question says "Windows is on this drive."</p>
+    <p>Click a drive to select it. The install button erases that drive and asks once if you are sure. <span class="btn text">No</span> cancels. <span class="btn">Yes</span> installs it.</p>
+    <p>A Windows drive says "WARNING! This erases Windows." and the button says <span class="btn wide">Erase Windows and install WASD</span>. Any other drive says "WARNING! This drive will be wiped." and the button says <span class="btn wide">Erase the selected disk and install WASD</span>. On a Windows drive the question is titled "This erases Windows."</p>
     <p>Turn off BitLocker and fast startup in Windows before you install. A locked or hibernated Windows volume can get in the way even when you are installing to a different drive. If the firmware is legacy BIOS, set it to UEFI. The motherboard manual explains how, and the install stays unavailable until then. If Secure Boot is on, the next boot asks you to enroll a key. Choose Enroll MOK and enter <code>universalblue</code>.</p>
     <p>After the install, the PC starts WASD. Windows on another drive is on the WASD boot menu. Any other system is started from the firmware boot menu. WASD does not rewrite another system's boot files.</p>
     <p>Advanced stays closed. It holds the existing installer's partitioning and disk choices, including encryption. <span class="app">Install WASD</span> does not open it.</p>
@@ -98,11 +98,11 @@
     </figure>
 
     <h3 id="another">Another drive</h3>
-    <p>With more than one drive, <span class="btn alt">Set up /games</span> lists the other drives and the drive selected for WASD. Choose another drive and the window asks twice. <span class="btn text">No</span> cancels. <span class="btn">Yes</span>, and then <span class="btn">Yes</span> again, applies it.</p>
+    <p>With more than one drive, <span class="btn alt">Set up /games</span> lists the other drives and the drive selected for WASD. Choose another drive and the window asks once if you are sure. <span class="btn text">No</span> cancels. <span class="btn">Yes</span> applies it.</p>
     <p>A drive with a Steam library, or a filesystem named <code>games</code>, is mounted at <code>/games</code> and is not erased. A Steam library is a <code>steamapps</code> folder, or <code>SteamLibrary/steamapps</code>. The name <code>games</code> can be any capitalization. A library on NTFS is mounted. It is not formatted.</p>
     <p>An empty drive is formatted as btrfs, named <code>games</code>, and mounted at <code>/games</code>. A <code>SteamLibrary</code> folder is created.</p>
     <p>A drive that already has files can be mounted without erasing them. The files stay in their folders.</p>
-    <p>A Windows drive can be used for /games when BitLocker is off. The first question says Windows is on the drive. The second says the files stay. If BitLocker is still on, that drive cannot be used for /games until it is turned off.</p>
+    <p>A Windows drive can be used for /games when BitLocker is off. The question says Windows is on the drive, and that the files stay. If BitLocker is still on, that drive cannot be used for /games until it is turned off.</p>
 
     <h3 id="wasd-drive">On the WASD drive</h3>
     <p>With one drive, <span class="btn alt">Set up /games</span> shows a slider. With more than one, choose the WASD drive in that list and the same slider appears. Click <span class="btn alt">Set up /games</span> again on a single drive, or click the WASD drive again, to leave the whole drive for WASD.</p>
@@ -114,6 +114,7 @@
     <p>The next install recognizes a drive named <code>games</code>, or a drive with a Steam library. It is still your choice. A games drive from Windows will not be named <code>games</code>. A Steam library on it is enough. If the drive is only files, choose it yourself. That choice keeps the files.</p>
 
     <h2 id="first-boot">The first boot</h2>
+    <p>The default artwork is still shown on this boot, and it will update to your selections on the next boot.</p>
     <p>If you checked Set a password, that comes first. Two boxes, and they have to match. There is no skip. The window says this password is also the administrator password, and that the next boot asks for it. That boot shows the login window with the character picture, the username, and a password box. The background is the login picture. Clearing the character leaves the ordinary user picture. Automatic sign-in turns off for the following boot. The session you are in stays signed in. Closing the window before the password is set brings it back the next time the computer starts.</p>
     <p>If you chose a Wi-Fi network, that comes next. When no password was asked for, it comes first. The line says Connect to, and then the saved name. Leave the box empty when the network is open. <span class="btn">Connect</span> joins it. <span class="btn line">Cancel</span> warns that the selected applications will not be installed without a connection. <span class="btn text">Go back</span> returns to the passphrase. <span class="btn">Continue</span> goes on without that network. A wrong passphrase stays on this step. Closing the window before you connect or continue brings it back. When no network was saved, this step is skipped. The passphrase is not stored in the installer file.</p>
     <figure>

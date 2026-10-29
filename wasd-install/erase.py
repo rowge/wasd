@@ -34,6 +34,7 @@ from agents import agents_problem  # noqa: E402
 from disks import DEVICE_NAME, display_name, is_live, live_disk_names, parse_disks  # noqa: E402
 from lookapply import LookError, apply_look, look_from, look_problem  # noqa: E402
 from network import validate_tcp  # noqa: E402
+from boottitle import name_installed  # noqa: E402
 from windowsboot import windows_post  # noqa: E402
 
 HOST_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -798,6 +799,10 @@ _LAYERS = re.compile(
     rf"(?:\s*\(\s*(\d+(?:\.\d+)?)\s*{_UNIT}\s*\))?",
     re.IGNORECASE,
 )
+# Bytes on the new filesystem, measured while bootc checks the image out
+# without printing a count. The second number is the image size.
+_DISK = re.compile(r"^wasd-disk (\d+)/(\d+)$")
+COPY_MOUNT = "/run/bootc/mounts/rootfs"
 _COUNT = re.compile(r"(?<![\d.])(\d{1,6})\s*/\s*(\d{1,6})(?![\d.])")
 _CHUNK = re.compile(r"(?:sha256:|chunk\s+)([0-9a-f]{8,64})", re.IGNORECASE)
 _BAR_PART = {
@@ -879,6 +884,8 @@ class CopyMeter:
         self.layer_index = None
         self.layer_total = None
         self.within = 0.0
+        self.disk_used = 0
+        self.disk_goal = None
 
     def note(self, raw):
         line = _ANSI.sub("", raw or "").replace("\u00a0", " ").replace("\u202f", " ").strip()
@@ -900,6 +907,20 @@ class CopyMeter:
         self.chunks[key] = (done, total)
 
     def _read(self, line):
+        disk = _DISK.match(line)
+        if disk:
+            # A real fetch count already on the line wins over the disk sample.
+            if self.chunks or self.layer_total:
+                return
+            used = int(disk.group(1))
+            goal = int(disk.group(2))
+            if goal <= 0 or used < 0:
+                return
+            if self.disk_goal and used < self.disk_used:
+                return
+            self.disk_used = used
+            self.disk_goal = goal
+            return
         found = _LAYERS.search(line)
         if found:
             self.present = int(found.group(1))
@@ -949,10 +970,22 @@ class CopyMeter:
             if fraction is not None:
                 self.within = max(self.within, fraction)
 
+    def _disk_percent(self):
+        if not self.disk_goal:
+            return None
+        percent = min(99, int(self.disk_used * 100 / self.disk_goal))
+        if percent < 1:
+            return None
+        return percent
+
     def _percent(self):
         if self.total_bytes:
             if not self.chunks:
-                return 0 if self.needed else None
+                # The layer list names a size before any of it is copied.
+                # That is not a percent. A quiet checkout uses the disk sample.
+                if self.layer_total:
+                    return None
+                return self._disk_percent()
             done = sum(item[0] for item in self.chunks.values())
             return min(100, int(done * 100 / self.total_bytes))
         if self.layer_total:
@@ -962,9 +995,7 @@ class CopyMeter:
             if denom <= 0:
                 return None
             return min(100, int((self.present + (index - 1) + within) * 100 / denom))
-        if self.needed:
-            return 0
-        return None
+        return self._disk_percent()
 
 
 def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=None):
@@ -1001,6 +1032,7 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
         percent = meter.note(line)
         if (
             percent is not None
+            and percent >= 1
             and "copy" in spoken
             and "account" not in spoken
             and "boot" not in spoken
@@ -1092,10 +1124,27 @@ def _close_fd(fd):
         return
 
 
-def _pump_fd(fd, on_line, handle, chunks):
-    """Read bootc until it closes the stream. Redraws are separate lines."""
+def _pump_fd(fd, on_line, handle, chunks, tick=None):
+    """Read bootc until it closes the stream. Redraws are separate lines.
+
+    A quiet checkout prints nothing for minutes. tick runs once a second
+    so the copy can move from the bytes on the new disk.
+    """
+    import select
+
     carry = ""
     while True:
+        try:
+            ready, _, _ = select.select([fd], [], [], 1.0)
+        except (OSError, ValueError):
+            break
+        if not ready:
+            if tick is not None:
+                try:
+                    tick()
+                except OSError:
+                    pass
+            continue
         try:
             blob = os.read(fd, 65536)
         except OSError as exc:
@@ -1117,15 +1166,71 @@ def _pump_fd(fd, on_line, handle, chunks):
             on_line(line)
 
 
+def mounted_used(path):
+    """Bytes used on a filesystem bootc has mounted. The host root is refused."""
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        return None
+    try:
+        if not os.path.ismount(path) or os.path.realpath(path) == "/":
+            return None
+        st = os.statvfs(path)
+    except OSError:
+        return None
+    if st.f_frsize <= 0 or st.f_blocks <= st.f_bfree:
+        return None
+    return (st.f_blocks - st.f_bfree) * st.f_frsize
+
+
+def image_disk_bytes(argv):
+    """Uncompressed size of the image being copied. None when it cannot be read."""
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        return None
+    try:
+        source = argv[argv.index("--source-imgref") + 1]
+    except (ValueError, IndexError):
+        return None
+    name = source.removeprefix("containers-storage:")
+    if not name or name == source or name.startswith("-") or any(token in name for token in (" ", ";", "|", "&")):
+        return None
+    try:
+        result = subprocess.run(
+            ["podman", "image", "inspect", "--format", "{{.Size}}", name],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    text = result.stdout.strip()
+    if result.returncode != 0 or not text.isdigit():
+        return None
+    size = int(text)
+    if size < 500_000_000:
+        return None
+    return size
+
+
 def bootc_runner(argv, on_line):
     """The real bootc process. The self-check never calls this.
 
     A terminal is used so bootc prints the copy bar. That bar is redrawn
     with carriage returns. If a terminal cannot be opened, a pipe is used
-    instead. bootc is started once.
+    instead. bootc is started once. A local image prints no byte count
+    while it is checked out, so the bytes used on the new disk are reported
+    against the image size.
     """
     if os.environ.get("WASD_SELF_CHECK") == "1":
         raise SystemExit("self-check tried to run bootc")
+    goal = image_disk_bytes(argv)
+
+    def tick():
+        if not goal:
+            return
+        used = mounted_used(COPY_MOUNT)
+        if used:
+            on_line(f"wasd-disk {used}/{goal}")
+
     master, slave = _open_progress_tty()
     try:
         proc = subprocess.Popen(
@@ -1145,10 +1250,10 @@ def bootc_runner(argv, on_line):
         with BOOTC_LOG.open("w", encoding="utf-8", errors="replace") as handle:
             os.chmod(BOOTC_LOG, 0o600)
             if master is not None:
-                _pump_fd(master, on_line, handle, chunks)
+                _pump_fd(master, on_line, handle, chunks, tick)
             else:
                 assert proc.stdout is not None
-                _pump_fd(proc.stdout.fileno(), on_line, handle, chunks)
+                _pump_fd(proc.stdout.fileno(), on_line, handle, chunks, tick)
         code = proc.wait()
     except OSError:
         proc.kill()
@@ -2633,17 +2738,33 @@ def checked_post(argv, jail):
             raise PostProblem(APPS_FAILED)
         return argv
     if argv[0] == "mount":
-        if len(argv) != 4 or argv[1] != "--bind" or Path(argv[3]).is_symlink():
+        if len(argv) != 4 or argv[1] != "--bind" or Path(argv[2]).is_symlink() or Path(argv[3]).is_symlink():
             raise PostProblem(UPDATES_FAILED)
         source = Path(argv[2]).resolve()
         target = Path(argv[3]).resolve()
-        if source != jail_path or target.name != "sysroot" or not inside_sysroot(target, jail_path):
+        sysroot_bind = source == jail_path and target.name == "sysroot" and inside_sysroot(target, jail_path)
+        proc_bind = (
+            argv[2] == "/proc"
+            and source == Path("/proc")
+            and target.name == "proc"
+            and target != Path("/proc")
+            and inside_sysroot(target, jail_path)
+            and deployment_name_ok(target.parent)
+        )
+        if not sysroot_bind and not proc_bind:
             raise PostProblem(UPDATES_FAILED)
         return argv
     if argv[0] == "umount":
         if len(argv) != 2 or Path(argv[1]).is_symlink() or not inside_sysroot(argv[1], jail_path):
             raise PostProblem(UPDATES_FAILED)
-        if Path(argv[1]).resolve().name != "sysroot":
+        target = Path(argv[1]).resolve()
+        sysroot_off = target.name == "sysroot"
+        proc_off = (
+            target.name == "proc"
+            and target != Path("/proc")
+            and deployment_name_ok(target.parent)
+        )
+        if not sysroot_off and not proc_off:
             raise PostProblem(UPDATES_FAILED)
         return argv
     if argv[0] == "chroot":
@@ -2807,6 +2928,42 @@ def bind_argv(jail, target):
     return argv
 
 
+def ensure_proc_dir(deploy, jail):
+    """The directory bootc reads as /proc after the deployment is chrooted.
+
+    The image has no proc mounted there. bootc reads /proc/1/ns/ipc as it
+    starts, and that read fails when the directory is empty.
+    """
+    root = Path(deploy)
+    jail_path = Path(jail).resolve()
+    if root.is_symlink() or host_root(root) or not deployment_name_ok(root.resolve()):
+        raise PostProblem(UPDATES_FAILED)
+    if not root.resolve().is_relative_to(jail_path):
+        raise PostProblem(UPDATES_FAILED)
+    path = root / "proc"
+    if path.is_symlink() or (path.exists() and not path.is_dir()) or os.path.ismount(path):
+        raise PostProblem(UPDATES_FAILED)
+    if not path.exists():
+        path.mkdir(mode=0o555)
+    if (
+        not path.is_dir()
+        or path.is_symlink()
+        or path.resolve() == Path("/proc")
+        or not inside_sysroot(path, jail)
+    ):
+        raise PostProblem(UPDATES_FAILED)
+    return path.resolve()
+
+
+def proc_bind_argv(target, jail):
+    """Bind the host proc into the deployment. The host proc itself is refused."""
+    if Path(target).is_symlink():
+        raise PostProblem(UPDATES_FAILED)
+    argv = ["mount", "--bind", "/proc", str(Path(target).resolve())]
+    checked_post(argv, jail)
+    return argv
+
+
 def bootc_present(deploy, jail):
     try:
         folder = walk_inside(deploy, jail, ("usr", "bin"))
@@ -2848,19 +3005,28 @@ def umount_bound(path):
 
 
 def point_updates(deploy, jail, source):
-    """Point the new deployment at the registry image. This does not fetch it."""
+    """Point the new deployment at the registry image. This does not fetch it.
+
+    bootc reads the host proc as it starts. That directory is mounted only
+    for this command and is unmounted before the install moves on.
+    """
     stop_if_checking("point later updates")
     require_live()
     require_sysroot(jail)
     bound = False
+    proc_bound = False
     switched = False
     target = None
+    proc_target = None
     try:
         bootc_present(deploy, jail)
         target = ensure_sysroot_dir(deploy, jail)
+        proc_target = ensure_proc_dir(deploy, jail)
         post_log("Pointing later updates at the registry image.")
         run_post(bind_argv(jail, target), jail)
         bound = True
+        run_post(proc_bind_argv(proc_target, jail), jail)
+        proc_bound = True
         run_post(chroot_argv(deploy, jail, source), jail)
         switched = True
     except PostProblem as exc:
@@ -2873,9 +3039,16 @@ def point_updates(deploy, jail, source):
         raise PostProblem(UPDATES_FAILED) from exc
     finally:
         unmounted = True
+        if proc_bound and proc_target is not None:
+            try:
+                if not umount_bound(proc_target):
+                    unmounted = False
+            except (PostProblem, OSError):
+                unmounted = False
         if bound and target is not None:
             try:
-                unmounted = umount_bound(target)
+                if not umount_bound(target):
+                    unmounted = False
             except (PostProblem, OSError):
                 unmounted = False
         if switched and not unmounted:
@@ -3063,6 +3236,10 @@ def write_post(os_device, source):
         deploy = deployment_dir(SYSROOT, read_rev(SYSROOT))
         if host_root(deploy) or not deploy.resolve().is_relative_to(SYSROOT.resolve()):
             raise PostProblem(APPS_FAILED)
+        try:
+            name_installed(SYSROOT, os_device)
+        except (OSError, SystemExit) as exc:
+            post_log(redact(str(exc)))
         try:
             copy_flatpak(deploy, SYSROOT)
             copied = True
@@ -4023,6 +4200,30 @@ def check_post():
             raise SystemExit(f"the system root mount was {bound}")
         if bootc_present(deploy, jail).resolve() != binary.resolve():
             raise SystemExit("the installed bootc was not found")
+        proc_dir = ensure_proc_dir(deploy, jail)
+        proc_mount = proc_bind_argv(proc_dir, jail)
+        if proc_mount != ["mount", "--bind", "/proc", str(proc_dir)]:
+            raise SystemExit(f"the proc mount was {proc_mount}")
+        if "proc_bind_argv" not in inspect.getsource(point_updates) or inspect.getsource(point_updates).count("umount_bound") < 2:
+            raise SystemExit("the update step does not mount and unmount the host proc")
+        try:
+            checked_post(["mount", "--bind", "/proc", "/proc"], jail)
+        except PostProblem:
+            pass
+        else:
+            raise SystemExit("the host proc was mounted on itself")
+        try:
+            checked_post(["umount", "/proc"], jail)
+        except PostProblem:
+            pass
+        else:
+            raise SystemExit("the host proc was unmounted")
+        try:
+            checked_post(["mount", "--bind", "/proc", str(rooted)], jail)
+        except PostProblem:
+            pass
+        else:
+            raise SystemExit("proc was mounted on the system root")
         command = chroot_argv(deploy, jail, "containers-storage:example:latest")
         if command[0] != "chroot" or command[2:] != switched or Path(command[1]).resolve() != deploy.resolve():
             raise SystemExit(f"the update command was {command}")
@@ -4104,6 +4305,8 @@ def check_post():
             raise SystemExit(f"the window ignores {sentence}")
     for name, func in (
         ("switch_argv", switch_argv),
+        ("ensure_proc_dir", ensure_proc_dir),
+        ("proc_bind_argv", proc_bind_argv),
         ("chroot_argv", chroot_argv),
         ("copy_flatpak", copy_flatpak),
         ("point_updates", point_updates),
@@ -4284,8 +4487,8 @@ def check_copy_progress():
         raise SystemExit("an unrelated line changed the copy")
     if meter.note("Deploying container image") is not None:
         raise SystemExit("the checkout invented a percent")
-    if meter.note("layers already present: 0; layers needed: 2 (200 MB)") != 0:
-        raise SystemExit("the copy did not start at 0")
+    if meter.note("layers already present: 0; layers needed: 2 (200 MB)") is not None:
+        raise SystemExit("the layer list invented a percent")
     if meter.note("layers already present: 0; layers needed: 2 (200 MB)") is not None:
         raise SystemExit("the same count moved the copy")
     if meter.note("Fetching layers ░░░░░░░░░░░░░░░░░░░░ 1/2") is not None:
@@ -4304,8 +4507,8 @@ def check_copy_progress():
     if finished.note("layers already present: 4; layers needed: 0") is not None:
         raise SystemExit("a finished fetch invented the checkout")
     plain = CopyMeter()
-    if plain.note("layers already present: 0; layers needed: 4") != 0:
-        raise SystemExit("a count without a size did not start at 0")
+    if plain.note("layers already present: 0; layers needed: 4") is not None:
+        raise SystemExit("a count without a size invented a percent")
     step = plain.note("Fetching layers 2/4")
     if step != 25:
         raise SystemExit(f"layer 2 of 4 was {step}")
@@ -4326,6 +4529,22 @@ def check_copy_progress():
     half_bytes = odd.note("└ Fetching 410.1 MB/410.1 MB ostree chunk deadbeef")
     if half_bytes != 50:
         raise SystemExit(f"half the bytes were {half_bytes}")
+    quiet = CopyMeter()
+    quiet.note("layers already present: 0; layers needed: 128 (5.8 GB)")
+    if quiet.note("Deploying container image") is not None:
+        raise SystemExit("a quiet checkout invented a percent")
+    if quiet.note("wasd-disk 100000/100000000") is not None:
+        raise SystemExit("a tiny disk sample invented a percent")
+    moved = quiet.note("wasd-disk 40000000/100000000")
+    if moved != 40:
+        raise SystemExit(f"the disk copy was {moved}")
+    if quiet.note("wasd-disk 30000000/100000000") is not None:
+        raise SystemExit("the disk copy moved backward")
+    capped = quiet.note("wasd-disk 500000000/100000000")
+    if capped != 99:
+        raise SystemExit(f"the disk copy claimed it was finished: {capped}")
+    if quiet.note("└ Fetching 10 MB/200 MB ostree chunk aaaa1111") is not None:
+        raise SystemExit("a late fetch replaced the disk sample")
     lines, carry = take_progress("", "\x1b[2KFetching layers 1/4\r└ Fetching 1 MiB/2 MiB\n")
     if lines != ["Fetching layers 1/4", "└ Fetching 1 MiB/2 MiB"] or carry:
         raise SystemExit(f"progress split was {lines!r} {carry!r}")
@@ -4336,6 +4555,9 @@ def check_copy_progress():
     runner = inspect_source(bootc_runner)
     if "pty.openpty" not in opened or "subprocess.PIPE" not in runner or "_pump_fd" not in runner:
         raise SystemExit("bootc would miss the copy bar")
+    pumped = inspect_source(_pump_fd)
+    if "select.select" not in pumped or "image_disk_bytes" not in runner or "wasd-disk" not in runner:
+        raise SystemExit("a quiet copy would stay at 0")
     if runner.count("subprocess.Popen") != 1:
         raise SystemExit("bootc could be started twice")
 
@@ -4821,11 +5043,13 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         pass
     else:
         raise SystemExit("an unconfirmed wipe was accepted")
+    from boottitle import self_check as title_check
     from disks import self_check as disks_check
     from windowsboot import self_check as windows_check
 
     disks_check()
     windows_check()
+    title_check()
     try:
         refused = dict(choices)
         refused["theme"] = "Not a theme"

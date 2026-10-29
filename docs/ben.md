@@ -84,9 +84,11 @@ WASD-YYYYMMDD-SHORTSHA.iso
 WASD-latest.iso
 ```
 
-`WASD-latest.iso` is a link to that file. A `.sha256` file sits next to it. NVIDIA is the same pattern with `WASD-nvidia-` in the name, and it starts after AMD finishes, about another hour. The success email arrives after NVIDIA finishes. A failure email arrives when the failing job stops. The AMD file can already be on the NAS before that final email.
+`WASD-latest.iso` is a link to that file. The short commit is the last part of the file name, so the disc in the folder is the one the link names. A `.sha256` file sits next to it. NVIDIA is the same pattern with `WASD-nvidia-` in the name, and it starts after AMD finishes, about another hour. The success email arrives after NVIDIA finishes. A failure email arrives when the failing job stops. The AMD file can already be on the NAS before that final email.
 
-When the job finishes, Hammerite also replaces `https://downloads.wasd.run/WASD.iso` and `https://downloads.wasd.run/WASD-nvidia.iso`. The NAS keeps the dated files. The public names are only the latest pair.
+Older discs move to `archive/` in that same share. The share keeps one copy of the five newest ISOs, AMD and NVIDIA together. The current disc stays in the main folder next to its latest link. The other keepers are in `archive/`, and anything older is removed.
+
+When the job finishes, Hammerite also replaces `https://downloads.wasd.run/WASD.iso` and `https://downloads.wasd.run/WASD-nvidia.iso`. The public names are only the latest pair.
 
 ## Change the default picture
 

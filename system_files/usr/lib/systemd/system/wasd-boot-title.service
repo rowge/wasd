@@ -1,0 +1,11 @@
+[Unit]
+Description=Name the WASD boot menu
+After=local-fs.target
+ConditionPathExists=/boot/loader/entries
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/wasd-boot-title --root /
+
+[Install]
+WantedBy=multi-user.target

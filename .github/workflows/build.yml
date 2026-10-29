@@ -194,6 +194,84 @@ jobs:
           sha256sum "/mnt/wasd/${name}" | tee "/mnt/wasd/${name}.sha256"
           ln -sfn "${name}" "/mnt/wasd/${latest_link}"
           cp "/mnt/wasd/${name}.sha256" "/mnt/wasd/${latest_link}.sha256"
+          # One copy of the five newest discs, AMD and NVIDIA together.
+          # The latest links stay in the main folder. The other keepers
+          # stay in archive/. Anything older is deleted.
+          mkdir -p /mnt/wasd/archive
+          shopt -s nullglob
+          latest_names=()
+          if [[ -L /mnt/wasd/WASD-latest.iso ]]; then
+            latest_names+=("$(readlink /mnt/wasd/WASD-latest.iso)")
+          fi
+          if [[ -L /mnt/wasd/WASD-nvidia-latest.iso ]]; then
+            latest_names+=("$(readlink /mnt/wasd/WASD-nvidia-latest.iso)")
+          fi
+          root_isos=(/mnt/wasd/WASD-[0-9]*.iso /mnt/wasd/WASD-nvidia-[0-9]*.iso)
+          for iso in "${root_isos[@]}"; do
+            base=$(basename "$iso")
+            hold=0
+            for kept in "${latest_names[@]}"; do
+              [[ $base == "$kept" ]] && hold=1
+            done
+            if (( hold )); then
+              continue
+            fi
+            mv -f "$iso" /mnt/wasd/archive/
+            [[ -f ${iso}.sha256 ]] && mv -f "${iso}.sha256" /mnt/wasd/archive/
+          done
+          all_isos=(
+            /mnt/wasd/WASD-[0-9]*.iso
+            /mnt/wasd/WASD-nvidia-[0-9]*.iso
+            /mnt/wasd/archive/WASD-[0-9]*.iso
+            /mnt/wasd/archive/WASD-nvidia-[0-9]*.iso
+          )
+          if ((${#all_isos[@]})); then
+            mapfile -t ordered < <(ls -1t "${all_isos[@]}")
+            keep_paths=()
+            count=0
+            for iso in "${ordered[@]}"; do
+              count=$((count + 1))
+              if (( count <= 5 )); then
+                keep_paths+=("$iso")
+              fi
+            done
+            for kept in "${latest_names[@]}"; do
+              [[ -n $kept ]] || continue
+              if [[ -f /mnt/wasd/$kept ]]; then
+                keep_paths+=("/mnt/wasd/$kept")
+              elif [[ -f /mnt/wasd/archive/$kept ]]; then
+                keep_paths+=("/mnt/wasd/archive/$kept")
+              fi
+            done
+            for iso in "${ordered[@]}"; do
+              saved=0
+              for kept_path in "${keep_paths[@]}"; do
+                [[ $iso == "$kept_path" ]] && saved=1
+              done
+              if (( saved )); then
+                continue
+              fi
+              rm -f "$iso" "${iso}.sha256"
+            done
+            for kept in "${latest_names[@]}"; do
+              [[ -n $kept && -f /mnt/wasd/archive/$kept ]] || continue
+              mv -f "/mnt/wasd/archive/$kept" /mnt/wasd/
+              [[ -f /mnt/wasd/archive/${kept}.sha256 ]] && mv -f "/mnt/wasd/archive/${kept}.sha256" /mnt/wasd/
+            done
+            for iso in "${keep_paths[@]}"; do
+              [[ -f $iso ]] || continue
+              base=$(basename "$iso")
+              held=0
+              for kept in "${latest_names[@]}"; do
+                [[ $base == "$kept" ]] && held=1
+              done
+              if (( held )) || [[ $iso == /mnt/wasd/archive/* ]]; then
+                continue
+              fi
+              mv -f "$iso" /mnt/wasd/archive/
+              [[ -f ${iso}.sha256 ]] && mv -f "${iso}.sha256" /mnt/wasd/archive/
+            done
+          fi
           printf '%s\n' "${name}" > "/mnt/wasd/LATEST-${VARIANT}.txt"
           {
             [[ -f /mnt/wasd/LATEST-amd.txt ]] && cat /mnt/wasd/LATEST-amd.txt

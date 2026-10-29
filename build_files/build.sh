@@ -106,8 +106,12 @@ install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/wasd-install-agents
 install -m 0755 /ctx/wasd-install/wasd-webapp /usr/libexec/wasd-webapp
 install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/windowsboot.py
 install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/wasd-windows-boot
+install -m 0755 /ctx/wasd-install/boottitle.py /usr/libexec/wasd-boot-title
 install -d /usr/lib/systemd/system/multi-user.target.wants
+install -d /usr/lib/systemd/system/ostree-finalize-staged.service.wants
 ln -sfn ../wasd-windows-boot.service /usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service
+ln -sfn ../wasd-boot-title.service /usr/lib/systemd/system/multi-user.target.wants/wasd-boot-title.service
+ln -sfn ../wasd-boot-title-finalize.service /usr/lib/systemd/system/ostree-finalize-staged.service.wants/wasd-boot-title-finalize.service
 install -m 0755 /ctx/wasd-install/complete.py /usr/bin/wasd-complete
 chmod 0755 /usr/bin/wasd-install
 
@@ -340,6 +344,11 @@ test -x /usr/libexec/wasd-webapp
 test -x /usr/libexec/wasd-windows-boot
 test -s /usr/lib/systemd/system/wasd-windows-boot.service
 test -L /usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service
+test -x /usr/libexec/wasd-boot-title
+test -s /usr/lib/systemd/system/wasd-boot-title.service
+test -s /usr/lib/systemd/system/wasd-boot-title-finalize.service
+test -L /usr/lib/systemd/system/multi-user.target.wants/wasd-boot-title.service
+test -L /usr/lib/systemd/system/ostree-finalize-staged.service.wants/wasd-boot-title-finalize.service
 test -s /usr/share/wasd/install/SystemPage.qml
 test -s /usr/share/polkit-1/actions/org.wasd.password.policy
 test -s /usr/share/polkit-1/actions/org.wasd.wifi.policy

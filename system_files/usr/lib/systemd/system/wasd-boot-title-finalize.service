@@ -1,0 +1,13 @@
+[Unit]
+Description=Name the WASD boot menu after an update
+DefaultDependencies=no
+After=ostree-finalize-staged.service
+Before=umount.target
+ConditionPathExists=/boot/loader/entries
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/wasd-boot-title --root /
+
+[Install]
+WantedBy=ostree-finalize-staged.service

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -268,10 +269,22 @@ def _apps_error(proc, fallback):
     return line if line in APP_MESSAGES else fallback
 
 
-def pkexec_install(app_id):
-    proc = _pkexec_apps(["--install"], (app_id + "\n").encode())
+def pkexec_install(app_ids):
+    """One Flatpak transaction. A string is one app. A list is the rest of the queue."""
+    if isinstance(app_ids, str):
+        ids = [app_ids]
+    elif isinstance(app_ids, list):
+        ids = app_ids
+    else:
+        raise AppError("That app was refused.")
+    if not ids or len(ids) > 40 or any(not isinstance(item, str) for item in ids):
+        raise AppError("That app was refused.")
+    blob = "".join(item + "\n" for item in ids).encode()
+    if len(blob) > 8192:
+        raise AppError("That app was refused.")
+    proc = _pkexec_apps(["--install"], blob)
     if proc.returncode != 0:
-        raise AppError(_apps_error(proc, app_label(app_id)))
+        raise AppError(_apps_error(proc, app_label(ids[0])))
 
 
 def pkexec_apps_skip():
@@ -410,6 +423,7 @@ APPS_AT = 0
 APPS_FAILED = ""
 APPS_REFUSED = 0
 APPS_READY = False
+APPS_ONE = False
 PICK = None
 AGENTS_QUEUE = []
 AGENTS_AT = 0
@@ -447,12 +461,13 @@ PICK_MESSAGES = {
 
 
 def _reset_apps():
-    global APPS_QUEUE, APPS_AT, APPS_FAILED, APPS_REFUSED, APPS_READY, PICK
+    global APPS_QUEUE, APPS_AT, APPS_FAILED, APPS_REFUSED, APPS_READY, APPS_ONE, PICK
     APPS_QUEUE = []
     APPS_AT = 0
     APPS_FAILED = ""
     APPS_REFUSED = 0
     APPS_READY = False
+    APPS_ONE = False
     PICK = None
 
 
@@ -486,25 +501,36 @@ def _queue_done():
 
 
 def _install_current(choices):
-    global APPS_AT, APPS_FAILED
+    """Install every remaining app in one download.
+
+    A failure names the first app and continues one at a time, so Retry
+    and Continue still refer to one app.
+    """
+    global APPS_AT, APPS_FAILED, APPS_ONE
     if ONLINE() != "online":
         return 200, "offline"
     if APPS_AT >= len(APPS_QUEUE):
         return _queue_done()
-    app_id = APPS_QUEUE[APPS_AT]
+    remaining = APPS_QUEUE[APPS_AT:]
+    batch = len(remaining) > 1 and not APPS_ONE
     try:
-        INSTALLER(app_id)
+        INSTALLER(remaining if batch else remaining[0])
     except AppError:
-        APPS_FAILED = app_id
-        return 200, "fail\n" + app_label(app_id, choices["apps"])
-    APPS_AT += 1
+        if batch:
+            APPS_ONE = True
+        APPS_FAILED = remaining[0]
+        return 200, "fail\n" + app_label(remaining[0], choices["apps"])
+    if batch:
+        APPS_AT = len(APPS_QUEUE)
+    else:
+        APPS_AT += 1
     if APPS_AT >= len(APPS_QUEUE):
         return _queue_done()
     return 200, "next"
 
 
 def apps_check():
-    global APPS_QUEUE, APPS_AT, APPS_FAILED, APPS_REFUSED, APPS_READY
+    global APPS_QUEUE, APPS_AT, APPS_FAILED, APPS_REFUSED, APPS_READY, APPS_ONE
     choices = _apps_choices()
     if choices is None:
         return 409, "The choice file is not usable."
@@ -523,6 +549,7 @@ def apps_check():
     APPS_REFUSED = refused
     APPS_FAILED = "refused" if refused else ""
     APPS_READY = True
+    APPS_ONE = False
     if refused:
         return 200, "bad\nThat app was refused."
     return 200, "online"
@@ -775,6 +802,64 @@ def agents_skip():
     return 200, "ok"
 
 
+AWAKE_PID = Path("/tmp/wasd-awake.pid")
+AWAKE_STOP = Path("/tmp/wasd-awake.stop")
+AWAKE_PROC = None
+
+
+def hold_awake():
+    """Keep the screen on while the checked apps download. A failure changes nothing."""
+    global AWAKE_PROC
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        return
+    if AWAKE_PROC is not None and AWAKE_PROC.poll() is None:
+        return
+    binary = Path(os.environ.get("WASD_AWAKE", "/usr/libexec/wasd-awake"))
+    if binary.is_symlink() or not binary.is_file():
+        return
+    try:
+        AWAKE_STOP.unlink(missing_ok=True)
+    except OSError:
+        return
+    try:
+        AWAKE_PROC = subprocess.Popen(
+            [str(binary)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        AWAKE_PROC = None
+
+
+def release_awake():
+    """Drop the screen hold. The timeout setting stays as it was."""
+    global AWAKE_PROC
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        return
+    try:
+        AWAKE_STOP.write_text("stop\n")
+    except OSError:
+        pass
+    try:
+        pid_text = AWAKE_PID.read_text(encoding="utf-8")
+    except OSError:
+        pid_text = ""
+    pid = pid_text.strip()
+    if pid.isdigit():
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except OSError:
+            pass
+    if AWAKE_PROC is not None and AWAKE_PROC.poll() is None:
+        try:
+            AWAKE_PROC.terminate()
+        except OSError:
+            pass
+    AWAKE_PROC = None
+
+
 def remove_autostart():
     if not finish_allowed():
         return False
@@ -821,6 +906,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         blob = self.rfile.read(length) if length else b""
         try:
+            if self.path == "/awake":
+                hold_awake()
+                self._reply(200, "ok")
+                return
+            if self.path == "/awake/release":
+                release_awake()
+                self._reply(200, "ok")
+                return
             if self.path == "/password":
                 problem = validate_password(blob)
                 if problem:
@@ -1009,16 +1102,20 @@ def self_check():
         return "Saved for this adapter. It is not connected yet."
 
     installed = []
+    calls = []
     fail_once = {"com.discordapp.Discord"}
     online_calls = {"n": 0}
 
     def fake_install(app_id):
-        if app_id == "com.brave.Browser" or not app_id or "/" in app_id or " " in app_id:
-            raise AppError("That app was refused.")
-        if app_id in fail_once:
-            fail_once.remove(app_id)
-            raise AppError("Discord")
-        installed.append(app_id)
+        calls.append(app_id if isinstance(app_id, str) else list(app_id))
+        ids = [app_id] if isinstance(app_id, str) else list(app_id)
+        for item in ids:
+            if item == "com.brave.Browser" or not isinstance(item, str) or not item or "/" in item or " " in item:
+                raise AppError("That app was refused.")
+            if item in fail_once:
+                fail_once.remove(item)
+                raise AppError("Discord")
+        installed.extend(ids)
 
     def fake_apps_skip():
         seen["apps_skip"] = True
@@ -1355,6 +1452,34 @@ def self_check():
             raise SystemExit(f"the download did not finish: {installed}")
     if installed != ["com.discordapp.Discord", *expected]:
         raise SystemExit(f"the download queue was {installed}")
+    batch = ["com.discordapp.Discord", *expected]
+    if calls[0] != batch:
+        raise SystemExit(f"the first download was not one transaction: {calls[0]!r}")
+    if calls[1:] != batch:
+        raise SystemExit(f"a failed download did not continue one app at a time: {calls[1:]!r}")
+    clean_apps = {
+        "password": True,
+        "user": "alex",
+        "wifi": {"ssid": "Home", "security": "WPA2", "hidden": False},
+        "apps": [
+            {"name": "Discord", "id": "com.discordapp.Discord"},
+            {"name": "OBS Studio", "id": "com.obsproject.Studio"},
+        ],
+    }
+    choices.write_text(json.dumps(clean_apps))
+    clean_check = urllib.request.Request(f"http://127.0.0.1:{port}/apps/check", data=b"", method="POST")
+    with urllib.request.urlopen(clean_check, timeout=2) as response:
+        if response.read().decode() != "online":
+            raise SystemExit("a clean download did not start")
+    before = len(calls)
+    clean_install = urllib.request.Request(f"http://127.0.0.1:{port}/apps/install", data=b"", method="POST")
+    with urllib.request.urlopen(clean_install, timeout=2) as response:
+        if response.read().decode() != "done":
+            raise SystemExit("a clean download did not finish in one step")
+    if calls[before:] != [batch]:
+        raise SystemExit(f"a clean download was not one transaction: {calls[before:]!r}")
+    if installed != [*batch, *batch]:
+        raise SystemExit(f"the clean download installed {installed}")
     if "com.brave.Browser" in installed or any("/" in item for item in installed):
         raise SystemExit(f"a baked or refused app was installed: {installed}")
     if apps_marker.read_text() != "installed\n":
@@ -1556,6 +1681,31 @@ def self_check():
         if response.read():
             raise SystemExit("a linked install log was shown")
     os.environ.pop("WASD_APP_LOG", None)
+    import inspect
+    awake_source = inspect.getsource(hold_awake) + inspect.getsource(release_awake)
+    if "WASD_SELF_CHECK" not in awake_source:
+        raise SystemExit("the screen hold would run during self-check")
+    for banned in ("gsettings", "kwriteconfig", "powerprofilesctl", "xset", "setterm"):
+        if banned in awake_source:
+            raise SystemExit(f"the screen hold uses {banned}")
+    window = Path(__file__).with_name("Complete.qml").read_text(encoding="utf-8")
+    if 'postApps("/awake"' not in window or "showAppTerm" not in window or "preview" not in window:
+        raise SystemExit("the app install does not hold the screen")
+    sentinel = tmp / "awake-ran"
+    if sentinel.exists():
+        sentinel.unlink()
+    fake_awake = tmp / "wasd-awake"
+    fake_awake.write_text(f"#!/bin/sh\ntouch {sentinel}\n", encoding="utf-8")
+    os.chmod(fake_awake, 0o755)
+    os.environ["WASD_AWAKE"] = str(fake_awake)
+    for path in ("/awake", "/awake/release"):
+        posted = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=b"", method="POST")
+        with urllib.request.urlopen(posted, timeout=2) as response:
+            if response.status != 200:
+                raise SystemExit(f"{path} returned {response.status}")
+    if sentinel.exists():
+        raise SystemExit("self-check held the screen")
+    os.environ.pop("WASD_AWAKE", None)
     server.shutdown()
     for child in tmp.rglob("*"):
         if not child.is_file():
@@ -1627,6 +1777,7 @@ def main():
     try:
         proc = subprocess.run(command)
     finally:
+        release_awake()
         server.shutdown()
     return proc.returncode
 
