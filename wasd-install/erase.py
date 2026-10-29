@@ -16,8 +16,10 @@ The kickstart renderer still omits them.
 
 import argparse
 import base64
+import errno
 import json
 import os
+import pty
 import re
 import shutil
 import subprocess
@@ -767,6 +769,204 @@ def pre_wipe_message(output):
     return line.rstrip(".") + ". Nothing was erased."
 
 
+# bootc redraws its bar with carriage returns and ANSI when stdout is a terminal.
+_ANSI = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+_UNIT_SCALE = {
+    "b": 1,
+    "byte": 1,
+    "bytes": 1,
+    "kb": 10**3,
+    "kib": 2**10,
+    "mb": 10**6,
+    "mib": 2**20,
+    "gb": 10**9,
+    "gib": 2**30,
+    "tb": 10**12,
+    "tib": 2**40,
+}
+_UNIT = r"(bytes|byte|[kmgt]?i?b)"
+_PAIR = re.compile(
+    rf"(\d+(?:\.\d+)?)\s*{_UNIT}\s*/\s*(\d+(?:\.\d+)?)\s*{_UNIT}",
+    re.IGNORECASE,
+)
+_OF = re.compile(
+    rf"(\d+(?:\.\d+)?)\s*{_UNIT}.{{0,120}}?\(\s*(\d+(?:\.\d+)?)\s*{_UNIT}\s*\)",
+    re.IGNORECASE,
+)
+_LAYERS = re.compile(
+    rf"layers already present:\s*(\d+)\s*;\s*layers needed:\s*(\d+)"
+    rf"(?:\s*\(\s*(\d+(?:\.\d+)?)\s*{_UNIT}\s*\))?",
+    re.IGNORECASE,
+)
+_COUNT = re.compile(r"(?<![\d.])(\d{1,6})\s*/\s*(\d{1,6})(?![\d.])")
+_CHUNK = re.compile(r"(?:sha256:|chunk\s+)([0-9a-f]{8,64})", re.IGNORECASE)
+_BAR_PART = {
+    "▏": 0.125,
+    "▎": 0.25,
+    "▍": 0.375,
+    "▌": 0.5,
+    "▋": 0.625,
+    "▊": 0.75,
+    "▉": 0.875,
+}
+
+
+def _scale(number, unit):
+    try:
+        value = float(number)
+    except (TypeError, ValueError):
+        return None
+    factor = _UNIT_SCALE.get((unit or "").lower())
+    if factor is None or value < 0:
+        return None
+    return value * factor
+
+
+def _bar_fraction(line):
+    """Share of a block bar that is filled. None when the line has no bar."""
+    full = line.count("█") + line.count("▓")
+    empty = line.count("░") + line.count("▒")
+    part = 0.0
+    parts = 0
+    for mark, weight in _BAR_PART.items():
+        count = line.count(mark)
+        if count:
+            part += weight * count
+            parts += count
+    cells = full + empty + parts
+    if cells < 4:
+        return None
+    return min(1.0, (full + part) / cells)
+
+
+def take_progress(carry, blob):
+    """Split one bootc read on carriage returns and newlines.
+
+    The last piece stays in the carry until a break arrives. ANSI is
+    removed from the finished lines.
+    """
+    if isinstance(blob, bytes):
+        blob = blob.decode("utf-8", "replace")
+    text = carry + blob
+    parts = re.split(r"[\r\n]", text)
+    if text.endswith(("\r", "\n")):
+        pending = ""
+    else:
+        pending = parts.pop() if parts else ""
+    lines = []
+    for part in parts:
+        clean = _ANSI.sub("", part).replace("\u00a0", " ").replace("\u202f", " ").strip()
+        if clean:
+            lines.append(clean)
+    return lines, pending
+
+
+class CopyMeter:
+    """The copy percent bootc has actually reported.
+
+    A byte total uses the bytes copied so far. Otherwise the layer count
+    is the fraction, and a byte pair or a block bar fills in the current
+    layer. The number never goes down. A checkout with no count leaves it
+    where it is.
+    """
+
+    def __init__(self):
+        self.percent = None
+        self.present = 0
+        self.needed = None
+        self.total_bytes = None
+        self.chunks = {}
+        self.layer_index = None
+        self.layer_total = None
+        self.within = 0.0
+
+    def note(self, raw):
+        line = _ANSI.sub("", raw or "").replace("\u00a0", " ").replace("\u202f", " ").strip()
+        if not line:
+            return None
+        self._read(line)
+        percent = self._percent()
+        if percent is None:
+            return None
+        if self.percent is not None and percent <= self.percent:
+            return None
+        self.percent = percent
+        return percent
+
+    def _put_chunk(self, key, done, total):
+        previous = self.chunks.get(key)
+        if previous is not None and done < previous[0]:
+            return
+        self.chunks[key] = (done, total)
+
+    def _read(self, line):
+        found = _LAYERS.search(line)
+        if found:
+            self.present = int(found.group(1))
+            self.needed = int(found.group(2))
+            if found.group(3):
+                size = _scale(found.group(3), found.group(4))
+                if size:
+                    self.total_bytes = size
+            return
+        low = line.lower()
+        about = any(word in low for word in ("layer", "fetch", "copying", "importing"))
+        pair = _PAIR.search(line) if about or "mib" in low or "gib" in low else None
+        if pair is None and about:
+            pair = _OF.search(line)
+        count = _COUNT.search(line) if about or _bar_fraction(line) is not None else None
+        if count is not None and pair is not None and count.start() >= pair.start() and count.end() <= pair.end():
+            count = None
+        if count is not None:
+            index = int(count.group(1))
+            total = int(count.group(2))
+            if total > 0 and 0 < index <= total and (self.layer_index is None or index >= self.layer_index):
+                if self.layer_index is not None and index > self.layer_index:
+                    self.within = 0.0
+                self.layer_index = index
+                self.layer_total = total
+        if pair is not None and (about or self.total_bytes):
+            done = _scale(pair.group(1), pair.group(2))
+            total = _scale(pair.group(3), pair.group(4))
+            if done is None or not total:
+                return
+            done = min(done, total)
+            if self.total_bytes and total >= self.total_bytes * 0.8:
+                self._put_chunk("image", done, self.total_bytes)
+            else:
+                chunk = _CHUNK.search(line)
+                if chunk:
+                    key = chunk.group(1).lower()
+                elif self.layer_index:
+                    key = f"layer{self.layer_index}"
+                else:
+                    key = "open"
+                self._put_chunk(key, done, total)
+            self.within = done / total
+            return
+        if about or count is not None:
+            fraction = _bar_fraction(line)
+            if fraction is not None:
+                self.within = max(self.within, fraction)
+
+    def _percent(self):
+        if self.total_bytes:
+            if not self.chunks:
+                return 0 if self.needed else None
+            done = sum(item[0] for item in self.chunks.values())
+            return min(100, int(done * 100 / self.total_bytes))
+        if self.layer_total:
+            within = min(1.0, max(0.0, self.within))
+            index = self.layer_index or 1
+            denom = self.present + self.layer_total
+            if denom <= 0:
+                return None
+            return min(100, int((self.present + (index - 1) + within) * 100 / denom))
+        if self.needed:
+            return 0
+        return None
+
+
 def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=None):
     """Run bootc. A failure before it wipes the disk leaves the disk alone.
 
@@ -783,6 +983,7 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
     if not device.startswith("/dev/") or not DEVICE_NAME.fullmatch(device.removeprefix("/dev/")):
         raise Refuse("Choose a disk again. Nothing was erased.")
     state = {"wiped": False}
+    meter = CopyMeter()
     # The copy is the long part. bootc prints the bootloader line while
     # the copy is still running. The window ranks the account before that
     # line, so the bootloader sentence waits until the account step has run.
@@ -795,6 +996,17 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
             "Deploying container image" in line or "layers needed" in line or "layers already present" in line
         ):
             announce_stage(status_id, "copy", spoken)
+        # An integer bootc reported. Later output cannot lower it, and the
+        # checkout after the layers adds nothing when it has no count.
+        percent = meter.note(line)
+        if (
+            percent is not None
+            and "copy" in spoken
+            and "account" not in spoken
+            and "boot" not in spoken
+            and "done" not in spoken
+        ):
+            write_status(status_id, f"{STAGE_LINES['copy']} {percent}")
 
     try:
         result = runner(argv, on_line)
@@ -854,35 +1066,96 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
     return 0
 
 
+def _open_progress_tty():
+    """A terminal for bootc's bar, or nothing when one cannot be opened."""
+    try:
+        master, slave = pty.openpty()
+    except OSError:
+        return None, None
+    try:
+        import fcntl
+        import struct
+        import termios
+
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
+    except (OSError, ImportError):
+        pass
+    return master, slave
+
+
+def _close_fd(fd):
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        return
+
+
+def _pump_fd(fd, on_line, handle, chunks):
+    """Read bootc until it closes the stream. Redraws are separate lines."""
+    carry = ""
+    while True:
+        try:
+            blob = os.read(fd, 65536)
+        except OSError as exc:
+            if exc.errno == errno.EIO:
+                break
+            raise
+        if not blob:
+            break
+        text = blob.decode("utf-8", "replace")
+        handle.write(text)
+        handle.flush()
+        chunks.append(text)
+        lines, carry = take_progress(carry, text)
+        for line in lines:
+            on_line(line)
+    if carry:
+        lines, _pending = take_progress(carry, "\n")
+        for line in lines:
+            on_line(line)
+
+
 def bootc_runner(argv, on_line):
-    """The real bootc process. The self-check never calls this."""
+    """The real bootc process. The self-check never calls this.
+
+    A terminal is used so bootc prints the copy bar. That bar is redrawn
+    with carriage returns. If a terminal cannot be opened, a pipe is used
+    instead. bootc is started once.
+    """
     if os.environ.get("WASD_SELF_CHECK") == "1":
         raise SystemExit("self-check tried to run bootc")
+    master, slave = _open_progress_tty()
     try:
         proc = subprocess.Popen(
             argv,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
+            stdout=slave if slave is not None else subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            close_fds=True,
         )
     except OSError:
+        _close_fd(master)
+        _close_fd(slave)
         return None
+    _close_fd(slave)
     chunks = []
     try:
-        with BOOTC_LOG.open("w") as handle:
+        with BOOTC_LOG.open("w", encoding="utf-8", errors="replace") as handle:
             os.chmod(BOOTC_LOG, 0o600)
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                handle.write(line)
-                handle.flush()
-                chunks.append(line)
-                on_line(line)
+            if master is not None:
+                _pump_fd(master, on_line, handle, chunks)
+            else:
+                assert proc.stdout is not None
+                _pump_fd(proc.stdout.fileno(), on_line, handle, chunks)
         code = proc.wait()
     except OSError:
         proc.kill()
         proc.wait()
         return 1, "".join(chunks)
+    finally:
+        _close_fd(master)
     return code, "".join(chunks)
 
 
@@ -4004,6 +4277,75 @@ def check_post():
             raise SystemExit(f"{label} ran during self-check")
 
 
+def check_copy_progress():
+    """The copy percent is only a count bootc reported. This does not run bootc."""
+    meter = CopyMeter()
+    if meter.note("") is not None or meter.note("Wiping /dev/nvme0n1") is not None:
+        raise SystemExit("an unrelated line changed the copy")
+    if meter.note("Deploying container image") is not None:
+        raise SystemExit("the checkout invented a percent")
+    if meter.note("layers already present: 0; layers needed: 2 (200 MB)") != 0:
+        raise SystemExit("the copy did not start at 0")
+    if meter.note("layers already present: 0; layers needed: 2 (200 MB)") is not None:
+        raise SystemExit("the same count moved the copy")
+    if meter.note("Fetching layers ░░░░░░░░░░░░░░░░░░░░ 1/2") is not None:
+        raise SystemExit("a layer count replaced the byte total")
+    half = meter.note("└ Fetching 100 MB/100 MB (9 MB/s) ostree chunk aaaa1111")
+    if half != 50:
+        raise SystemExit(f"half the image was {half}")
+    if meter.note("└ Fetching 40 MB/100 MB (9 MB/s) ostree chunk aaaa1111") is not None:
+        raise SystemExit("the copy moved backward")
+    second = meter.note("└ Fetching 50 MB/100 MB (9 MB/s) ostree chunk bbbb2222")
+    if second != 75:
+        raise SystemExit(f"the second layer was {second}")
+    if meter.note("Installing bootloader via bootupd") is not None:
+        raise SystemExit("the bootloader line changed the copy")
+    finished = CopyMeter()
+    if finished.note("layers already present: 4; layers needed: 0") is not None:
+        raise SystemExit("a finished fetch invented the checkout")
+    plain = CopyMeter()
+    if plain.note("layers already present: 0; layers needed: 4") != 0:
+        raise SystemExit("a count without a size did not start at 0")
+    step = plain.note("Fetching layers 2/4")
+    if step != 25:
+        raise SystemExit(f"layer 2 of 4 was {step}")
+    barred = plain.note("Fetching layers " + ("█" * 10) + ("░" * 10) + " 2/4")
+    if barred != 37:
+        raise SystemExit(f"the bar was {barred}")
+    held = plain.note("└ Fetching 50 MiB/100 MiB ostree chunk cccc3333")
+    if held is not None:
+        raise SystemExit(f"the same fraction moved: {held}")
+    nxt = plain.note("Fetching layers 3/4")
+    if nxt != 50:
+        raise SystemExit(f"layer 3 of 4 was {nxt}")
+    odd = CopyMeter()
+    odd.note("layers already present: 0; layers needed: 65 (820.2 MB)")
+    odd.note("└ Fetching 1.13 MiB/63.27 MiB (34.73 MiB/s) ostree chunk 66763e94edad66cd05972")
+    if odd.percent != 0:
+        raise SystemExit(f"one small layer was {odd.percent}")
+    half_bytes = odd.note("└ Fetching 410.1 MB/410.1 MB ostree chunk deadbeef")
+    if half_bytes != 50:
+        raise SystemExit(f"half the bytes were {half_bytes}")
+    lines, carry = take_progress("", "\x1b[2KFetching layers 1/4\r└ Fetching 1 MiB/2 MiB\n")
+    if lines != ["Fetching layers 1/4", "└ Fetching 1 MiB/2 MiB"] or carry:
+        raise SystemExit(f"progress split was {lines!r} {carry!r}")
+    lines, carry = take_progress("Fet", "ching layers 2/4\n")
+    if lines != ["Fetching layers 2/4"] or carry:
+        raise SystemExit(f"a split word was {lines!r} {carry!r}")
+    opened = inspect_source(_open_progress_tty)
+    runner = inspect_source(bootc_runner)
+    if "pty.openpty" not in opened or "subprocess.PIPE" not in runner or "_pump_fd" not in runner:
+        raise SystemExit("bootc would miss the copy bar")
+    if runner.count("subprocess.Popen") != 1:
+        raise SystemExit("bootc could be started twice")
+
+
+def inspect_source(func):
+    import inspect
+
+    return inspect.getsource(func)
+
+
 def check_writer():
     """Check the bootc command without running it or touching a disk."""
     os.environ["WASD_SELF_CHECK"] = "1"
@@ -4084,6 +4426,9 @@ def check_writer():
             for line in (
                 "Installing image: docker://example:latest\n",
                 "Wiping /dev/nvme0n1\n",
+                "layers already present: 0; layers needed: 2 (200 MB)\n",
+                "Fetching layers ██████████░░░░░░░░░░ 1/2\n",
+                "└ Fetching 100 MB/100 MB ostree chunk aaaa1111\n",
                 "Deploying container image\n",
                 "Installing bootloader via bootupd\n",
             ):
@@ -4504,6 +4849,7 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
     if kick_path.name != "wasd-install.ks" or kick_path.parent == Path("/run"):
         raise SystemExit(f"kickstart path {kick_path}")
     check_writer()
+    check_copy_progress()
     print("erase self-check ok")
 
 

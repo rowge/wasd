@@ -98,15 +98,47 @@ Item {
             font.pixelSize: host.installStage === "done" || host.installStage === "failed" ? 32 : 28
         }
 
-        Text {
-            objectName: "copyDetail"
+        Item {
+            id: copyBar
+            objectName: "copyBar"
             visible: host.installStage === "copy"
             width: parent.width
-            wrapMode: Text.WordWrap
-            text: "The system, the desktop, and the programs that come with WASD."
-            color: host.muted
-            font.family: host.bodyFont
-            font.pixelSize: 16
+            height: 22
+
+            Text {
+                id: copyPercentLabel
+                objectName: "copyPercent"
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                width: 52
+                horizontalAlignment: Text.AlignRight
+                text: host.copyPercent < 0 ? "" : (host.copyPercent + "%")
+                color: host.ink
+                font.family: host.bodyFont
+                font.pixelSize: 16
+            }
+
+            Rectangle {
+                id: copyTrack
+                objectName: "copyTrack"
+                anchors.left: parent.left
+                anchors.right: copyPercentLabel.left
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                height: 10
+                radius: 4
+                color: Qt.rgba(1, 1, 1, 0.12)
+                clip: true
+
+                Rectangle {
+                    id: copyFill
+                    objectName: "copyFill"
+                    width: host.copyPercent < 0 ? 0 : copyTrack.width * Math.min(Math.max(host.copyPercent, 0), 100) / 100
+                    height: parent.height
+                    radius: 4
+                    color: host.button
+                }
+            }
         }
 
         Text {
@@ -114,7 +146,7 @@ Item {
             visible: host.restartReady && host.installStage === "failed"
             width: parent.width
             wrapMode: Text.WordWrap
-            text: host.restartArmed ? host.pullLine : host.continueLine
+            text: host.continueLine
             color: host.ink
             font.family: host.bodyFont
             font.pixelSize: 18

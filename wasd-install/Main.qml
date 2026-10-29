@@ -36,14 +36,13 @@ Window {
     property bool liveSession: false
     property bool erasing: false
     property string installStage: ""
+    property int copyPercent: -1
     readonly property bool restartReady: installStage === "done" || (installStage === "failed" && savedLine.indexOf("WASD was copied.") === 0)
     property string stagesSeen: ""
     property bool restartAsked: false
     property bool restartSent: false
-    property bool restartArmed: false
     property bool restartGate: false
     readonly property string continueLine: "Click Restart to continue."
-    readonly property string pullLine: "You can remove the USB stick. Press Enter to restart."
     property string encodedChoices: ""
     property string lookOpen: ""
     property string loadingChoice: "stained-glass.jpg"
@@ -801,6 +800,16 @@ Window {
         return ""
     }
 
+    function copyPercentOf(line) {
+        const matched = /^Copying WASD\. ([0-9]{1,3})$/.exec(line)
+        if (!matched)
+            return -1
+        const value = parseInt(matched[1], 10)
+        if (value > 100)
+            return -1
+        return value
+    }
+
     function installLine() {
         if (installStage === "prepare")
             return "Preparing the disk."
@@ -811,7 +820,7 @@ Window {
         if (installStage === "boot")
             return "Installing the bootloader."
         if (installStage === "done")
-            return restartArmed ? pullLine : continueLine
+            return continueLine
         if (installStage === "failed")
             return savedLine
         return ""
@@ -819,6 +828,24 @@ Window {
 
     function applyInstallLine(text) {
         const line = String(text || "").replace(/\s+/g, " ").trim()
+        const percent = copyPercentOf(line)
+        if (percent >= 0) {
+            if (installStage === "failed" || installStage === "done" || installStage === "account" || installStage === "boot")
+                return false
+            if (installStage !== "copy") {
+                if (installStage !== "" && stageRank("copy") < stageRank(installStage))
+                    return false
+                installStage = "copy"
+                if ((" " + stagesSeen + " ").indexOf(" copy ") < 0)
+                    stagesSeen = stagesSeen ? stagesSeen + " copy" : "copy"
+                erasing = true
+                savedLine = installLine()
+                syncAwake()
+            }
+            if (copyPercent < 0 || percent > copyPercent)
+                copyPercent = percent
+            return true
+        }
         const next = stageForLine(line)
         if (!next || installStage === "failed" || installStage === "done")
             return false
@@ -858,10 +885,10 @@ Window {
 
     function beginInstallStatus() {
         installStage = "prepare"
+        copyPercent = -1
         stagesSeen = "prepare"
         erasing = true
         restartSent = false
-        restartArmed = false
         restartGate = false
         savedLine = installLine()
         confirmNo()
@@ -876,23 +903,19 @@ Window {
         else
             savedLine = line.length > 160 ? line.slice(0, 160) : line
         installStage = "failed"
-        restartArmed = false
+        copyPercent = -1
         restartGate = false
         erasing = false
         syncAwake()
     }
 
     function restartNow() {
-        // Return and Enter can both arrive for one keypress. One press is one step.
+        // Return and Enter can both arrive for one keypress. One press restarts.
         if (!restartReady || restartSent || restartGate)
             return
         restartGate = true
         Qt.callLater(function() { restartGate = false })
         restartAsked = true
-        if (!restartArmed) {
-            restartArmed = true
-            return
-        }
         restartSent = true
         if (!liveSession || !liveLoader.item)
             return

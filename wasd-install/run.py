@@ -741,13 +741,44 @@ def qml_app(save_path, shot_dir, live):
         if window.property("restartAsked") is True:
             raise SystemExit("Enter restarted before the copy finished")
         spinner = quick.findChild(QQuickItem, "copySpinner")
-        detail = quick.findChild(QQuickItem, "copyDetail")
+        bar = quick.findChild(QQuickItem, "copyBar")
+        track = quick.findChild(QQuickItem, "copyTrack")
+        fill = quick.findChild(QQuickItem, "copyFill")
+        percent = quick.findChild(QQuickItem, "copyPercent")
         if spinner is None or not _shown(spinner):
             raise SystemExit("the copy spinner is missing")
-        if detail is None or not _shown(detail):
-            raise SystemExit("the copy detail is missing")
-        if detail.property("text") != "The system, the desktop, and the programs that come with WASD.":
-            raise SystemExit(f"the copy detail was {detail.property('text')}")
+        if bar is None or track is None or fill is None or percent is None or not _shown(bar):
+            raise SystemExit("the copy bar is missing")
+        if int(window.property("copyPercent")) != -1 or percent.property("text") not in ("", None):
+            raise SystemExit(f"the copy invented a percent: {window.property('copyPercent')} {percent.property('text')}")
+        if float(fill.property("width") or 0) > 1:
+            raise SystemExit(f"the empty bar was already filled: {fill.property('width')}")
+        if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", "Copying WASD. 0")):
+            raise SystemExit("noteInstall did not run for 0")
+        pump(50)
+        if window.property("installStage") != "copy" or window.installLine() != "Copying WASD.":
+            raise SystemExit(f"zero percent left the copy: {window.property('installStage')} {window.installLine()}")
+        if int(window.property("copyPercent")) != 0 or percent.property("text") != "0%":
+            raise SystemExit(f"zero percent was {window.property('copyPercent')} {percent.property('text')}")
+        if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", "Copying WASD. 42")):
+            raise SystemExit("noteInstall did not run for the percent")
+        pump(50)
+        if window.installLine() != "Copying WASD." or int(window.property("copyPercent")) != 42 or percent.property("text") != "42%":
+            raise SystemExit(f"the percent was {window.property('copyPercent')} {percent.property('text')} {window.installLine()}")
+        track_w = float(track.property("width") or 0)
+        fill_w = float(fill.property("width") or 0)
+        if track_w < 40 or abs(fill_w - track_w * 0.42) > 4:
+            raise SystemExit(f"the bar was {fill_w} of {track_w}")
+        if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", "Copying WASD. 7")):
+            raise SystemExit("noteInstall did not run for a lower percent")
+        pump(50)
+        if int(window.property("copyPercent")) != 42:
+            raise SystemExit(f"the percent moved backward to {window.property('copyPercent')}")
+        if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", "Copying WASD. 101")):
+            raise SystemExit("noteInstall did not run for a bad percent")
+        pump(50)
+        if int(window.property("copyPercent")) != 42 or window.installLine() != "Copying WASD.":
+            raise SystemExit(f"a bad percent was accepted: {window.property('copyPercent')} {window.installLine()}")
         grab(shot / "install-status.png")
         for sentence, stage in (
             ("Setting up your account.", "account"),
@@ -765,8 +796,14 @@ def qml_app(save_path, shot_dir, live):
                 raise SystemExit("the spinner stayed after the install")
             if stage != "done" and not _shown(spinner):
                 raise SystemExit("the spinner stopped before the install finished")
-            if _shown(detail):
-                raise SystemExit("the copy detail stayed after the copy")
+            if _shown(bar):
+                raise SystemExit("the copy bar stayed after the copy")
+            if stage == "account":
+                if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", "Copying WASD. 90")):
+                    raise SystemExit("noteInstall did not run after the copy")
+                pump(50)
+                if window.property("installStage") != "account" or int(window.property("copyPercent")) != 42:
+                    raise SystemExit(f"a late percent moved the copy: {window.property('installStage')} {window.property('copyPercent')}")
         if window.property("erasing") is not True:
             raise SystemExit("the steps unlocked before restart")
         if not QMetaObject.invokeMethod(window, "showPage", Q_ARG("QVariant", 4)):
@@ -786,24 +823,18 @@ def qml_app(save_path, shot_dir, live):
         if not QMetaObject.invokeMethod(window, "restartNow"):
             raise SystemExit("restartNow did not run on the last line")
         pump(50)
-        if window.property("restartAsked") is not True or window.property("restartArmed") is not True:
-            raise SystemExit("Restart did not stop for the USB")
-        if window.property("restartSent") is True:
-            raise SystemExit("Restart rebooted before the USB could come out")
-        if window.installLine() != "You can remove the USB stick. Press Enter to restart.":
-            raise SystemExit(f"the pull line was {window.installLine()}")
+        if window.property("restartAsked") is not True or window.property("restartSent") is not True:
+            raise SystemExit("Restart did not restart")
+        if window.installLine() != "Click Restart to continue.":
+            raise SystemExit(f"the last line changed: {window.installLine()}")
+        if "USB" in (window.installLine() or ""):
+            raise SystemExit("the last line told them to remove the USB")
         if _shown(spinner):
-            raise SystemExit("the spinner came back on the pull line")
+            raise SystemExit("the spinner came back after restart")
         if done_note is not None and _shown(done_note):
-            raise SystemExit("the pull line was repeated")
-        grab(shot / "install-pull.png")
+            raise SystemExit("the last line repeated the restart note")
         if window.property("liveSession") is True:
             raise SystemExit("the check restarted a live session")
-        if not QMetaObject.invokeMethod(window, "restartNow"):
-            raise SystemExit("restartNow did not run a second time")
-        pump(50)
-        if window.property("restartSent") is not True:
-            raise SystemExit("Enter did not restart after the USB line")
         if not QMetaObject.invokeMethod(window, "failInstall", Q_ARG("QVariant", "Nothing was erased.")):
             raise SystemExit("failInstall did not run after the last line")
         pump(50)
@@ -813,7 +844,6 @@ def qml_app(save_path, shot_dir, live):
         window.setProperty("erasing", False)
         window.setProperty("restartAsked", False)
         window.setProperty("restartSent", False)
-        window.setProperty("restartArmed", False)
         if not QMetaObject.invokeMethod(window, "failInstall", Q_ARG("QVariant", 'Traceback (most recent call last):\n  File "erase.py"')):
             raise SystemExit("failInstall did not run")
         pump(50)
@@ -844,7 +874,6 @@ def qml_app(save_path, shot_dir, live):
         grab(shot / "install-failed.png")
         window.setProperty("restartAsked", False)
         window.setProperty("restartSent", False)
-        window.setProperty("restartArmed", False)
         if not QMetaObject.invokeMethod(
             window,
             "failInstall",
@@ -866,20 +895,14 @@ def qml_app(save_path, shot_dir, live):
         if not QMetaObject.invokeMethod(window, "restartNow"):
             raise SystemExit("restartNow did not run after the copy")
         pump(50)
-        if window.property("restartAsked") is not True or window.property("restartArmed") is not True:
+        if window.property("restartAsked") is not True or window.property("restartSent") is not True:
             raise SystemExit("Restart did nothing after the copy")
-        if window.property("restartSent") is True:
-            raise SystemExit("Restart rebooted before the USB could come out")
-        if copied_note.property("text") != "You can remove the USB stick. Press Enter to restart.":
-            raise SystemExit(f"the copied pull line was {copied_note.property('text')}")
-        grab(shot / "install-copied-pull.png")
+        if copied_note.property("text") != "Click Restart to continue.":
+            raise SystemExit(f"the copied restart line was {copied_note.property('text')}")
+        if "USB" in (copied_note.property("text") or ""):
+            raise SystemExit("the copied failure told them to remove the USB")
         if window.property("liveSession") is True:
             raise SystemExit("the check restarted a live session")
-        if not QMetaObject.invokeMethod(window, "restartNow"):
-            raise SystemExit("restartNow did not run a second time after the copy")
-        pump(50)
-        if window.property("restartSent") is not True:
-            raise SystemExit("Enter did not restart after the copied USB line")
         if not QMetaObject.invokeMethod(window, "showPage", Q_ARG("QVariant", 4)):
             raise SystemExit("showPage did not leave the failure")
         pump(50)
@@ -1018,6 +1041,26 @@ def open_complete(shot_dir=None):
     names = ["setting", "installing", "finishing"]
     for index, name in enumerate(names):
         window.setProperty("stepIndex", index)
+        if name == "installing":
+            window.setProperty("appOutput", "org.kde.kcalc\nInstalling…                         45%")
+        else:
+            window.setProperty("appOutput", "")
+        pump(50)
+        spinner = quick.findChild(QQuickItem, "workSpinner")
+        term = quick.findChild(QQuickItem, "appTerm")
+        term_text = quick.findChild(QQuickItem, "appTermText")
+        if name == "installing":
+            if spinner is not None and _shown(spinner):
+                raise SystemExit("the spinner stayed on the install output")
+            if term is None or not _shown(term):
+                raise SystemExit("the install output was hidden")
+            if term_text is None or "45%" not in (term_text.property("text") or ""):
+                raise SystemExit(f"the install output was {None if term_text is None else term_text.property('text')}")
+        else:
+            if spinner is None or not _shown(spinner):
+                raise SystemExit(f"the spinner was missing on {name}")
+            if term is not None and _shown(term):
+                raise SystemExit(f"the install output showed on {name}")
         grab(shot / f"{name}.png")
     window.setProperty("phase", "work")
     window.setProperty("failKind", "look")

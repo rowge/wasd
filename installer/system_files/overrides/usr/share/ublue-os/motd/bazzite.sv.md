@@ -1,13 +1,13 @@
-# Välkommen till Bazzite Live ISO 󰊴
+# Välkommen till WASD
+Baserat på Bazzite.
 
 󱋩 `%IMAGE_NAME%`
 
-󰋼 Live ISO-avbildningen är avsedd för installation och felsökning.
-Kommandon för `rpm-ostree` fungerar inte här. Starta *om datorn* om
-du har installerat Bazzite utan problem.
+󰋼 Den här USB-stickan är till för att installera WASD och för felsökning.
+Kommandon för `rpm-ostree` fungerar inte här. Starta om datorn när installationen är klar.
 
 |  Kommando | Beskrivning |
 | ------- | ----------- |
 | `fastfetch` | Visa systeminformation |
-| `liveinst` | Starta installationsprogrammet |
+| `wasd-install` | Starta installationsprogrammet |
 | `bootloader_restore` | Starta verktyget för återställning av starthanteraren |

@@ -106,6 +106,9 @@ Window {
         lines = rows
     }
     readonly property string status: lines[Math.min(stepIndex, lines.length - 1)]
+    readonly property bool showAppTerm: phase === "work" && status === "Installing what you checked."
+    property string appOutput: ""
+    property string monoFont: "monospace"
 
     function art(fileName) {
         if (shareRoot)
@@ -209,6 +212,7 @@ Window {
         wifiName = ssid
         wifiSecurity = security
         bodyFont = pickFont(["Segoe UI", "Liberation Sans", "Noto Sans", "DejaVu Sans"], bodyFont)
+        monoFont = pickFont(["Liberation Mono", "DejaVu Sans Mono", "Noto Sans Mono"], monoFont)
         if (want)
             phase = "password"
         else if (wifi)
@@ -856,6 +860,20 @@ Window {
         xhr.send("done")
     }
 
+    function pollAppOutput() {
+        if (!showAppTerm || preview || helperPort <= 0)
+            return
+        const xhr = new XMLHttpRequest()
+        xhr.open("GET", "http://127.0.0.1:" + helperPort + "/output")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return
+            if (xhr.status === 200)
+                win.appOutput = xhr.responseText || ""
+        }
+        xhr.send()
+    }
+
     Timer {
         interval: 2400
         running: win.phase === "work" && !win.hold && !win.applyingEthernet && !win.appsHold && !win.appsBusy && !win.lookHold && !win.lookBusy && !win.agentsHold && !win.agentsBusy && win.failedApp.length === 0
@@ -880,6 +898,14 @@ Window {
             }
             win.stepIndex = win.stepIndex + 1
         }
+    }
+
+    Timer {
+        interval: 400
+        repeat: true
+        running: win.showAppTerm && !win.preview && win.helperPort > 0
+        triggeredOnStart: true
+        onTriggered: win.pollAppOutput()
     }
 
     Component.onCompleted: boot()
@@ -1236,7 +1262,9 @@ Window {
 
             Item {
                 id: spinner
+                objectName: "workSpinner"
                 anchors.horizontalCenter: parent.horizontalCenter
+                visible: !win.showAppTerm
                 width: 84
                 height: 84
 
@@ -1259,7 +1287,41 @@ Window {
                     to: 360
                     duration: 1100
                     loops: Animation.Infinite
-                    running: win.phase === "work"
+                    running: win.phase === "work" && !win.showAppTerm
+                }
+            }
+
+            Rectangle {
+                id: appTerm
+                objectName: "appTerm"
+                visible: win.showAppTerm
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width
+                height: 176
+                radius: 9
+                color: win.titlebar
+                clip: true
+
+                Flickable {
+                    id: appTermFlick
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    contentWidth: width
+                    contentHeight: appTermText.implicitHeight
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    onContentHeightChanged: contentY = Math.max(0, contentHeight - height)
+
+                    Text {
+                        id: appTermText
+                        objectName: "appTermText"
+                        width: appTermFlick.width
+                        text: win.appOutput.length > 0 ? win.appOutput : "Waiting for the install."
+                        color: win.ink
+                        font.family: win.monoFont
+                        font.pixelSize: 13
+                        wrapMode: Text.Wrap
+                    }
                 }
             }
 

@@ -13,6 +13,7 @@ WASD stained-glass picture, and the session splash stays the WASD W.
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import sys
@@ -351,7 +352,73 @@ def set_keys(path, group, updates):
     write_config(path, groups, order)
 
 
+def script_dir(package, script):
+    if not isinstance(script, str) or not script or "/" in script or script in {".", ".."}:
+        return None
+    return package / "contents" / script
+
+
+def drop_false_shell(package):
+    """A look with no layout is not a desktop. Plasma leaves the screen black when it is."""
+    meta = package / "metadata.json"
+    desktop = package / "metadata.desktop"
+    if meta.is_file():
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            fail(f"{meta} is not valid JSON")
+        if not isinstance(data, dict):
+            fail(f"{meta} is not a theme description")
+        script = data.get("X-Plasma-MainScript") or ""
+        folder = script_dir(package, script)
+        if script and (folder is None or not folder.is_dir()):
+            data.pop("X-Plasma-MainScript", None)
+            meta.write_text(json.dumps(data, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
+        if desktop.is_file():
+            desktop.unlink()
+        return
+    if not desktop.is_file():
+        return
+    lines = desktop.read_text(encoding="utf-8", errors="replace").splitlines()
+    script = ""
+    for line in lines:
+        if line.startswith("X-Plasma-MainScript="):
+            script = line.split("=", 1)[1].strip()
+    folder = script_dir(package, script)
+    if script and (folder is None or not folder.is_dir()):
+        kept = [line for line in lines if not line.startswith("X-Plasma-MainScript=")]
+        desktop.write_text("\n".join(kept).rstrip() + "\n", encoding="utf-8")
+
+
+def strip_missing_cursor(root, defaults_path):
+    lines = defaults_path.read_text(encoding="utf-8").splitlines()
+    kept = []
+    changed = False
+    for line in lines:
+        if line.startswith("cursorTheme="):
+            name = line.split("=", 1)[1].strip()
+            if not name or "/" in name or not (root / "usr/share/icons" / name).is_dir():
+                changed = True
+                continue
+        kept.append(line)
+    if changed:
+        defaults_path.write_text("\n".join(kept).rstrip() + "\n", encoding="utf-8")
+
+
+def prepare_look_packages(root):
+    base = root / "usr/share/plasma/look-and-feel"
+    for name in LOOK_AND_FEEL:
+        package = base / name
+        if not package.is_dir():
+            continue
+        drop_false_shell(package)
+        defaults = package / "contents/defaults"
+        if defaults.is_file():
+            strip_missing_cursor(root, defaults)
+
+
 def apply_default(root):
+    prepare_look_packages(root)
     package = root / "usr/share/plasma/look-and-feel" / DEFAULT_LOOK
     defaults = package / "contents/defaults"
     if not defaults.is_file():
@@ -436,6 +503,68 @@ def check(root):
     splash = root / "usr/share/plasma/look-and-feel" / DEFAULT_LOOK / "contents/splash"
     if splash.exists():
         fail("We10XOS-dark still ships its own session splash")
+    package = root / "usr/share/plasma/look-and-feel" / DEFAULT_LOOK
+    if (package / "metadata.desktop").exists():
+        fail("We10XOS-dark still has the legacy metadata file")
+    description = json.loads((package / "metadata.json").read_text(encoding="utf-8"))
+    script = description.get("X-Plasma-MainScript") or ""
+    folder = script_dir(package, script)
+    if script and (folder is None or not folder.is_dir()):
+        fail("We10XOS-dark still claims a desktop layout it does not have")
+    defaults_text = (package / "contents/defaults").read_text(encoding="utf-8")
+    if "Win10OS-cursors" in defaults_text and not (root / "usr/share/icons/Win10OS-cursors").is_dir():
+        fail("We10XOS-dark still asks for a cursor theme that is not installed")
+
+
+def self_check():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        package = root / "usr/share/plasma/look-and-feel" / DEFAULT_LOOK
+        (package / "contents").mkdir(parents=True)
+        (package / "metadata.desktop").write_text(
+            "[Desktop Entry]\nX-Plasma-MainScript=defaults\n",
+            encoding="utf-8",
+        )
+        (package / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "KPackageStructure": "Plasma/LookAndFeel",
+                    "X-Plasma-MainScript": "defaults",
+                    "KPlugin": {"Id": DEFAULT_LOOK},
+                }
+            ),
+            encoding="utf-8",
+        )
+        (package / "contents/defaults").write_text(
+            "[kcminputrc][Mouse]\ncursorTheme=Win10OS-cursors\n\n[kdeglobals][KDE]\nwidgetStyle=kvantum\n",
+            encoding="utf-8",
+        )
+        real = root / "usr/share/plasma/look-and-feel/Sweet"
+        (real / "contents/defaults").mkdir(parents=True)
+        (real / "metadata.json").write_text(
+            json.dumps({"X-Plasma-MainScript": "defaults", "KPlugin": {"Id": "Sweet"}}),
+            encoding="utf-8",
+        )
+        (real / "metadata.desktop").write_text("legacy\n", encoding="utf-8")
+        prepare_look_packages(root)
+        meta = json.loads((package / "metadata.json").read_text(encoding="utf-8"))
+        if "X-Plasma-MainScript" in meta:
+            fail("a missing layout was left on the theme")
+        if (package / "metadata.desktop").exists():
+            fail("the legacy metadata file was left in place")
+        text = (package / "contents/defaults").read_text(encoding="utf-8")
+        if "cursorTheme" in text or "Win10OS" in text:
+            fail("a missing cursor theme was left in the defaults")
+        if "widgetStyle=kvantum" not in text:
+            fail("the defaults lost the widget style")
+        kept = json.loads((real / "metadata.json").read_text(encoding="utf-8"))
+        if kept.get("X-Plasma-MainScript") != "defaults":
+            fail("a real layout script was removed")
+        if (real / "metadata.desktop").exists():
+            fail("a theme with metadata.json kept the legacy file")
+    print("theme self-check ok")
 
 
 def main():
@@ -443,7 +572,11 @@ def main():
     parser.add_argument("--root", default="/")
     parser.add_argument("--manifest", default=str(MANIFEST))
     parser.add_argument("--cache", default=os.environ.get("WASD_THEME_CACHE", ""))
+    parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
+    if args.self_check:
+        self_check()
+        return
     root = Path(args.root)
     cache = Path(args.cache) if args.cache else None
     rows = read_manifest(Path(args.manifest))

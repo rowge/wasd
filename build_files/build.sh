@@ -166,6 +166,17 @@ fi
 grep -q '^NAME="WASD"$' /usr/lib/os-release
 grep -q '^PRETTY_NAME="WASD"$' /usr/lib/os-release
 
+# The text login runs ublue-motd, which prints this file. PRETTY_NAME does not.
+grep -q '^# Welcome to WASD$' /usr/share/ublue-os/motd/template.md
+grep -q '^Based on Bazzite\.$' /usr/share/ublue-os/motd/template.md
+grep -q '^# Välkommen till WASD$' /usr/share/ublue-os/motd/template.sv.md
+grep -q '^Baserat på Bazzite\.$' /usr/share/ublue-os/motd/template.sv.md
+if grep -q -e 'Welcome to Bazzite' -e 'Välkommen till Bazzite' \
+    /usr/share/ublue-os/motd/template.md /usr/share/ublue-os/motd/template.sv.md; then
+    echo "the login banner still welcomes them to Bazzite" >&2
+    exit 1
+fi
+
 # Bazzite's flatpak recipe downloads their list from GitHub on each run.
 # Point it at the list in this image or Firefox comes back.
 python3 /ctx/patch.py

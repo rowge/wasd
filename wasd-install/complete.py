@@ -37,6 +37,7 @@ from apps import (  # noqa: E402
     needs_download,
     parse_pick,
     read_app_entries,
+    read_app_log,
 )
 from disks import is_live  # noqa: E402
 from lookapply import LookError, look_from, look_sentence  # noqa: E402
@@ -799,6 +800,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_GET(self):
+        # The install holds the apps lock until Flatpak returns. This read stays
+        # outside that lock so the window can follow the output while it runs.
+        if self.client_address[0] != "127.0.0.1":
+            self._reply(403, "This request was refused.")
+            return
+        if self.path.split("?", 1)[0] != "/output":
+            self._reply(404, "This request was refused.")
+            return
+        self._reply(200, read_app_log())
+
     def do_POST(self):
         if self.client_address[0] != "127.0.0.1":
             self._reply(403, "This request was refused.")
@@ -1513,6 +1525,37 @@ def self_check():
             raise SystemExit(f"an unknown agent returned {exc.code}") from exc
     else:
         raise SystemExit("an unknown agent was accepted")
+    log_path = tmp / "app-install.log"
+    log_path.write_text("\n".join(f"line {index}" for index in range(100)) + "\n", encoding="utf-8")
+    os.chmod(log_path, 0o644)
+    os.environ["WASD_APP_LOG"] = str(log_path)
+    held = threading.Event()
+    release = threading.Event()
+
+    def hold_apps():
+        with APPS_LOCK:
+            held.set()
+            release.wait(3)
+
+    worker = threading.Thread(target=hold_apps, daemon=True)
+    worker.start()
+    if not held.wait(2):
+        raise SystemExit("the install lock was not taken")
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/output", timeout=2) as response:
+            body = response.read().decode()
+    finally:
+        release.set()
+        worker.join(2)
+    if body.splitlines() != [f"line {index}" for index in range(20, 100)]:
+        raise SystemExit("the install output was truncated wrong")
+    link = tmp / "app-install-link"
+    link.symlink_to("/etc/passwd")
+    os.environ["WASD_APP_LOG"] = str(link)
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/output", timeout=2) as response:
+        if response.read():
+            raise SystemExit("a linked install log was shown")
+    os.environ.pop("WASD_APP_LOG", None)
     server.shutdown()
     for child in tmp.rglob("*"):
         if not child.is_file():

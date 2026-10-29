@@ -37,6 +37,8 @@ OBS_PLUGINS = (
 )
 FLATPAK_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)+$")
 MARKER = Path("/etc/wasd/apps-set")
+ANSI = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+LOG_LINES = 200
 NAMES = {
     "com.brave.Browser": "Brave",
     "com.discordapp.Discord": "Discord",
@@ -237,12 +239,99 @@ def connect_picked(pick, passphrase, runner, key_dir):
     return ""
 
 
+def app_log_path():
+    return Path(os.environ.get("WASD_APP_LOG", "/tmp/wasd-app-install.log"))
+
+
+def read_app_log():
+    """Last lines of the install output. A symlink is refused."""
+    path = app_log_path()
+    if path.is_symlink() or not path.is_file():
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return "\n".join(text.splitlines()[-80:])
+
+
+class TerminalLog:
+    """Keep the text a terminal would show. A redraw replaces the open line."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.lines = []
+        self.current = ""
+        self._read()
+
+    def _read(self):
+        path = self.path
+        if path.is_symlink() or not path.is_file():
+            return
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        self.lines = text.splitlines()[-LOG_LINES:]
+
+    def feed(self, data):
+        text = ANSI.sub("", str(data).replace("\x00", "")).replace("\r\n", "\n")
+        pieces = text.split("\n")
+        for index, piece in enumerate(pieces):
+            if "\r" in piece:
+                self.current = piece.split("\r")[-1]
+            else:
+                self.current += piece
+            if index < len(pieces) - 1:
+                self.lines.append(self.current)
+                self.current = ""
+        if len(self.lines) > LOG_LINES:
+            self.lines = self.lines[-LOG_LINES:]
+        self._flush()
+
+    def _flush(self):
+        shown = list(self.lines)
+        if self.current:
+            shown.append(self.current)
+        body = "\n".join(shown[-LOG_LINES:])
+        if body:
+            body += "\n"
+        path = self.path
+        parent = path.parent
+        if path.is_symlink() or parent.is_symlink() or not parent.is_dir():
+            return
+        temporary = parent / (path.name + ".part")
+        if temporary.is_symlink():
+            return
+        temporary.write_text(body, encoding="utf-8")
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+
+
 def _flatpak(args):
     if os.environ.get("WASD_SELF_CHECK") == "1":
         raise SystemExit("self-check tried to run flatpak")
     if not shutil.which("flatpak"):
         raise InstallError("Flatpak is not available.")
-    return subprocess.run(["flatpak", *args], capture_output=True, text=True)
+    log = TerminalLog(app_log_path())
+    if args and args[0] == "install" and args[-1]:
+        log.feed(f"\n{args[-1]}\n")
+    proc = subprocess.Popen(
+        ["flatpak", *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    assert proc.stdout is not None
+    while True:
+        chunk = proc.stdout.read(4096)
+        if not chunk:
+            break
+        log.feed(chunk.decode("utf-8", "replace"))
+    code = proc.wait()
+    if code == 0:
+        log.feed("installed\n")
+    return subprocess.CompletedProcess(["flatpak", *args], code)
 
 
 def _nmcli(args):
@@ -568,6 +657,36 @@ def self_check():
             raise SystemExit(f"flatpak guard was {exc}") from exc
     else:
         raise SystemExit("self-check reached Flatpak")
+    log_path = Path("/tmp/wasd-apps-log-self")
+    if log_path.is_symlink() or log_path.exists():
+        log_path.unlink()
+    os.environ["WASD_APP_LOG"] = str(log_path)
+    log = TerminalLog(log_path)
+    log.feed("Fetching 1/3\r\x1b[32mFetching 2/3\x1b[0m\rFetching 3/3\nInstalled\n")
+    text = log_path.read_text(encoding="utf-8")
+    if "Fetching 1/3" in text or "Fetching 2/3" in text or "\x1b" in text:
+        raise SystemExit(f"the log kept a redraw: {text!r}")
+    if text.splitlines() != ["Fetching 3/3", "Installed"]:
+        raise SystemExit(f"the log was {text!r}")
+    if (log_path.stat().st_mode & 0o777) != 0o644:
+        raise SystemExit(f"the log mode was {oct(log_path.stat().st_mode & 0o777)}")
+    again = TerminalLog(log_path)
+    again.feed("Next app\n")
+    if log_path.read_text(encoding="utf-8").splitlines() != ["Fetching 3/3", "Installed", "Next app"]:
+        raise SystemExit("a later install replaced the log")
+    shown = read_app_log()
+    if shown.splitlines() != ["Fetching 3/3", "Installed", "Next app"]:
+        raise SystemExit(f"the visible log was {shown!r}")
+    link = Path("/tmp/wasd-apps-log-link")
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(log_path)
+    os.environ["WASD_APP_LOG"] = str(link)
+    if read_app_log():
+        raise SystemExit("a linked log was shown")
+    os.environ.pop("WASD_APP_LOG", None)
+    log_path.unlink()
+    link.unlink()
     print("apps self-check ok")
 
 

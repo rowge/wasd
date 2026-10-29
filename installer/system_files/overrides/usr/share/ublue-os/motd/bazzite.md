@@ -1,12 +1,13 @@
-# Welcome to Bazzite Live ISO 󰊴
+# Welcome to WASD
+Based on Bazzite.
+
 󱋩 `%IMAGE_NAME%`
 
-󰋼 The Live ISO is designed for installation and troubleshooting.
-`rpm-ostree` commands will not work here. If you've successfully installed
-Bazzite, *please restart your computer*.
+󰋼 This USB is for installing WASD and for troubleshooting.
+`rpm-ostree` commands will not work here. When the install has finished, restart the computer.
 
 |  Command | Description |
 | ------- | ----------- |
 | `fastfetch` | View system information |
-| `liveinst` | Launch Installer |
+| `wasd-install` | Open Install WASD |
 | `bootloader_restore` | Launch Bootloader Restoring tool |
