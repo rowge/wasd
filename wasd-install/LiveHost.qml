@@ -11,6 +11,21 @@ Item {
 
     property bool installRunning: false
     property string statusId: ""
+    property bool awakeHeld: false
+
+    function holdAwake() {
+        if (awakeHeld)
+            return
+        awakeHeld = true
+        exec.connectSource("/usr/bin/sh -c 'rm -f /tmp/wasd-awake.stop; exec /usr/libexec/wasd-awake'")
+    }
+
+    function releaseAwake() {
+        if (!awakeHeld)
+            return
+        awakeHeld = false
+        exec.connectSource("/usr/bin/sh -c 'touch /tmp/wasd-awake.stop; if [ -f /tmp/wasd-awake.pid ]; then kill $(cat /tmp/wasd-awake.pid); fi'")
+    }
 
     function codeOf(data) {
         if (data["exit code"] !== undefined)
@@ -100,6 +115,8 @@ Item {
                     host.statusLine(parts[1].trim())
                 return
             }
+            if (sourceName.indexOf("wasd-awake") >= 0)
+                return
             if (sourceName.indexOf("wasd-live-info") >= 0) {
                 if (code !== 0 || !stdout)
                     host.disks("{\"warnings\":[\"The disks could not be read.\"],\"blocked\":true,\"disks\":[]}")

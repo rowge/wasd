@@ -740,11 +740,19 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if window.property("restartAsked") is True:
             raise SystemExit("Enter restarted before the copy finished")
+        spinner = quick.findChild(QQuickItem, "copySpinner")
+        detail = quick.findChild(QQuickItem, "copyDetail")
+        if spinner is None or not _shown(spinner):
+            raise SystemExit("the copy spinner is missing")
+        if detail is None or not _shown(detail):
+            raise SystemExit("the copy detail is missing")
+        if detail.property("text") != "The system, the desktop, and the programs that come with WASD.":
+            raise SystemExit(f"the copy detail was {detail.property('text')}")
         grab(shot / "install-status.png")
         for sentence, stage in (
             ("Setting up your account.", "account"),
             ("Installing the bootloader.", "boot"),
-            ("You can remove the USB stick. Press Enter to restart.", "done"),
+            ("Click Restart to continue.", "done"),
         ):
             if not QMetaObject.invokeMethod(window, "noteInstall", Q_ARG("QVariant", sentence)):
                 raise SystemExit(f"noteInstall did not run for {sentence}")
@@ -753,6 +761,12 @@ def qml_app(save_path, shot_dir, live):
                 raise SystemExit(f"status {sentence} was {window.property('installStage')} {window.installLine()}")
             if not window.stageSeen(stage):
                 raise SystemExit(f"the {stage} step was not recorded")
+            if stage == "done" and _shown(spinner):
+                raise SystemExit("the spinner stayed after the install")
+            if stage != "done" and not _shown(spinner):
+                raise SystemExit("the spinner stopped before the install finished")
+            if _shown(detail):
+                raise SystemExit("the copy detail stayed after the copy")
         if window.property("erasing") is not True:
             raise SystemExit("the steps unlocked before restart")
         if not QMetaObject.invokeMethod(window, "showPage", Q_ARG("QVariant", 4)):
@@ -764,19 +778,32 @@ def qml_app(save_path, shot_dir, live):
         restart = quick.findChild(QQuickItem, "restartButtonLabel")
         if restart is None or not _shown(restart) or restart.property("text") != "Restart":
             raise SystemExit("the Restart button is missing from the last line")
-        done_usb = quick.findChild(QQuickItem, "removeUsbLine")
-        if done_usb is not None and _shown(done_usb):
-            raise SystemExit("the last line repeated the USB note")
+        done_note = quick.findChild(QQuickItem, "restartNote")
+        if done_note is not None and _shown(done_note):
+            raise SystemExit("the last line repeated the restart note")
+        if "USB" in (window.installLine() or ""):
+            raise SystemExit("the last line told them to remove the USB")
         if not QMetaObject.invokeMethod(window, "restartNow"):
             raise SystemExit("restartNow did not run on the last line")
         pump(50)
-        if window.property("restartAsked") is not True:
-            raise SystemExit("Enter did not ask to restart")
+        if window.property("restartAsked") is not True or window.property("restartArmed") is not True:
+            raise SystemExit("Restart did not stop for the USB")
+        if window.property("restartSent") is True:
+            raise SystemExit("Restart rebooted before the USB could come out")
+        if window.installLine() != "You can remove the USB stick. Press Enter to restart.":
+            raise SystemExit(f"the pull line was {window.installLine()}")
+        if _shown(spinner):
+            raise SystemExit("the spinner came back on the pull line")
+        if done_note is not None and _shown(done_note):
+            raise SystemExit("the pull line was repeated")
+        grab(shot / "install-pull.png")
         if window.property("liveSession") is True:
             raise SystemExit("the check restarted a live session")
         if not QMetaObject.invokeMethod(window, "restartNow"):
             raise SystemExit("restartNow did not run a second time")
         pump(50)
+        if window.property("restartSent") is not True:
+            raise SystemExit("Enter did not restart after the USB line")
         if not QMetaObject.invokeMethod(window, "failInstall", Q_ARG("QVariant", "Nothing was erased.")):
             raise SystemExit("failInstall did not run after the last line")
         pump(50)
@@ -786,6 +813,7 @@ def qml_app(save_path, shot_dir, live):
         window.setProperty("erasing", False)
         window.setProperty("restartAsked", False)
         window.setProperty("restartSent", False)
+        window.setProperty("restartArmed", False)
         if not QMetaObject.invokeMethod(window, "failInstall", Q_ARG("QVariant", 'Traceback (most recent call last):\n  File "erase.py"')):
             raise SystemExit("failInstall did not run")
         pump(50)
@@ -816,6 +844,7 @@ def qml_app(save_path, shot_dir, live):
         grab(shot / "install-failed.png")
         window.setProperty("restartAsked", False)
         window.setProperty("restartSent", False)
+        window.setProperty("restartArmed", False)
         if not QMetaObject.invokeMethod(
             window,
             "failInstall",
@@ -825,19 +854,32 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if window.installLine() != "WASD was copied. Later updates were not pointed at WASD.":
             raise SystemExit(f"update status was {window.installLine()}")
-        copied_usb = quick.findChild(QQuickItem, "removeUsbLine")
+        copied_note = quick.findChild(QQuickItem, "restartNote")
         copied_restart = quick.findChild(QQuickItem, "restartButtonLabel")
-        if copied_usb is None or not _shown(copied_usb) or copied_usb.property("text") != "You can remove the USB stick.":
-            raise SystemExit("the copied failure did not say to remove the USB")
+        if copied_note is None or not _shown(copied_note) or copied_note.property("text") != "Click Restart to continue.":
+            raise SystemExit("the copied failure did not say to click Restart")
+        if "USB" in (copied_note.property("text") or ""):
+            raise SystemExit("the copied failure told them to remove the USB")
         if copied_restart is None or not _shown(copied_restart):
             raise SystemExit("Restart was missing after the copy")
+        grab(shot / "install-copied.png")
         if not QMetaObject.invokeMethod(window, "restartNow"):
             raise SystemExit("restartNow did not run after the copy")
         pump(50)
-        if window.property("restartAsked") is not True:
+        if window.property("restartAsked") is not True or window.property("restartArmed") is not True:
             raise SystemExit("Restart did nothing after the copy")
+        if window.property("restartSent") is True:
+            raise SystemExit("Restart rebooted before the USB could come out")
+        if copied_note.property("text") != "You can remove the USB stick. Press Enter to restart.":
+            raise SystemExit(f"the copied pull line was {copied_note.property('text')}")
+        grab(shot / "install-copied-pull.png")
         if window.property("liveSession") is True:
             raise SystemExit("the check restarted a live session")
+        if not QMetaObject.invokeMethod(window, "restartNow"):
+            raise SystemExit("restartNow did not run a second time after the copy")
+        pump(50)
+        if window.property("restartSent") is not True:
+            raise SystemExit("Enter did not restart after the copied USB line")
         if not QMetaObject.invokeMethod(window, "showPage", Q_ARG("QVariant", 4)):
             raise SystemExit("showPage did not leave the failure")
         pump(50)

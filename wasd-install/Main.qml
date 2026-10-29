@@ -40,6 +40,10 @@ Window {
     property string stagesSeen: ""
     property bool restartAsked: false
     property bool restartSent: false
+    property bool restartArmed: false
+    property bool restartGate: false
+    readonly property string continueLine: "Click Restart to continue."
+    readonly property string pullLine: "You can remove the USB stick. Press Enter to restart."
     property string encodedChoices: ""
     property string lookOpen: ""
     property string loadingChoice: "stained-glass.jpg"
@@ -792,7 +796,7 @@ Window {
             return "account"
         if (line === "Installing the bootloader.")
             return "boot"
-        if (line === "You can remove the USB stick. Press Enter to restart.")
+        if (line === continueLine)
             return "done"
         return ""
     }
@@ -807,7 +811,7 @@ Window {
         if (installStage === "boot")
             return "Installing the bootloader."
         if (installStage === "done")
-            return "You can remove the USB stick. Press Enter to restart."
+            return restartArmed ? pullLine : continueLine
         if (installStage === "failed")
             return savedLine
         return ""
@@ -825,7 +829,17 @@ Window {
             stagesSeen = stagesSeen ? stagesSeen + " " + next : next
         erasing = true
         savedLine = installLine()
+        syncAwake()
         return true
+    }
+
+    function syncAwake() {
+        if (!liveSession || liveLoader.item === null)
+            return
+        if (installStage === "copy")
+            liveLoader.item.holdAwake()
+        else
+            liveLoader.item.releaseAwake()
     }
 
     function noteInstall(text) {
@@ -847,6 +861,8 @@ Window {
         stagesSeen = "prepare"
         erasing = true
         restartSent = false
+        restartArmed = false
+        restartGate = false
         savedLine = installLine()
         confirmNo()
     }
@@ -860,14 +876,24 @@ Window {
         else
             savedLine = line.length > 160 ? line.slice(0, 160) : line
         installStage = "failed"
+        restartArmed = false
+        restartGate = false
         erasing = false
+        syncAwake()
     }
 
     function restartNow() {
-        if (!restartReady || restartSent)
+        // Return and Enter can both arrive for one keypress. One press is one step.
+        if (!restartReady || restartSent || restartGate)
             return
-        restartSent = true
+        restartGate = true
+        Qt.callLater(function() { restartGate = false })
         restartAsked = true
+        if (!restartArmed) {
+            restartArmed = true
+            return
+        }
+        restartSent = true
         if (!liveSession || !liveLoader.item)
             return
         liveLoader.item.restart()

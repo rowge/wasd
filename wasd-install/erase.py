@@ -60,7 +60,7 @@ STAGE_LINES = {
     "copy": "Copying WASD.",
     "account": "Setting up your account.",
     "boot": "Installing the bootloader.",
-    "done": "You can remove the USB stick. Press Enter to restart.",
+    "done": "Click Restart to continue.",
 }
 WIPED_LINE = "The disk was erased. The install did not finish."
 NOT_STARTED = "The installer could not be started. Nothing was erased."
@@ -774,8 +774,8 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
     post runs after that sentence and before games. It copies the apps
     already on the USB, points later updates at the registry image, and
     enrolls the Secure Boot key. finish runs after post, including when
-    post reports a failure, and before the USB sentence. A failure in any
-    of those steps skips the USB sentence. The sentence is the first failure.
+    post reports a failure, and before the done sentence. A failure in any
+    of those steps skips the done sentence. The sentence is the first failure.
     """
     if not argv or argv[0] != "bootc" or "to-disk" not in argv or "liveinst" in argv:
         raise Refuse(NOT_STARTED)
@@ -1607,19 +1607,65 @@ def passwd_record(text, user):
     return {"uid": uid, "gid": gid, "home": home}
 
 
+def onto_shared_var(origin, jail, path):
+    """A resolved path inside the deployment's var is stored in the shared var.
+
+    The deployment directory is immutable, so its var entry stays a real
+    directory. Boot bind-mounts ostree/deploy/<name>/var over it. A var that
+    is already a symlink is followed by the caller and left alone here.
+    """
+    origin = Path(origin).resolve()
+    path = Path(path)
+    jail_path = Path(jail).resolve()
+    local = origin / "var"
+    if local.is_symlink() or not local.is_dir() or not local.resolve().is_relative_to(origin):
+        return path
+    shared = origin.parent.parent / "var"
+    if shared.is_symlink() or not shared.is_dir() or host_root(shared):
+        raise AccountProblem("the new system is not mounted")
+    if not shared.resolve().is_relative_to(jail_path):
+        raise AccountProblem("the new system is not mounted")
+    try:
+        relative = path.resolve().relative_to(local.resolve())
+    except ValueError:
+        return path
+    landed = shared.joinpath(relative)
+    if landed.is_symlink() or host_root(landed) or not landed.resolve().is_relative_to(jail_path):
+        raise AccountProblem("a path left the new system")
+    return landed
+
+
+def shared_var_dir(origin, jail):
+    """The var directory boot mounts. This does not create a deployment entry."""
+    origin = Path(origin).resolve()
+    shared = origin.parent.parent / "var"
+    jail_path = Path(jail).resolve()
+    if shared.is_symlink() or not shared.is_dir() or host_root(shared):
+        raise AccountProblem("the new system is not mounted")
+    if not shared.resolve().is_relative_to(jail_path):
+        raise AccountProblem("the new system is not mounted")
+    return shared.resolve()
+
+
 def walk_inside(start, jail, parts):
     """Follow parts from start. A symlink is allowed only inside jail."""
     if host_root(jail):
         raise AccountProblem("a path left the new system")
     jail_path = Path(jail).resolve()
-    current = Path(start).resolve()
+    origin = Path(start).resolve()
+    current = origin
     if host_root(current) or not current.is_relative_to(jail_path):
         raise AccountProblem("a path left the new system")
     for part in parts:
         if part in {".", ".."} or not ACCOUNT_PART.fullmatch(part or ""):
             raise AccountProblem("a path left the new system")
         nxt = current / part
-        current = nxt.resolve() if nxt.is_symlink() else nxt
+        if nxt.is_symlink():
+            current = onto_shared_var(origin, jail, nxt.resolve())
+        elif part == "var" and current.resolve() == origin:
+            current = shared_var_dir(origin, jail)
+        else:
+            current = nxt
         if host_root(current) or not current.resolve().is_relative_to(jail_path):
             raise AccountProblem("a path left the new system")
     return current
@@ -1629,15 +1675,19 @@ def ensure_dir(start, jail, parts, mode=0o755):
     current = walk_inside(start, jail, ())
     if not current.is_dir():
         raise AccountProblem("a path left the new system")
+    origin = Path(start).resolve()
     jail_path = Path(jail).resolve()
     for part in parts:
         if part in {".", ".."} or not ACCOUNT_PART.fullmatch(part or ""):
             raise AccountProblem("a path left the new system")
         nxt = current / part
         if nxt.is_symlink():
-            current = nxt.resolve()
-            if not current.is_dir() or not current.is_relative_to(jail_path):
+            current = onto_shared_var(origin, jail, nxt.resolve())
+            if not current.is_dir() or not current.resolve().is_relative_to(jail_path):
                 raise AccountProblem("a path left the new system")
+            continue
+        if part == "var" and current.resolve() == origin:
+            current = shared_var_dir(origin, jail)
             continue
         if nxt.exists() and not nxt.is_dir():
             raise AccountProblem("a path left the new system")
@@ -1682,49 +1732,37 @@ def write_exact(path, data, mode, jail):
 
 
 def link_shared_var(deploy, jail):
-    """Use the var the booted system mounts, not the copy inside the deployment.
+    """Check the var the booted system mounts.
 
-    bootc leaves a real var directory in the deployment. After boot, that
-    directory is hidden by ostree/deploy/<name>/var. The home and the account
-    picture have to be written through a symlink to that shared var.
+    The deployment directory is immutable, so its var entry stays. Boot
+    bind-mounts ostree/deploy/<name>/var over that directory. The home and
+    the account picture are written to that shared var. A var that is
+    already a symlink to it is accepted and left in place.
     """
     deploy = Path(deploy)
     jail_path = Path(jail).resolve()
     if host_root(deploy) or host_root(jail) or deploy.is_symlink() or not deploy.is_dir():
         raise AccountProblem("the new system is not mounted")
-    if not deploy.resolve().is_relative_to(jail_path):
+    deploy = deploy.resolve()
+    if not deploy.is_relative_to(jail_path):
         raise AccountProblem("the new system is not mounted")
-    shared = deploy.parent.parent / "var"
-    if shared.is_symlink() or not shared.is_dir() or host_root(shared):
-        raise AccountProblem("the new system is not mounted")
-    if not shared.resolve().is_relative_to(jail_path):
-        raise AccountProblem("the new system is not mounted")
+    shared = shared_var_dir(deploy, jail)
     local = deploy / "var"
+    if not local.exists() and not local.is_symlink():
+        return
     if local.is_symlink():
-        if local.resolve() != shared.resolve():
+        if local.resolve() != shared:
             raise AccountProblem("the new system is not mounted")
         return
-    if local.exists():
-        same = False
-        try:
-            same = local.stat().st_ino == shared.stat().st_ino and local.stat().st_dev == shared.stat().st_dev
-        except OSError as exc:
-            raise AccountProblem("the new system is not mounted") from exc
-        if same:
-            return
-        if not local.is_dir() or not local.resolve().is_relative_to(deploy.resolve()):
-            raise AccountProblem("the new system is not mounted")
-        shutil.rmtree(local)
-    local.symlink_to("../../var")
-    if not local.is_symlink() or local.resolve() != shared.resolve():
+    if not local.is_dir() or host_root(local) or not local.resolve().is_relative_to(deploy):
         raise AccountProblem("the new system is not mounted")
 
 
 def ensure_tree_links(deploy, jail):
     """The deployment's home and var must stay on the mounted system.
 
-    useradd --prefix follows them. --root would chroot and hide the shared
-    var the booted system actually uses.
+    useradd --prefix writes /etc there. --root would chroot. The home is
+    created in the shared var, because the deployment directory is immutable.
     """
     if host_root(deploy) or host_root(jail):
         raise AccountProblem("a path left the new system")
@@ -1767,7 +1805,7 @@ def checked_account(argv, jail):
     if not USER_NAME.fullmatch(user) or user == "root":
         raise AccountProblem("the username is not usable")
     expected = {
-        "useradd": ["useradd", "--prefix", raw, "--create-home", "--groups", "wheel", user],
+        "useradd": ["useradd", "--prefix", raw, "--no-create-home", "--groups", "wheel", user],
         "usermod": ["usermod", "--prefix", raw, "--append", "--groups", "wheel", user],
         "passwd": ["passwd", "--prefix", raw, "--delete", user],
     }
@@ -1787,7 +1825,7 @@ def account_commands(deploy, user, exists):
         ]
     else:
         commands = [
-            ["useradd", "--prefix", prefix, "--create-home", "--groups", "wheel", user],
+            ["useradd", "--prefix", prefix, "--no-create-home", "--groups", "wheel", user],
             ["passwd", "--prefix", prefix, "--delete", user],
         ]
     return commands
@@ -1846,16 +1884,73 @@ def home_inside(deploy, jail, home, user):
 
 def make_home(path, jail):
     path = Path(path)
+    jail_path = Path(jail).resolve()
     if path.is_symlink() or host_root(path):
         raise AccountProblem("the home directory is a link")
     if path.exists() and not path.is_dir():
         raise AccountProblem("the home directory is not usable")
-    if not path.exists():
+    created = not path.exists()
+    if created:
+        parent = path.parent
+        if parent.is_symlink() or host_root(parent) or not parent.resolve().is_relative_to(jail_path):
+            raise AccountProblem("the home directory is not usable")
+        if not parent.is_dir():
+            if parent.parent.is_symlink() or not parent.parent.is_dir():
+                raise AccountProblem("the home directory is not usable")
+            parent.mkdir(mode=0o755)
+            os.chmod(parent, 0o755)
         path.mkdir(mode=0o700)
         os.chmod(path, 0o700)
-    if not path.is_dir() or not path.resolve().is_relative_to(Path(jail).resolve()):
+    if not path.is_dir() or not path.resolve().is_relative_to(jail_path):
         raise AccountProblem("a path left the new system")
-    return path
+    return path, created
+
+
+def copy_skel(deploy, jail, home):
+    """Copy the deployment's /etc/skel into a new home. Links are left out."""
+    skel = Path(deploy) / "etc" / "skel"
+    if not skel.exists() or skel.is_symlink() or not skel.is_dir():
+        return
+    jail_path = Path(jail).resolve()
+    home = Path(home)
+    if home.is_symlink() or not home.is_dir() or not home.resolve().is_relative_to(jail_path):
+        raise AccountProblem("the home directory is not usable")
+    if not skel.resolve().is_relative_to(jail_path) or skel.resolve() == home.resolve():
+        raise AccountProblem("a path left the new system")
+    for dirpath, dirnames, filenames in os.walk(skel, followlinks=False):
+        current = Path(dirpath)
+        if current.is_symlink() or not current.resolve().is_relative_to(skel.resolve()):
+            raise AccountProblem("a path left the new system")
+        dest_dir = home / current.relative_to(skel)
+        if dest_dir.is_symlink() or not dest_dir.resolve().is_relative_to(home.resolve()):
+            raise AccountProblem("a path left the new system")
+        kept = []
+        for name in dirnames:
+            item = current / name
+            if item.is_symlink():
+                continue
+            if not item.is_dir() or not item.resolve().is_relative_to(skel.resolve()):
+                raise AccountProblem("a path left the new system")
+            kept.append(name)
+            target = dest_dir / name
+            if target.exists() or target.is_symlink():
+                continue
+            target.mkdir()
+            os.chmod(target, item.stat().st_mode & 0o755)
+        dirnames[:] = kept
+        for name in filenames:
+            item = current / name
+            if item.is_symlink() or not item.is_file():
+                continue
+            if not item.resolve().is_relative_to(skel.resolve()):
+                raise AccountProblem("a path left the new system")
+            target = dest_dir / name
+            if target.exists() or target.is_symlink():
+                continue
+            data = read_nofollow(item, 1024 * 1024)
+            if data is None:
+                continue
+            write_exact(target, data, item.stat().st_mode & 0o777, jail)
 
 
 def write_hostname(deploy, jail, hostname):
@@ -2076,7 +2171,9 @@ def place_account(deploy, jail, data, choices_text, wifi_source):
     if record is None:
         raise AccountProblem("the account was not created")
     ensure_tree_links(deploy, jail)
-    home = make_home(home_inside(deploy, jail, record["home"], user), jail)
+    home, created = make_home(home_inside(deploy, jail, record["home"], user), jail)
+    if created:
+        copy_skel(deploy, jail, home)
     write_hostname(deploy, jail, data.get("hostname") or "")
     write_choices(deploy, jail, choices_text)
     write_autologin(deploy, jail, user)
@@ -2674,7 +2771,7 @@ def write_post(os_device, source):
     The app copy has to succeed before the update step and the labels.
     An update failure still restores labels and still enrolls the key.
     The caller creates the games partition after this, then shows the
-    first failure. The USB sentence is not printed.
+    first failure. The done sentence is not printed.
     """
     stop_if_checking("write the installed system")
     require_live()
@@ -2994,7 +3091,7 @@ def check_games():
         if str(exc) != GAMES_FAILED or "done" in spoken:
             raise SystemExit(f"a games failure was {exc} after {spoken}") from exc
     else:
-        raise SystemExit("a games failure printed the USB line")
+        raise SystemExit("a games failure printed the done line")
     if spoken != ["copy", "boot"]:
         raise SystemExit(f"games failure stages were {spoken}")
 
@@ -3022,7 +3119,7 @@ def check_games():
         if str(exc) != GAMES_FAILED or "done" in spoken:
             raise SystemExit(f"a games OSError was {exc} after {spoken}") from exc
     else:
-        raise SystemExit("a games OSError printed the USB line")
+        raise SystemExit("a games OSError printed the done line")
     if spoken != ["copy", "boot"]:
         raise SystemExit(f"games OSError stages were {spoken}")
 
@@ -3153,24 +3250,31 @@ def check_account():
         deploy = jail / "ostree/deploy/default/deploy" / f"{rev}.0"
         shared = jail / "ostree/deploy/default/var"
         (shared / "home").mkdir(parents=True)
+        (shared / "lib").mkdir()
         deploy.mkdir(parents=True)
-        (deploy / "var").symlink_to("../../var")
+        (deploy / "var").mkdir()
+        (deploy / "var" / "marker").write_text("hide")
         (deploy / "home").symlink_to("var/home")
         link_shared_var(deploy, jail)
-        if not (deploy / "var").is_symlink() or (deploy / "var").resolve() != shared.resolve():
-            raise SystemExit("the shared var symlink was replaced")
-        hidden = jail / "ostree/deploy/default/deploy" / f"{'ab' * 32}.hidden"
-        hidden.mkdir()
-        (hidden / "var").mkdir()
-        (hidden / "var" / "marker").write_text("hide")
-        (hidden / "home").symlink_to("var/home")
-        link_shared_var(hidden, jail)
-        if not (hidden / "var").is_symlink() or (hidden / "var").resolve() != shared.resolve():
-            raise SystemExit("a real deployment var was left in place")
-        if (hidden / "var" / "marker").exists():
-            raise SystemExit("the hidden var was kept")
+        if (deploy / "var").is_symlink() or (deploy / "var" / "marker").read_text() != "hide":
+            raise SystemExit("the deployment var was replaced")
         if not (shared / "home").is_dir():
             raise SystemExit("the shared home was removed")
+        if flatpak_dir(deploy, jail).resolve() != (shared / "lib").resolve():
+            raise SystemExit("the apps were aimed at the deployment var")
+        if (deploy / "var" / "lib").exists():
+            raise SystemExit("the deployment var was written")
+        linked = jail / "ostree/deploy/default/deploy" / f"{'ef' * 32}.0"
+        linked.mkdir()
+        (linked / "var").symlink_to("../../var")
+        (linked / "home").symlink_to("var/home")
+        link_shared_var(linked, jail)
+        if not (linked / "var").is_symlink() or (linked / "var").resolve() != shared.resolve():
+            raise SystemExit("the shared var symlink was replaced")
+        linked_home = home_inside(linked, jail, "/home/alex", "alex")
+        if linked_home.resolve() != (shared / "home/alex").resolve():
+            raise SystemExit(f"a linked var missed the shared home: {linked_home}")
+        shutil.rmtree(linked)
         (deploy / "etc").mkdir()
         (deploy / "etc/passwd").write_text("alex:x:1000:1000:Alex:/home/alex:/bin/bash\n")
         icons = deploy / "usr/share/wasd/icons"
@@ -3250,7 +3354,7 @@ def check_account():
         prefix = str(deploy.resolve())
         created = account_commands(deploy, "alex", False)
         existing = account_commands(deploy, "alex", True)
-        if created[0] != ["useradd", "--prefix", prefix, "--create-home", "--groups", "wheel", "alex"]:
+        if created[0] != ["useradd", "--prefix", prefix, "--no-create-home", "--groups", "wheel", "alex"]:
             raise SystemExit(f"useradd was {created[0]}")
         if created[1] != ["passwd", "--prefix", prefix, "--delete", "alex"]:
             raise SystemExit(f"passwd was {created[1]}")
@@ -3265,6 +3369,7 @@ def check_account():
             ["passwd", "--prefix", prefix, "--stdin", "alex"],
             ["passwd", "--prefix", prefix, "-s", "alex"],
             ["useradd", "--root", prefix, "--create-home", "--groups", "wheel", "alex"],
+            ["useradd", "--prefix", prefix, "--create-home", "--groups", "wheel", "alex"],
             ["passwd", "--prefix", "/", "--delete", "alex"],
             ["passwd", "--prefix", "/etc", "--delete", "alex"],
             ["passwd", "--prefix", prefix, "--delete", "root"],
@@ -3297,12 +3402,29 @@ def check_account():
         secret_note.write_text("psk=do-not-copy\n")
         (wifi_dir / "Home.nmconnection").write_text(raw_wifi)
         (wifi_dir / "link.nmconnection").symlink_to(secret_note)
+        skel = deploy / "etc/skel"
+        skel.mkdir()
+        (skel / ".bashrc").write_text("skel-marker\n")
+        (skel / "skip").symlink_to("/etc/hostname")
         passwd_before = (deploy / "etc/passwd").read_bytes()
+        for name, func in (
+            ("link_shared_var", link_shared_var),
+            ("onto_shared_var", onto_shared_var),
+            ("walk_inside", walk_inside),
+            ("ensure_dir", ensure_dir),
+            ("copy_skel", copy_skel),
+            ("account_commands", account_commands),
+        ):
+            body = inspect.getsource(func)
+            if "rmtree" in body or "chattr" in body or "symlink_to" in body:
+                raise SystemExit(f"{name} changes the deployment directory")
         place_account(deploy, jail, choices, text, wifi_dir)
         if (deploy / "etc/passwd").read_bytes() != passwd_before:
             raise SystemExit("the deployment account list was rewritten without useradd")
-        if not (deploy / "var").is_symlink():
-            raise SystemExit("the shared var was replaced")
+        if (deploy / "var").is_symlink() or (deploy / "var" / "marker").read_text() != "hide":
+            raise SystemExit("the deployment var was replaced")
+        if (deploy / "var" / "home" / "alex").exists():
+            raise SystemExit("the home was written into the deployment")
         if (deploy / "etc/hostname").read_text() != "wasd\n":
             raise SystemExit("the computer name was not written")
         saved = json.loads((deploy / "etc/wasd/choices.json").read_text())
@@ -3316,11 +3438,18 @@ def check_account():
             raise SystemExit("automatic sign-in was not written")
         if "password" in login_a.lower():
             raise SystemExit("automatic sign-in stored a password")
-        auto = deploy / "home/alex/.config/autostart/wasd-complete.desktop"
-        icon = deploy / "home/alex/Desktop/wasd-complete.desktop"
-        # Follow the home link. The files have to land in the shared var.
-        if auto.resolve() != (shared / "home/alex/.config/autostart/wasd-complete.desktop").resolve():
-            raise SystemExit(f"the startup entry missed the shared home: {auto.resolve()}")
+        auto = shared / "home/alex/.config/autostart/wasd-complete.desktop"
+        icon = shared / "home/alex/Desktop/wasd-complete.desktop"
+        if (deploy / "var/home/alex/.config/autostart/wasd-complete.desktop").exists():
+            raise SystemExit("the startup entry was written into the deployment")
+        if not auto.is_file():
+            raise SystemExit(f"the startup entry missed the shared home: {auto}")
+        if (shared / "home/alex").stat().st_mode & 0o777 != 0o700:
+            raise SystemExit("the home directory has the wrong mode")
+        if (shared / "home/alex/.bashrc").read_text() != "skel-marker\n":
+            raise SystemExit("the home skeleton was not copied")
+        if (shared / "home/alex/skip").exists():
+            raise SystemExit("a skeleton link was copied")
         if "Completing the install" not in auto.read_text() or "OnlyShowIn=KDE;" not in auto.read_text():
             raise SystemExit("the startup entry is wrong")
         if icon.stat().st_mode & 0o777 != 0o755 or auto.stat().st_mode & 0o777 != 0o644:
@@ -3409,7 +3538,7 @@ def check_account():
     except SystemExit as exc:
         raise SystemExit(f"an account failure ran games: {exc}") from exc
     else:
-        raise SystemExit("an account failure printed the USB line")
+        raise SystemExit("an account failure printed the done line")
     if spoken != ["copy", "account"] or "boot" in spoken or "done" in spoken:
         raise SystemExit(f"account failure stages were {spoken}")
 
@@ -3443,7 +3572,7 @@ def check_account():
         if str(exc) != GAMES_FAILED or spoken != ["copy", "account", "boot"]:
             raise SystemExit(f"a games failure after the account was {exc} after {spoken}") from exc
     else:
-        raise SystemExit("a games failure after the account printed the USB line")
+        raise SystemExit("a games failure after the account printed the done line")
 
     def explode():
         raise SystemExit("self-check tried to write the account")
@@ -3794,7 +3923,7 @@ def check_post():
         ):
             raise SystemExit(f"an app copy failure was {exc} after {spoken} {seen}") from exc
     else:
-        raise SystemExit("an app copy failure printed the USB line")
+        raise SystemExit("an app copy failure printed the done line")
 
     def updates_fail():
         raise OSError("disk")
@@ -3807,7 +3936,7 @@ def check_post():
         if str(exc) != UPDATES_FAILED or "Nothing was erased." in str(exc) or "done" in spoken or not seen.get("updates"):
             raise SystemExit(f"an update failure was {exc} after {spoken} {seen}") from exc
     else:
-        raise SystemExit("an update failure printed the USB line")
+        raise SystemExit("an update failure printed the done line")
 
     def labels_fail():
         raise PostProblem(LABELS_FAILED)
@@ -3820,7 +3949,7 @@ def check_post():
         if str(exc) != LABELS_FAILED or "Nothing was erased." in str(exc) or "done" in spoken or not seen.get("labels"):
             raise SystemExit(f"a label failure was {exc} after {spoken} {seen}") from exc
     else:
-        raise SystemExit("a label failure printed the USB line")
+        raise SystemExit("a label failure printed the done line")
 
     def boom_account():
         announce_stage(status, "account", spoken)
@@ -3838,7 +3967,7 @@ def check_post():
     except SystemExit as exc:
         raise SystemExit(f"an account failure continued: {exc}") from exc
     else:
-        raise SystemExit("an account failure printed the USB line")
+        raise SystemExit("an account failure printed the done line")
 
     def explode():
         raise SystemExit("self-check tried to run bootc")
@@ -3852,7 +3981,7 @@ def check_post():
     else:
         raise SystemExit("a post guard was caught")
     if "done" in spoken:
-        raise SystemExit("a post guard printed the USB line")
+        raise SystemExit("a post guard printed the done line")
     for call, label in (
         (lambda: finish_post("nvme0n1", "containers-storage:example:latest"), "finish the installed system"),
         (lambda: write_post("nvme0n1", "containers-storage:example:latest"), "write the installed system"),
@@ -4397,7 +4526,7 @@ def install(payload, defaults_path, status_id):
 
     The account runs after the copy and before the bootloader sentence.
     Installed apps, the update source, and Secure Boot enrollment run
-    after that sentence. A games choice runs after those. The USB sentence
+    after that sentence. A games choice runs after those. The done sentence
     is printed only when the copy, the account, and those steps succeed.
     The password is not written.
     """

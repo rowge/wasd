@@ -91,6 +91,7 @@ done
 install -m 0644 /ctx/wasd-install/disks.py /usr/libexec/disks.py
 install -m 0755 /ctx/wasd-install/liveinfo.py /usr/libexec/wasd-live-info
 install -m 0755 /ctx/wasd-install/erase.py /usr/libexec/wasd-erase
+install -m 0755 /ctx/wasd-install/awake.py /usr/libexec/wasd-awake
 install -m 0755 /ctx/wasd-install/set_password.py /usr/libexec/wasd-set-password
 install -m 0644 /ctx/wasd-install/set_password.py /usr/libexec/set_password.py
 install -m 0755 /ctx/wasd-install/network.py /usr/libexec/wasd-network
