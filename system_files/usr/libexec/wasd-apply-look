@@ -338,6 +338,28 @@ case ${loading_src##*.} in
         chmod 0644 "$dest"
         ;;
 esac
+printf '%s\n' "$loading" > /etc/wasd/loading-name
+chmod 0644 /etc/wasd/loading-name
+if [[ -f /etc/wasd/choices.json ]]; then
+    python3 - "$loading" "$login" << 'PY'
+import json
+import sys
+from pathlib import Path
+
+loading, login = sys.argv[1], sys.argv[2]
+path = Path("/etc/wasd/choices.json")
+try:
+    data = json.loads(path.read_text())
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+if not isinstance(data, dict):
+    raise SystemExit(0)
+data["loading"] = loading
+data["login"] = login
+path.write_text(json.dumps(data, indent=2) + "\n")
+PY
+    chmod 0644 /etc/wasd/choices.json
+fi
 
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT

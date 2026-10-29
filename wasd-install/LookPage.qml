@@ -56,6 +56,8 @@ Item {
     }
 
     function choose(index, fileName) {
+        if (host.tool)
+            host.choicesHeld = true
         if (index === 0)
             host.loadingChoice = fileName
         else if (index === 1)

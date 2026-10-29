@@ -340,19 +340,33 @@ def apply_login(root, home, user, login_name):
 
 
 def apply_wallpaper_script(root, home, user, wallpaper_name):
+    """Save the chosen picture for the system desktop script.
+
+    That script lives with the real shell. A script-only directory under
+    the home directory replaces the whole shell, so the desktop stays black.
+    Plasma also skips update scripts that live in the home directory.
+    """
+    if not safe_file(wallpaper_name):
+        raise LookError("Choose a picture from the list.")
     url = f"file:///usr/share/wallpapers/wasd/{wallpaper_name}"
-    body = (
-        "var allDesktops = desktops();\n"
-        "for (var i = 0; i < allDesktops.length; i++) {\n"
-        "    var desktop = allDesktops[i];\n"
-        '    desktop.wallpaperPlugin = "org.kde.image";\n'
-        '    desktop.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];\n'
-        f'    desktop.writeConfig("Image", "{url}");\n'
-        "}\n"
-    )
-    relative = Path(".local/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zzz-wasd-choice.js")
-    for base in (home, root / "etc/skel"):
-        write_text(base / relative, body, user, home if base == home else None)
+    text = f"[Wallpaper]\nImage={url}\n"
+    for path, owner_home in (
+        (root / "etc/xdg/wasd-wallpaperrc", None),
+        (root / "etc/skel/.config/wasd-wallpaperrc", None),
+        (home / ".config/wasd-wallpaperrc", home),
+    ):
+        write_text(path, text, user, owner_home)
+
+
+def record_loading_name(root, source):
+    name = Path(source).name
+    if not safe_file(name):
+        raise LookError("Could not prepare the loading picture.")
+    path = Path(root) / "etc/wasd/loading-name"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(name + "\n", encoding="utf-8")
+    os.chmod(path, 0o644)
+    return path
 
 
 def prepare_loading(root, source):
@@ -361,6 +375,7 @@ def prepare_loading(root, source):
     if source.suffix.lower() == ".png":
         dest.write_bytes(source.read_bytes())
         os.chmod(dest, 0o644)
+        record_loading_name(root, source)
         return dest
     converters = []
     if shutil.which("ffmpeg"):
@@ -373,6 +388,7 @@ def prepare_loading(root, source):
         proc = subprocess.run(command, capture_output=True)
         if proc.returncode == 0 and dest.is_file() and dest.stat().st_size > 0:
             os.chmod(dest, 0o644)
+            record_loading_name(root, source)
             return dest
         dest.unlink(missing_ok=True)
     raise LookError("Could not prepare the loading picture.")
@@ -609,6 +625,113 @@ def apply_look(root, home, user, look, session=False, rebuild=False):
     return note
 
 
+def picture_name(value, prefix, folder):
+    """A picture file name from one config value, or empty when it is not one."""
+    if not isinstance(value, str) or not value.startswith(prefix):
+        return ""
+    name = value[len(prefix):]
+    if not safe_file(name):
+        return ""
+    path = Path(folder) / name
+    if path.is_symlink() or not path.is_file():
+        return ""
+    return name
+
+
+def image_name(path, prefix, folder):
+    file_path = Path(path)
+    if file_path.is_symlink() or not file_path.is_file():
+        return ""
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    if len(text) > 1_000_000:
+        text = text[:1_000_000]
+    section = ""
+    found = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line
+            continue
+        if not line.startswith("Image="):
+            continue
+        # The desktop file uses [Wallpaper]. Plasma's own files name the plugin too.
+        plain = section.strip("[]")
+        if "Wallpaper" not in section:
+            continue
+        if "org.kde.image" not in section and plain != "Wallpaper":
+            continue
+        name = picture_name(line.split("=", 1)[1].strip(), prefix, folder)
+        if name:
+            found = name
+    return found
+
+
+def saved_name(path, key, folder):
+    file_path = Path(path)
+    if file_path.is_symlink() or not file_path.is_file():
+        return ""
+    try:
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    name = data.get(key)
+    if not safe_file(name):
+        return ""
+    picture = Path(folder) / name
+    if picture.is_symlink() or not picture.is_file():
+        return ""
+    return name
+
+
+def loading_name(root):
+    path = Path(root) / "etc/wasd/loading-name"
+    folder = Path(root) / "usr/share/wasd/loading"
+    if path.is_symlink() or not path.is_file():
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    name = text.strip()
+    if not safe_file(name):
+        return ""
+    picture = folder / name
+    if picture.is_symlink() or not picture.is_file():
+        return ""
+    return name
+
+
+def current_choices(root, home):
+    """The three pictures WASD Look should open on. This only reads."""
+    root = Path(root)
+    home = Path(home)
+    loading_dir = root / "usr/share/wasd/loading"
+    login_dir = root / "usr/share/wasd/login"
+    wall_dir = root / "usr/share/wallpapers/wasd"
+    login_prefix = "file:///usr/share/wasd/login/"
+    wall_prefix = "file:///usr/share/wallpapers/wasd/"
+    choices = root / "etc/wasd/choices.json"
+    loading = loading_name(root) or saved_name(choices, "loading", loading_dir)
+    login = (
+        image_name(home / ".config/kscreenlockerrc", login_prefix, login_dir)
+        or image_name(root / "etc/xdg/kscreenlockerrc", login_prefix, login_dir)
+        or image_name(root / "etc/plasmalogin.conf", login_prefix, login_dir)
+        or saved_name(choices, "login", login_dir)
+    )
+    wallpaper = (
+        image_name(home / ".config/plasma-org.kde.plasma.desktop-appletsrc", wall_prefix, wall_dir)
+        or image_name(home / ".config/wasd-wallpaperrc", wall_prefix, wall_dir)
+        or image_name(root / "etc/xdg/wasd-wallpaperrc", wall_prefix, wall_dir)
+        or saved_name(choices, "wallpaper", wall_dir)
+    )
+    return {"loading": loading, "login": login, "wallpaper": wallpaper}
+
+
 def marker_path(root):
     override = os.environ.get("WASD_LOOK_MARK")
     if override:
@@ -643,10 +766,21 @@ def main(argv):
     parser.add_argument("--session", action="store_true")
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--no-mark", action="store_true")
+    parser.add_argument("--current", action="store_true")
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args(argv)
     if args.self_check:
         self_check()
+        return 0
+    if args.current:
+        if os.environ.get("WASD_SELF_CHECK") == "1":
+            print("This computer was not changed.", file=sys.stderr)
+            return 2
+        try:
+            home = Path.home()
+        except RuntimeError:
+            home = Path("/var/empty")
+        print(json.dumps(current_choices(Path("/"), home), separators=(",", ":")))
         return 0
     if not args.choices or not args.user:
         print("Choose the look again.", file=sys.stderr)
@@ -762,14 +896,33 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
             raise SystemExit("the lock screen preview was wrong")
         if "WallpaperPlugin=org.kde.image" not in lock:
             raise SystemExit("the lock screen plugin was wrong")
-        script = (
-            home / ".local/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zzz-wasd-choice.js"
+        choice = "Image=file:///usr/share/wallpapers/wasd/camp.png\n"
+        rc = (home / ".config/wasd-wallpaperrc").read_text(encoding="utf-8")
+        if rc != "[Wallpaper]\n" + choice or "stained-glass" in rc:
+            raise SystemExit("the wallpaper choice was wrong")
+        if (root / "etc/xdg/wasd-wallpaperrc").read_text(encoding="utf-8") != rc:
+            raise SystemExit("the system wallpaper choice differs")
+        if (root / "etc/skel/.config/wasd-wallpaperrc").read_text(encoding="utf-8") != rc:
+            raise SystemExit("the new-account wallpaper choice differs")
+        if (home / ".local/share/plasma/shells").exists():
+            raise SystemExit("a desktop shell was written over the system one")
+        if (root / "etc/skel/.local/share/plasma/shells").exists():
+            raise SystemExit("a desktop shell was written for new accounts")
+        desktop_script = (
+            Path(__file__).resolve().parents[1]
+            / "system_files/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-wallpaper.js"
         ).read_text(encoding="utf-8")
-        if "camp.png" not in script or "stained-glass" in script:
-            raise SystemExit("the wallpaper script was wrong")
+        if "wasd-wallpaperrc" not in desktop_script or "ConfigFile" not in desktop_script:
+            raise SystemExit("the desktop script does not read the wallpaper choice")
+        if "stained-glass.jpg" not in desktop_script:
+            raise SystemExit("the desktop script lost the default picture")
+        if "shells/org.kde.plasma.desktop" in inspect.getsource(apply_wallpaper_script):
+            raise SystemExit("the wallpaper choice is written as a desktop shell")
         png = root / "etc/wasd/loading-background.png"
         if png.read_bytes() != b"\x89PNG\r\n\x1a\nwasd":
             raise SystemExit("the loading picture was not copied")
+        if (root / "etc/wasd/loading-name").read_text(encoding="utf-8") != "stained-glass.png\n":
+            raise SystemExit("the loading picture name was not saved")
         if (root / "etc/wasd/loading-rebuilt").exists():
             raise SystemExit("a temp root rebuilt the startup picture")
         blue_dir = root / "usr/share/plasma/look-and-feel/org.magpie.exblue.desktop/contents"
@@ -789,6 +942,10 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
             raise SystemExit("Expose Blue was forced onto Kvantum")
         if "LookAndFeelPackage=org.magpie.exblue.desktop" not in blue_text:
             raise SystemExit("Expose Blue was not selected")
+        if (home / ".config/wasd-wallpaperrc").read_text(encoding="utf-8") != rc:
+            raise SystemExit("a second theme replaced the wallpaper choice")
+        if (home / ".local/share/plasma/shells").exists() or (root / "etc/skel/.local/share/plasma/shells").exists():
+            raise SystemExit("a second theme wrote a desktop shell")
         for bad in (
             {"loading": "..", "login": "throne.png", "theme": "Sweet KDE", "wallpaper": "camp.png"},
             {"loading": "stained-glass.png", "login": "throne.png", "theme": "No Such Theme", "wallpaper": "camp.png"},
@@ -856,6 +1013,82 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
         raise SystemExit("the wallpaper sentence was replaced")
     if look_sentence("traceback") != "The desktop was not set.":
         raise SystemExit("an unknown look failure was shown")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        home = root / "home/alex"
+        home.mkdir(parents=True)
+        for folder, name in (
+            ("usr/share/wasd/loading", "stained-glass.png"),
+            ("usr/share/wasd/loading", "camp.png"),
+            ("usr/share/wasd/login", "throne.png"),
+            ("usr/share/wallpapers/wasd", "camp.png"),
+            ("usr/share/wallpapers/wasd", "quantum.jpeg"),
+        ):
+            path = root / folder
+            path.mkdir(parents=True, exist_ok=True)
+            (path / name).write_bytes(b"picture")
+        (root / "usr/share/wasd/loading/link.png").symlink_to(root / "etc")
+        config = home / ".config"
+        config.mkdir()
+        (config / "plasma-org.kde.plasma.desktop-appletsrc").write_text(
+            "[Containments][1][Wallpaper][org.kde.image][General]\n"
+            "Image=file:///usr/share/wallpapers/wasd/quantum.jpeg\n"
+            "[Other]\n"
+            "Image=file:///usr/share/wallpapers/wasd/camp.png\n"
+            "Image=file:///etc/passwd\n",
+            encoding="utf-8",
+        )
+        (config / "kscreenlockerrc").write_text(
+            "[Greeter][Wallpaper][org.kde.image][General]\n"
+            "Image=file:///usr/share/wasd/login/throne.png\n",
+            encoding="utf-8",
+        )
+        (config / "wasd-wallpaperrc").write_text(
+            "[Wallpaper]\nImage=file:///usr/share/wallpapers/wasd/camp.png\n",
+            encoding="utf-8",
+        )
+        wasd = root / "etc/wasd"
+        wasd.mkdir(parents=True)
+        (wasd / "loading-name").write_text("stained-glass.png\n", encoding="utf-8")
+        (wasd / "choices.json").write_text(
+            json.dumps(
+                {
+                    "loading": "camp.png",
+                    "login": "camp.png",
+                    "wallpaper": "camp.png",
+                    "password": "secret",
+                }
+            ),
+            encoding="utf-8",
+        )
+        found = current_choices(root, home)
+        if found != {
+            "loading": "stained-glass.png",
+            "login": "throne.png",
+            "wallpaper": "quantum.jpeg",
+        }:
+            raise SystemExit(f"the open choices were {found}")
+        if "secret" in json.dumps(found):
+            raise SystemExit("a saved secret was shown")
+        (wasd / "loading-name").write_text("link.png\n", encoding="utf-8")
+        if current_choices(root, home)["loading"] != "camp.png":
+            raise SystemExit("a linked loading picture was accepted")
+        (wasd / "loading-name").write_text("../throne.png\n", encoding="utf-8")
+        if current_choices(root, home)["loading"] != "camp.png":
+            raise SystemExit("a loading path was accepted")
+        (wasd / "loading-name").unlink()
+        if current_choices(root, home)["loading"] != "camp.png":
+            raise SystemExit("the saved loading picture was ignored")
+        (config / "plasma-org.kde.plasma.desktop-appletsrc").unlink()
+        if current_choices(root, home)["wallpaper"] != "camp.png":
+            raise SystemExit("the saved wallpaper was ignored")
+    look_qml = Path(__file__).resolve().parent / "Look.qml"
+    window = look_qml.read_text(encoding="utf-8")
+    if 'source: "ChosenProbe.qml"' not in window or "chosenProbe.active = true" not in window:
+        raise SystemExit("WASD Look does not open on the current pictures")
+    installed = (Path(__file__).resolve().parents[1] / "build_files" / "build.sh").read_text(encoding="utf-8")
+    if "ChosenProbe.qml" not in installed:
+        raise SystemExit("the image does not install the current-picture probe")
     print("look self-check ok")
 
 

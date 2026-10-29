@@ -78,7 +78,7 @@ copy_wasd_images /ctx/wasd-loading-screens /usr/share/wasd/loading wasd-loading-
 copy_wasd_images /ctx/wasd-login-screens /usr/share/wasd/login wasd-login-screens
 copy_wasd_images /ctx/wasd-icons /usr/share/wasd/icons wasd-icons
 install -d /usr/share/wasd/look
-for qml in Look.qml LookPage.qml PageFooter.qml ApplyHost.qml Lister.qml AvatarProbe.qml; do
+for qml in Look.qml LookPage.qml PageFooter.qml ApplyHost.qml Lister.qml AvatarProbe.qml ChosenProbe.qml; do
     install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/look/${qml}"
 done
 chmod 0755 /usr/bin/wasd-look /usr/libexec/wasd-apply-look
@@ -309,6 +309,7 @@ test -s /usr/share/wasd/icons/wasd-logo.png
 test -s /usr/share/wasd/look/Look.qml
 test -s /usr/share/wasd/look/ApplyHost.qml
 test -s /usr/share/wasd/look/AvatarProbe.qml
+test -s /usr/share/wasd/look/ChosenProbe.qml
 test -x /usr/bin/wasd-look
 test -x /usr/libexec/wasd-apply-look
 test -s /usr/share/applications/wasd-look.desktop

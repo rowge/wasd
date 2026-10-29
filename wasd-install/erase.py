@@ -2755,14 +2755,22 @@ def checked_post(argv, jail):
             raise PostProblem(UPDATES_FAILED)
         return argv
     if argv[0] == "umount":
-        if len(argv) != 2 or Path(argv[1]).is_symlink() or not inside_sysroot(argv[1], jail_path):
+        if len(argv) != 2 or Path(argv[1]).is_symlink():
             raise PostProblem(UPDATES_FAILED)
-        target = Path(argv[1]).resolve()
-        sysroot_off = target.name == "sysroot"
+        raw = Path(argv[1])
+        parent = raw.parent
+        # Resolve the directory that holds the mount, not the mount itself.
+        if (
+            not raw.is_absolute()
+            or parent.is_symlink()
+            or not inside_sysroot(parent, jail_path)
+        ):
+            raise PostProblem(UPDATES_FAILED)
+        sysroot_off = raw.name == "sysroot"
         proc_off = (
-            target.name == "proc"
-            and target != Path("/proc")
-            and deployment_name_ok(target.parent)
+            raw.name == "proc"
+            and raw != Path("/proc")
+            and deployment_name_ok(parent.resolve())
         )
         if not sysroot_off and not proc_off:
             raise PostProblem(UPDATES_FAILED)
@@ -3008,23 +3016,53 @@ def chroot_argv(deploy, jail, source):
 def umount_bound(path):
     stop_if_checking("unmount the new system root")
     require_live()
-    target = Path(path).resolve()
-    argv = ["umount", str(target)]
+    raw = Path(path)
+    # The leaf is the mount. Resolving it can name the host proc instead.
+    if raw.is_symlink() or not raw.is_absolute():
+        return False
+    argv = ["umount", str(raw)]
     try:
         checked_post(argv, SYSROOT)
     except PostProblem:
         return False
-    if not os.path.ismount(target):
+    if not os.path.ismount(raw):
         return True
     result = run_post(argv, SYSROOT, check=False)
     return result.returncode == 0
+
+
+def origin_matches(deploy, jail, image):
+    """True when this deployment's origin file already names the registry image."""
+    if not isinstance(image, str) or not IMAGE_URL.fullmatch(image):
+        raise PostProblem(UPDATES_FAILED)
+    root = Path(deploy)
+    if root.is_symlink() or not deployment_name_ok(root.resolve()) or not inside_sysroot(root, jail):
+        raise PostProblem(UPDATES_FAILED)
+    path = root.with_name(root.name + ".origin")
+    if path.is_symlink() or not path.is_file() or not inside_sysroot(path, jail):
+        return False
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return False
+    try:
+        blob = os.read(fd, 4096)
+    finally:
+        os.close(fd)
+    prefix = "container-image-reference=ostree-unverified-registry:"
+    for line in blob.decode("utf-8", errors="replace").splitlines():
+        if line.startswith(prefix) and line[len(prefix):] == image:
+            return True
+    return False
 
 
 def point_updates(deploy, jail, source):
     """Point the new deployment at the registry image. This does not fetch it.
 
     bootc reads the host proc as it starts. That directory is mounted only
-    for this command and is unmounted before the install moves on.
+    for this command and is unmounted before the install moves on. The disk
+    install writes the same origin first. A failed confirmation is not a
+    miss when that file already names the WASD image.
     """
     stop_if_checking("point later updates")
     require_live()
@@ -3034,6 +3072,7 @@ def point_updates(deploy, jail, source):
     switched = False
     target = None
     proc_target = None
+    problem = None
     try:
         bootc_present(deploy, jail)
         target = ensure_sysroot_dir(deploy, jail)
@@ -3047,12 +3086,13 @@ def point_updates(deploy, jail, source):
         switched = True
     except PostProblem as exc:
         if str(exc) == UPDATES_FAILED:
-            raise
-        post_log(redact(str(exc)))
-        raise PostProblem(UPDATES_FAILED) from exc
+            problem = exc
+        else:
+            post_log(redact(str(exc)))
+            problem = PostProblem(UPDATES_FAILED)
     except (AccountProblem, OSError) as exc:
         post_log(redact(str(exc)))
-        raise PostProblem(UPDATES_FAILED) from exc
+        problem = PostProblem(UPDATES_FAILED)
     finally:
         unmounted = True
         if proc_bound and proc_target is not None:
@@ -3067,10 +3107,18 @@ def point_updates(deploy, jail, source):
                     unmounted = False
             except (PostProblem, OSError):
                 unmounted = False
-        if switched and not unmounted:
-            raise PostProblem(UPDATES_FAILED)
-    if not switched:
-        raise PostProblem(UPDATES_FAILED)
+    if switched and unmounted:
+        return
+    try:
+        landed = origin_matches(deploy, jail, registry_image(source))
+    except PostProblem:
+        landed = False
+    if landed:
+        post_log("The installed system already tracks the WASD image.")
+        return
+    if problem is not None:
+        raise problem
+    raise PostProblem(UPDATES_FAILED)
 
 
 def policy_spec(deploy, jail):
@@ -3265,6 +3313,7 @@ def write_post(os_device, source):
     mounted = False
     copied = False
     failure = None
+    deploy = None
     try:
         root_name = only_root(typed_rows(os_device, read_table(os_device)))
         run_disk(["mount", "-t", "btrfs", f"/dev/{root_name}", str(SYSROOT)])
@@ -3301,7 +3350,14 @@ def write_post(os_device, source):
     finally:
         root_ok = quiet_umount(SYSROOT) if mounted else True
         if failure is None and mounted and not root_ok:
-            failure = UPDATES_FAILED
+            landed = False
+            if deploy is not None:
+                try:
+                    landed = origin_matches(deploy, SYSROOT, registry_image(source))
+                except PostProblem:
+                    landed = False
+            if not landed:
+                failure = UPDATES_FAILED
     if mounted:
         try:
             enroll_secure_boot()
@@ -4180,6 +4236,23 @@ def check_post():
         origin = deploy.parent / f"{rev}.0.origin"
         origin.write_text("original-origin\n")
         before = origin.read_bytes()
+        if origin_matches(deploy, jail, "example:latest"):
+            raise SystemExit("an unrelated origin counted as WASD")
+        origin.write_text(
+            "[origin]\ncontainer-image-reference=ostree-unverified-registry:example:latest\n"
+        )
+        if not origin_matches(deploy, jail, "example:latest"):
+            raise SystemExit("the WASD origin was not recognized")
+        if origin_matches(deploy, jail, "example:latest-extra"):
+            raise SystemExit("a longer image name matched the origin")
+        origin.unlink()
+        origin.symlink_to("original-origin")
+        if origin_matches(deploy, jail, "example:latest"):
+            raise SystemExit("a linked origin was accepted")
+        origin.unlink()
+        origin.write_text("original-origin\n")
+        if origin.read_bytes() != before:
+            raise SystemExit("the origin fixture was not restored")
         dest = flatpak_dir(deploy, jail)
         if dest != shared.resolve():
             raise SystemExit(f"the apps were aimed at {dest}")

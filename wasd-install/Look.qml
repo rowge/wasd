@@ -42,6 +42,7 @@ Window {
     property string wallpaperChoice: "stained-glass.jpg"
     property string avatarChoice: "knight.jpg"
     property bool avatarTouched: false
+    property bool choicesHeld: false
     property bool avatarReady: false
     property var themes: []
     property string savedLine: ""
@@ -97,6 +98,7 @@ Window {
         } else {
             avatarChoice = ""
             avatarProbe.active = true
+            chosenProbe.active = true
         }
         if (!files.loading)
             lister.active = true
@@ -171,6 +173,25 @@ Window {
         avatarReady = true
     }
 
+    function choicesFound(payload) {
+        if (choicesHeld)
+            return
+        let data = {}
+        try {
+            data = JSON.parse(payload || "")
+        } catch (e) {
+            return
+        }
+        if (!data || typeof data !== "object")
+            return
+        if (safeName(data.loading || ""))
+            loadingChoice = data.loading
+        if (safeName(data.login || ""))
+            loginChoice = data.login
+        if (safeName(data.wallpaper || ""))
+            wallpaperChoice = data.wallpaper
+    }
+
     Loader {
         id: lister
         active: false
@@ -186,6 +207,13 @@ Window {
         active: false
         source: "AvatarProbe.qml"
         onLoaded: item.current.connect(look.avatarFound)
+    }
+
+    Loader {
+        id: chosenProbe
+        active: false
+        source: "ChosenProbe.qml"
+        onLoaded: item.chosen.connect(look.choicesFound)
     }
 
     Loader {
