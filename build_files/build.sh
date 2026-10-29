@@ -107,6 +107,7 @@ install -m 0755 /ctx/wasd-install/wasd-webapp /usr/libexec/wasd-webapp
 install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/windowsboot.py
 install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/wasd-windows-boot
 install -m 0755 /ctx/wasd-install/boottitle.py /usr/libexec/wasd-boot-title
+install -m 0644 /ctx/wasd-install/boottitle.py /usr/libexec/boottitle.py
 install -d /usr/lib/systemd/system/multi-user.target.wants
 install -d /usr/lib/systemd/system/ostree-finalize-staged.service.wants
 ln -sfn ../wasd-windows-boot.service /usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service
@@ -345,6 +346,7 @@ test -x /usr/libexec/wasd-windows-boot
 test -s /usr/lib/systemd/system/wasd-windows-boot.service
 test -L /usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service
 test -x /usr/libexec/wasd-boot-title
+test -s /usr/libexec/boottitle.py
 test -s /usr/lib/systemd/system/wasd-boot-title.service
 test -s /usr/lib/systemd/system/wasd-boot-title-finalize.service
 test -L /usr/lib/systemd/system/multi-user.target.wants/wasd-boot-title.service

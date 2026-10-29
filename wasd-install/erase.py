@@ -5074,6 +5074,12 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         raise SystemExit(f"kickstart path {kick_path}")
     check_writer()
     check_copy_progress()
+    build = Path(__file__).resolve().parents[1] / "build_files" / "build.sh"
+    installed = build.read_text(encoding="utf-8")
+    if "install -m 0644 /ctx/wasd-install/boottitle.py /usr/libexec/boottitle.py" not in installed:
+        raise SystemExit("the image does not install the boot title module the installer imports")
+    if "test -s /usr/libexec/boottitle.py" not in installed:
+        raise SystemExit("the image build does not check for the boot title module")
     print("erase self-check ok")
 
 
