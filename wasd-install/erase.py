@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, "/usr/libexec")
 
 from agents import agents_problem  # noqa: E402
+from launchers import GAMES_DIRS, launchers_problem  # noqa: E402
 from disks import DEVICE_NAME, display_name, is_live, live_disk_names, parse_disks  # noqa: E402
 from lookapply import LookError, apply_look, look_from, look_problem  # noqa: E402
 from network import validate_tcp  # noqa: E402
@@ -245,6 +246,9 @@ def load_choices(payload):
     problem = agents_problem(data)
     if problem:
         raise Refuse(problem)
+    problem = launchers_problem(data)
+    if problem:
+        raise Refuse(problem)
     if not disk_name or "\n" in disk_name:
         raise Refuse("Choose a disk again. Nothing was erased.")
     encoded = json.dumps(data, indent=2)
@@ -428,15 +432,29 @@ def storage_lines(device, plan):
     )
 
 
-def games_post(plan):
+def _own_games(prefix, user):
+    folders = " ".join(f"{prefix}/{name}" for name in ("SteamLibrary/steamapps", *GAMES_DIRS))
+    return (
+        f"mkdir -p {folders}\n"
+        "owner=$(awk -F: '$1 == \""
+        + user
+        + "\" { print $3 \":\" $4; exit }' /mnt/sysimage/etc/passwd 2>/dev/null || true)\n"
+        'if [ -n "$owner" ]; then\n'
+        f'    chown "$owner" {prefix} {folders} || true\n'
+        "fi"
+    )
+
+
+def games_post(plan, user):
     if plan["mode"] == "off":
         return ""
     if plan["mode"] == "split":
-        return """
+        owned = _own_games("/mnt/sysimage/games", user)
+        return f"""
 %post --nochroot --log=/tmp/anacoda_custom_logs/wasd-games.log
 set -u
 if [ -d /mnt/sysimage/games ]; then
-    mkdir -p /mnt/sysimage/games/SteamLibrary/steamapps || true
+    {owned}
 fi
 %end
 """
@@ -463,6 +481,7 @@ if [ "$uuid" != "{uuid}" ]; then
     exit 1
 fi
 """
+    owned = _own_games("/run/wasd-games", user)
     return f"""
 %post --nochroot --erroronfail --log=/tmp/anacoda_custom_logs/wasd-games.log
 set -eu
@@ -484,7 +503,7 @@ if ! grep -q ' /games ' "$fstab"; then
 fi
 mkdir -p /run/wasd-games
 mount -t {mount_fs} "UUID=$uuid" /run/wasd-games
-mkdir -p /run/wasd-games/SteamLibrary/steamapps
+{owned}
 umount /run/wasd-games
 %end
 """
@@ -501,7 +520,16 @@ def render_kickstart(data, choices_text, defaults_text):
     games_device = plan.get("device") or ""
     wiped = wipe_plan(data, device, games_device)
     storage = storage_lines(device, plan)
-    games = games_post(plan)
+    games = games_post(plan, user)
+    games_chown = "\n".join(
+        [
+            '    chown "$target_user:$target_user" /games',
+            *(
+                '    install -d -m 0755 -o "$target_user" -g "$target_user" "/games/' + name + '"'
+                for name in ("SteamLibrary", "SteamLibrary/steamapps", *GAMES_DIRS)
+            ),
+        ]
+    )
     emptied = wipe_post(wiped)
     windows = windows_post(device, plan, wiped)
     # The account is locked here. The post script clears that lock so the
@@ -570,6 +598,9 @@ if [ -n "{avatar}" ] && [ -f "$icon" ]; then
     printf '%s\\n' '[User]' "Icon=/var/lib/AccountsService/icons/$target_user" 'SystemAccount=false' > "/var/lib/AccountsService/users/$target_user"
     install -m 0644 "$icon" "$home/.face"
     chown "$target_user:$target_user" "$home/.face"
+fi
+if [ -d /games ] && [ ! -L /games ]; then
+{games_chown}
 fi
 if [ -x /usr/libexec/wasd-apply-choices ]; then
     if ! /usr/libexec/wasd-apply-choices --choices /etc/wasd/choices.json --user "$target_user" --rebuild --no-mark; then
@@ -1780,17 +1811,25 @@ def quiet_umount(path):
     return True
 
 
+def _library_folders(root):
+    return [
+        root / "SteamLibrary",
+        root / "SteamLibrary" / "steamapps",
+        *(root / name for name in GAMES_DIRS),
+    ]
+
+
 def mount_library(mount):
     stop_if_checking("make a games folder")
     root = Path(mount).resolve()
     if root != GAMES_MOUNT.resolve() or not os.path.ismount(root):
         raise GamesProblem("the games folder is not mounted")
-    steam = root / "SteamLibrary"
-    apps = steam / "steamapps"
-    if steam.is_symlink() or apps.is_symlink():
-        raise GamesProblem("the games folder is a link")
-    steam.mkdir(mode=0o755, exist_ok=True)
-    apps.mkdir(mode=0o755, exist_ok=True)
+    folders = _library_folders(root)
+    for folder in folders:
+        if folder.is_symlink():
+            raise GamesProblem("the games folder is a link")
+    for folder in folders:
+        folder.mkdir(mode=0o755, exist_ok=True)
 
 
 def library_owner(text):
@@ -1840,7 +1879,11 @@ def give_library(mount, uid, gid):
     root = Path(mount).resolve()
     if root != GAMES_MOUNT.resolve() or not os.path.ismount(root):
         raise GamesProblem("the games folder is not mounted")
-    for folder in (root / "SteamLibrary", root / "SteamLibrary" / "steamapps"):
+    try:
+        os.chown(root, uid, gid)
+    except OSError as exc:
+        games_log(str(exc))
+    for folder in _library_folders(root):
         if folder.is_symlink() or not folder.is_dir():
             raise GamesProblem("the games folder is a link")
         try:
@@ -5235,6 +5278,9 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         "[Autologin]",
         "Session=plasma",
         "Desktop/wasd-complete.desktop",
+        "/games/launchers",
+        "/games/battlenet",
+        'chown "$target_user:$target_user" /games',
         "Name=Completing the install",
         "Icon=wasd-logo",
         "/usr/libexec/wasd-apply-choices",
@@ -5555,6 +5601,14 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         pass
     else:
         raise SystemExit("an unknown agent was accepted")
+    try:
+        refused = dict(choices)
+        refused["launchers"] = ["Not a launcher"]
+        load_choices(json.dumps(refused))
+    except Refuse:
+        pass
+    else:
+        raise SystemExit("an unknown launcher was accepted")
     kick_path = install_kickstart_path()
     if kick_path.name != "wasd-install.ks" or kick_path.parent == Path("/run"):
         raise SystemExit(f"kickstart path {kick_path}")

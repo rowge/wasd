@@ -4,30 +4,106 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>WASD</title>
-  <meta name="description" content="Linux Gaming for the PC.">
+  <meta name="description" content="A Linux system for playing games. Steam, Battle.net, EA, Ubisoft, and Rockstar are ready. Sign in and play, the same as on Windows.">
   <meta name="theme-color" content="#14161a">
   <link rel="icon" href="favicon.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20261028-5">
+  <link rel="stylesheet" href="styles.css?v=20261030-7">
   <meta property="og:title" content="WASD">
-  <meta property="og:description" content="Linux Gaming for the PC.">
+  <meta property="og:description" content="A Linux system for playing games. Steam, Battle.net, EA, Ubisoft, and Rockstar are ready. Sign in and play, the same as on Windows.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://wasd.run/">
   <meta property="og:image" content="https://wasd.run/wasd-museum.jpg">
 </head>
-<body>
-  <div class="hero">
-    <img class="wood" src="wasd-museum.jpg" alt="A giant W of stacked slabs on a pedestal in a museum entrance.">
-  </div>
+<body class="home">
+  <img class="museum" src="wasd-museum.jpg" alt="A giant W of stacked slabs on a pedestal in a museum entrance.">
+
+  <header class="bar">
+    <a class="bar-mark" href="/">WASD</a>
+    <nav>
+      <a href="/usb">USB</a>
+      <a href="/apps">Install</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+
   <main>
-    <p class="eyebrow">WASD</p>
-    <h1>Linux Gaming for the PC</h1>
-    <p class="downloads">
-      <a href="https://downloads.wasd.run/WASD.iso">AMD and Intel</a>
-      <a href="https://downloads.wasd.run/WASD-nvidia.iso">NVIDIA</a>
-    </p>
-    <p class="usb"><a href="/usb">How to make a bootable USB</a></p>
-    <p class="apps"><a href="/apps"><span class="app">Install WASD</span> and <span class="app">WASD Look</span></a></p>
+    <section class="intro wrap">
+      <p class="kicker">Linux for playing games</p>
+      <h1>WASD</h1>
+      <p class="deck">Download it, sign in, and play.</p>
+      <p class="get-label">Download</p>
+      <p class="get">
+        <a href="https://downloads.wasd.run/WASD.iso">AMD and Intel</a>
+        <a class="alt" href="https://downloads.wasd.run/WASD-nvidia.iso">NVIDIA</a>
+      </p>
+      <p class="usb-link"><a href="/usb">How to make a bootable USB</a></p>
+    </section>
+
+    <div class="sheet">
+    <div class="rail-block">
+    <nav class="home-rail" aria-label="Guides">
+      <a href="https://wasd.run/">Download</a>
+      <a href="/usb">How to make the USB</a>
+      <a href="/apps">How to install WASD</a>
+      <a href="/apps#wasd-look">Make it yours</a>
+      <a href="/apps#launchers">Supports popular launchers</a>
+      <a href="/anti-cheat">Not supported</a>
+      <a href="https://github.com/rowge/wasd">GitHub</a>
+      <a href="/about">About</a>
+    </nav>
+    <div class="rail-copy">
+
+    <section class="play wrap">
+      <h2>Sign in and play</h2>
+      <p class="section-lead">Steam is ready to sign in. Battle.net, EA, Ubisoft, and Rockstar are ready to install.</p>
+      <!-- Store marks are from Simple Icons, CC0. -->
+      <ul class="logos">
+        <li>
+          <img src="images/steam.svg" alt="">
+          <strong>Steam</strong>
+          <span>Counter-Strike</span>
+        </li>
+        <li>
+          <img src="images/battlenet.svg" alt="">
+          <strong>Battle.net</strong>
+          <span>Blizzard games</span>
+        </li>
+        <li>
+          <img src="images/ea.svg" alt="">
+          <strong>EA</strong>
+          <span>EA games</span>
+        </li>
+        <li>
+          <img src="images/ubisoft.svg" alt="">
+          <strong>Ubisoft</strong>
+          <span>Ubisoft games</span>
+        </li>
+        <li>
+          <img src="images/rockstar.svg" alt="">
+          <strong>Rockstar</strong>
+          <span>Rockstar games</span>
+        </li>
+      </ul>
+    </section>
+
+    <section class="why wrap">
+      <h2>Why download it</h2>
+      <ul class="points">
+        <li>Steam opens. You sign in and play.</li>
+        <li>Battle.net, the EA App, Ubisoft Connect, and the Rockstar Launcher are ready too. Install, sign in and play, the same as on Windows.</li>
+        <li>The setup they need is already done.</li>
+        <li>You do not have to learn Linux. It is a desktop, and the games are the point.</li>
+        <li>Games can sit on their own drive and stay there when WASD is reinstalled.</li>
+      </ul>
+    </section>
+
+    <section class="why wrap" id="not-supported">
+      <h2>Not supported</h2>
+      <p class="section-lead">Some well-known games will not run here, because of anti-cheat. <a href="/anti-cheat">More information here</a>.</p>
+    </section>
+    </div>
+    </div>
+    </div>
   </main>
-  <p class="about"><a href="/about">About</a></p>
 </body>
 </html>

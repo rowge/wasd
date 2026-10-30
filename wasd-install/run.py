@@ -239,7 +239,8 @@ def qml_app(save_path, shot_dir, live):
             ("user", {"page": 0}),
             ("look", {"page": 1, "lookOpen": ""}),
             ("look-open", {"page": 1, "lookOpen": "loading"}),
-            ("apps", {"page": 2, "appsOpen": "apps"}),
+            ("apps", {"page": 2, "appsOpen": "general"}),
+            ("launchers", {"page": 2, "appsOpen": "launchers"}),
             ("agents", {"page": 2, "appsOpen": "agents"}),
             ("system", {"page": 3, "networkOpen": False}),
             ("disk", {"page": 4}),
@@ -394,6 +395,8 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit(f"login default was {data.get('login')}")
         if data.get("avatar") != "knight.jpg":
             raise SystemExit(f"avatar default was {data.get('avatar')}")
+        if data.get("theme") != "We10XOS-dark":
+            raise SystemExit(f"theme was {data.get('theme')}")
         if data.get("device") != "":
             raise SystemExit(f"sample disk stored a device {data.get('device')}")
         if "not-stored" in text or "passwordAgain" in text or "passphrase" in text or "wpakey" in text:
@@ -514,7 +517,7 @@ def qml_app(save_path, shot_dir, live):
         if snap["rows"][0].get("games") or snap["rows"][1].get("games"):
             raise SystemExit(f"a fixture disk was marked for games {snap}")
         window.setProperty("page", 2)
-        window.setProperty("appsOpen", "apps")
+        window.setProperty("appsOpen", "general")
         pump(50)
         if quick.findChild(QQuickItem, "selectAllApps") is None:
             raise SystemExit("Select All is missing from Apps")
@@ -531,7 +534,32 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if window.property("appSummary") != "23 selected":
             raise SystemExit(f"apps were not all selected: {window.property('appSummary')}")
+        if window.property("launcherSummary") != "None selected":
+            raise SystemExit(f"apps selected a launcher: {window.property('launcherSummary')}")
         grab(shot / "apps-all.png")
+        window.setProperty("appsOpen", "launchers")
+        pump(50)
+        if quick.findChild(QQuickItem, "selectAllLaunchers") is None:
+            raise SystemExit("Select All is missing from Launchers")
+        if quick.findChild(QQuickItem, "selectNoneLaunchers") is None:
+            raise SystemExit("Select None is missing from Launchers")
+        if not QMetaObject.invokeMethod(window, "selectAllLaunchers"):
+            raise SystemExit("selectAllLaunchers did not run")
+        pump(50)
+        launcher_summary = window.property("launcherSummary") or ""
+        if "Battle.net" not in launcher_summary or "Rockstar Launcher" not in launcher_summary:
+            raise SystemExit(f"launchers were not all selected: {launcher_summary}")
+        if window.property("appSummary") != "23 selected":
+            raise SystemExit("selecting launchers changed the apps")
+        grab(shot / "launchers-all.png")
+        if not QMetaObject.invokeMethod(window, "selectNoneLaunchers"):
+            raise SystemExit("selectNoneLaunchers did not run")
+        pump(50)
+        if window.property("launcherSummary") != "None selected":
+            raise SystemExit(f"launchers were not cleared: {window.property('launcherSummary')}")
+        if window.property("appSummary") != "23 selected":
+            raise SystemExit("clearing launchers changed the apps")
+        grab(shot / "launchers-none.png")
         window.setProperty("appsOpen", "agents")
         pump(50)
         if quick.findChild(QQuickItem, "selectAllAgents") is None:

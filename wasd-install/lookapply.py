@@ -1089,6 +1089,14 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
     installed = (Path(__file__).resolve().parents[1] / "build_files" / "build.sh").read_text(encoding="utf-8")
     if "ChosenProbe.qml" not in installed:
         raise SystemExit("the image does not install the current-picture probe")
+    page = (Path(__file__).resolve().parent / "LookPage.qml").read_text(encoding="utf-8")
+    if "themeChoice" in page or 'text: "Theme"' in page:
+        raise SystemExit("the installer still offers a theme")
+    installer = (Path(__file__).resolve().parent / "Main.qml").read_text(encoding="utf-8")
+    if 'themeChoice: "We10XOS-dark"' not in installer or "Sweet KDE" in installer:
+        raise SystemExit("the installer did not keep We10XOS-dark")
+    if "themeChoice" in window:
+        raise SystemExit("WASD Look still keeps a theme choice")
     print("look self-check ok")
 
 

@@ -38,13 +38,11 @@ Window {
     property string lookOpen: ""
     property string loadingChoice: "stained-glass.jpg"
     property string loginChoice: "throne.jpg"
-    property string themeChoice: "We10XOS-dark"
     property string wallpaperChoice: "stained-glass.jpg"
     property string avatarChoice: "knight.jpg"
     property bool avatarTouched: false
     property bool choicesHeld: false
     property bool avatarReady: false
-    property var themes: []
     property string savedLine: ""
     property bool applying: false
     property var files: initialFiles()

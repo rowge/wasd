@@ -31,6 +31,16 @@ from agents import (  # noqa: E402
     prepare,
     real_runner,
 )
+from launchers import (  # noqa: E402
+    LauncherError,
+    install_launcher,
+    names_from as launcher_names,
+    needs_setup,
+    real_fetch as launcher_fetch,
+    real_runner as launcher_runner,
+    reset_log as reset_launcher_log,
+    write_marker as write_launcher_marker,
+)
 from apps import (  # noqa: E402
     InstallError,
     app_label,
@@ -51,6 +61,12 @@ WIFI_MARKER = Path(os.environ.get("WASD_WIFI_MARK", "/etc/wasd/wifi-set"))
 APPS_MARKER = Path(os.environ.get("WASD_APPS_MARK", "/etc/wasd/apps-set"))
 LOOK_MARKER = Path(os.environ.get("WASD_LOOK_MARK", "/etc/wasd/look-set"))
 AGENTS_MARKER = Path(os.environ.get("WASD_AGENTS_MARK", "/etc/wasd/agents-set"))
+LAUNCHERS_MARKER = Path(
+    os.environ.get(
+        "WASD_LAUNCHERS_MARK",
+        str(Path.home() / ".local/share/wasd/launchers-set"),
+    )
+)
 USER_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 QML = Path(os.environ.get("WASD_COMPLETE_QML", "/usr/share/wasd/install/Complete.qml"))
 WIFI_MESSAGES = {
@@ -190,7 +206,8 @@ def read_choices():
     try:
         look = look_from(data)
         agents = names_from(data)
-    except (LookError, AgentError):
+        launchers = launcher_names(data)
+    except (LookError, AgentError, LauncherError):
         return None
     return {
         "password": password,
@@ -200,6 +217,7 @@ def read_choices():
         "apps": apps,
         "look": look,
         "agents": agents,
+        "launchers": launchers or [],
     }
 
 
@@ -350,6 +368,13 @@ def agent_home():
     return Path.home()
 
 
+def launcher_home():
+    override = os.environ.get("WASD_LAUNCHER_HOME")
+    if override:
+        return Path(override)
+    return Path.home()
+
+
 def pkexec_look():
     if os.environ.get("WASD_SELF_CHECK") == "1":
         raise SystemExit("self-check tried to apply the look")
@@ -417,6 +442,8 @@ ADDRESS = pkexec_address
 LOOK_APPLY = pkexec_look
 AGENT_RUNNER = real_runner
 AGENT_MARK = pkexec_agents_mark
+LAUNCHER_RUNNER = launcher_runner
+LAUNCHER_FETCH = launcher_fetch
 APPS_LOCK = threading.Lock()
 APPS_QUEUE = []
 APPS_AT = 0
@@ -429,6 +456,10 @@ AGENTS_QUEUE = []
 AGENTS_AT = 0
 AGENTS_FAILED = ""
 AGENTS_READY = False
+LAUNCHERS_QUEUE = []
+LAUNCHERS_AT = 0
+LAUNCHERS_FAILED = ""
+LAUNCHERS_READY = False
 
 APP_MESSAGES = WIFI_MESSAGES | TCP_MESSAGES | {
     "That app was refused.",
@@ -491,6 +522,8 @@ def finish_allowed():
     if choices["look"] is not None and not LOOK_MARKER.is_file():
         return False
     if choices["agents"] and not AGENTS_MARKER.is_file():
+        return False
+    if choices["launchers"] and not LAUNCHERS_MARKER.is_file():
         return False
     return True
 
@@ -802,6 +835,111 @@ def agents_skip():
     return 200, "ok"
 
 
+def _reset_launchers():
+    global LAUNCHERS_QUEUE, LAUNCHERS_AT, LAUNCHERS_FAILED, LAUNCHERS_READY
+    LAUNCHERS_QUEUE = []
+    LAUNCHERS_AT = 0
+    LAUNCHERS_FAILED = ""
+    LAUNCHERS_READY = False
+
+
+def _launchers_done():
+    try:
+        write_launcher_marker()
+    except LauncherError:
+        return 400, "Could not continue."
+    _reset_launchers()
+    return 200, "done"
+
+
+def _launcher_current():
+    global LAUNCHERS_AT, LAUNCHERS_FAILED
+    if LAUNCHERS_AT >= len(LAUNCHERS_QUEUE):
+        return _launchers_done()
+    name = LAUNCHERS_QUEUE[LAUNCHERS_AT]
+    home = launcher_home()
+    if needs_setup(home, name) and ONLINE() != "online":
+        return 200, "offline"
+    try:
+        install_launcher(home, name, LAUNCHER_RUNNER, LAUNCHER_FETCH)
+    except LauncherError:
+        LAUNCHERS_FAILED = name
+        return 200, "fail\n" + name
+    LAUNCHERS_AT += 1
+    if LAUNCHERS_AT >= len(LAUNCHERS_QUEUE):
+        return _launchers_done()
+    return 200, "next"
+
+
+def launchers_check():
+    global LAUNCHERS_QUEUE, LAUNCHERS_AT, LAUNCHERS_FAILED, LAUNCHERS_READY
+    choices = read_choices()
+    if choices is None:
+        return 409, "The choice file is not usable."
+    names = choices["launchers"] or []
+    if not names:
+        return 200, "none"
+    home = launcher_home()
+    reset_launcher_log()
+    LAUNCHERS_QUEUE = list(names)
+    LAUNCHERS_AT = 0
+    LAUNCHERS_FAILED = ""
+    LAUNCHERS_READY = True
+    if any(needs_setup(home, name) for name in names) and ONLINE() != "online":
+        return 200, "offline"
+    return 200, "online"
+
+
+def launchers_install():
+    if not LAUNCHERS_READY:
+        return 409, "The download has not started."
+    if LAUNCHERS_FAILED:
+        return 409, "Choose retry or continue."
+    return _launcher_current()
+
+
+def launchers_retry():
+    global LAUNCHERS_AT, LAUNCHERS_FAILED
+    if not LAUNCHERS_READY or not LAUNCHERS_FAILED:
+        return 409, "Choose retry or continue."
+    name = LAUNCHERS_FAILED
+    home = launcher_home()
+    if needs_setup(home, name) and ONLINE() != "online":
+        return 200, "offline"
+    try:
+        install_launcher(home, name, LAUNCHER_RUNNER, LAUNCHER_FETCH)
+    except LauncherError:
+        return 200, "fail\n" + name
+    LAUNCHERS_FAILED = ""
+    LAUNCHERS_AT += 1
+    if LAUNCHERS_AT >= len(LAUNCHERS_QUEUE):
+        return _launchers_done()
+    return 200, "next"
+
+
+def launchers_continue():
+    global LAUNCHERS_AT, LAUNCHERS_FAILED
+    if not LAUNCHERS_READY or not LAUNCHERS_FAILED:
+        return 409, "Choose retry or continue."
+    LAUNCHERS_FAILED = ""
+    LAUNCHERS_AT += 1
+    if LAUNCHERS_AT >= len(LAUNCHERS_QUEUE):
+        return _launchers_done()
+    return 200, "next"
+
+
+def launchers_skip():
+    choices = read_choices()
+    if choices is None or not choices["launchers"]:
+        return 409, "Nothing is waiting to download."
+    try:
+        write_launcher_marker()
+    except LauncherError:
+        return 400, "Could not continue."
+    _reset_launchers()
+    return 200, "ok"
+
+
 AWAKE_PID = Path("/tmp/wasd-awake.pid")
 AWAKE_STOP = Path("/tmp/wasd-awake.stop")
 AWAKE_PROC = None
@@ -1002,6 +1140,22 @@ class Handler(BaseHTTPRequestHandler):
                         code, text = 404, "This request was refused."
                 self._reply(code, text)
                 return
+            if self.path.startswith("/launchers"):
+                with APPS_LOCK:
+                    if self.path == "/launchers/check":
+                        code, text = launchers_check()
+                    elif self.path == "/launchers/install":
+                        code, text = launchers_install()
+                    elif self.path == "/launchers/retry":
+                        code, text = launchers_retry()
+                    elif self.path == "/launchers/continue":
+                        code, text = launchers_continue()
+                    elif self.path == "/launchers/skip":
+                        code, text = launchers_skip()
+                    else:
+                        code, text = 404, "This request was refused."
+                self._reply(code, text)
+                return
             if self.path.startswith("/apps"):
                 with APPS_LOCK:
                     if self.path == "/apps/check":
@@ -1047,7 +1201,8 @@ def serve():
 def self_check():
     global SETTER, WIFI_SETTER, WIFI_SKIP, TCP_SETTER, CHOICES, MARKER, WIFI_MARKER, APPS_MARKER
     global INSTALLER, APPS_SKIP, APPS_MARK, ONLINE, LISTER, CONNECT, ADDRESS
-    global LOOK_MARKER, AGENTS_MARKER, LOOK_APPLY, AGENT_RUNNER, AGENT_MARK
+    global LOOK_MARKER, AGENTS_MARKER, LAUNCHERS_MARKER, LOOK_APPLY, AGENT_RUNNER, AGENT_MARK
+    global LAUNCHER_RUNNER, LAUNCHER_FETCH
     os.environ["WASD_SELF_CHECK"] = "1"
     tmp = Path("/tmp/wasd-complete-self")
     if tmp.exists():
@@ -1059,6 +1214,7 @@ def self_check():
     apps_marker = tmp / "apps-set"
     look_marker = tmp / "look-set"
     agents_marker = tmp / "agents-set"
+    launchers_marker = tmp / "launchers-set"
     auto = tmp / "wasd-complete.desktop"
     icon = tmp / "Desktop" / "wasd-complete.desktop"
     icon.parent.mkdir(mode=0o700)
@@ -1069,7 +1225,11 @@ def self_check():
     os.environ["WASD_APPS_MARK"] = str(apps_marker)
     os.environ["WASD_LOOK_MARK"] = str(look_marker)
     os.environ["WASD_AGENTS_MARK"] = str(agents_marker)
+    os.environ["WASD_LAUNCHERS_MARK"] = str(launchers_marker)
     os.environ["WASD_AGENT_HOME"] = str(tmp / "agent-home")
+    os.environ["WASD_LAUNCHER_HOME"] = str(tmp / "launcher-home")
+    os.environ["WASD_GAMES_ROOT"] = str(tmp / "games")
+    os.environ["WASD_APP_LOG"] = str(tmp / "app-install.log")
     os.environ["WASD_AUTOSTART"] = str(auto)
     os.environ["WASD_DESKTOP_ICON"] = str(icon)
     os.environ["WASD_TRASH"] = str(tmp / "Trash")
@@ -1079,6 +1239,7 @@ def self_check():
     APPS_MARKER = apps_marker
     LOOK_MARKER = look_marker
     AGENTS_MARKER = agents_marker
+    LAUNCHERS_MARKER = launchers_marker
     auto.write_text("[Desktop Entry]\n")
     icon.write_text("[Desktop Entry]\nName=Completing the install\n")
     seen = {}
@@ -1184,9 +1345,28 @@ def self_check():
             return 0, b"", b""
         return 1, b"", b"no"
 
+    launcher_calls = []
+
+    def fake_launcher_runner(argv, env):
+        launcher_calls.append(list(argv))
+        joined = " ".join(str(item) for item in argv)
+        if "lutris" in joined or "/S" in argv or any(str(item).startswith("--locale") for item in argv):
+            raise SystemExit(f"a launcher was silenced: {argv}")
+        if not seen.get("launcher_failed"):
+            seen["launcher_failed"] = True
+            return 1
+        return 0
+
+    def fake_launcher_fetch(url, dest):
+        seen.setdefault("launcher_fetches", []).append(url)
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"MZ")
+
     LOOK_APPLY = fake_look
     AGENT_RUNNER = fake_agent_runner
     AGENT_MARK = fake_agent_mark
+    LAUNCHER_RUNNER = fake_launcher_runner
+    LAUNCHER_FETCH = fake_launcher_fetch
     if finish_allowed():
         raise SystemExit("finish ran before the password was set")
     server = serve()
@@ -1641,6 +1821,54 @@ def self_check():
     with urllib.request.urlopen(done_look, timeout=2) as response:
         if response.status != 200:
             raise SystemExit("done after the look and the agents failed")
+    choices.write_text(json.dumps({"password": False, "user": "alex", "launchers": ["Nope"]}))
+    bad_launcher = urllib.request.Request(f"http://127.0.0.1:{port}/launchers/check", data=b"", method="POST")
+    try:
+        urllib.request.urlopen(bad_launcher, timeout=2)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 409:
+            raise SystemExit(f"an unknown launcher returned {exc.code}") from exc
+    else:
+        raise SystemExit("an unknown launcher was accepted")
+    choices.write_text(json.dumps({"password": False, "user": "alex", "launchers": ["Battle.net"]}))
+    if finish_allowed():
+        raise SystemExit("finish ran before the launcher was prepared")
+    (tmp / "games").mkdir(exist_ok=True)
+    (tmp / "launcher-home").mkdir(exist_ok=True)
+    started = urllib.request.Request(f"http://127.0.0.1:{port}/launchers/check", data=b"", method="POST")
+    with urllib.request.urlopen(started, timeout=2) as response:
+        if response.read().decode() != "online":
+            raise SystemExit("the launchers did not start")
+    failed = urllib.request.Request(f"http://127.0.0.1:{port}/launchers/install", data=b"", method="POST")
+    with urllib.request.urlopen(failed, timeout=2) as response:
+        if response.read().decode() != "fail\nBattle.net":
+            raise SystemExit("a failed launcher was treated as open")
+    if launchers_marker.exists():
+        raise SystemExit("a failed launcher finished the list")
+    retried = urllib.request.Request(f"http://127.0.0.1:{port}/launchers/retry", data=b"", method="POST")
+    with urllib.request.urlopen(retried, timeout=2) as response:
+        if response.read().decode() != "done":
+            raise SystemExit("the launcher retry did not finish")
+    if not launchers_marker.is_file():
+        raise SystemExit("the launcher marker was not written")
+    if any("lutris" in " ".join(item) or "/S" in item for item in launcher_calls):
+        raise SystemExit(f"a launcher was silenced: {launcher_calls}")
+    if not launcher_calls or launcher_calls[0][0] != "/usr/bin/umu-run":
+        raise SystemExit(f"the launcher was not started with umu: {launcher_calls}")
+    menu = tmp / "launcher-home" / ".local/share/applications/wasd-launcher-battlenet.desktop"
+    if not menu.is_file() or "Name=Battle.net" not in menu.read_text(encoding="utf-8"):
+        raise SystemExit("Battle.net was not added to the menu")
+    kept = tmp / "games" / "battlenet" / "keep.txt"
+    if not kept.is_file():
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        kept.write_text("game\n", encoding="utf-8")
+    from launchers import nuke as nuke_launcher
+
+    nuke_launcher(tmp / "launcher-home", "Battle.net", tmp / "games")
+    if kept.read_text(encoding="utf-8") != "game\n":
+        raise SystemExit("the first boot removed a game")
+    launchers_marker.unlink()
+    _reset_launchers()
     choices.write_text(json.dumps({"password": False, "user": "alex", "agents": ["Nope"]}))
     bad = urllib.request.Request(f"http://127.0.0.1:{port}/look/apply", data=b"", method="POST")
     try:
@@ -1738,6 +1966,7 @@ def main():
     ask_ethernet = tcp is not None and tcp.get("kind") == "ethernet"
     ask_apps = needs_download(choices["apps"]) and not APPS_MARKER.is_file()
     ask_agents = bool(choices["agents"]) and not AGENTS_MARKER.is_file()
+    ask_launchers = bool(choices["launchers"]) and not LAUNCHERS_MARKER.is_file()
     server = serve()
     port = server.server_address[1]
     qml = next(
@@ -1767,6 +1996,8 @@ def main():
         "1" if ask_apps else "0",
         "--want-agents",
         "1" if ask_agents else "0",
+        "--want-launchers",
+        "1" if ask_launchers else "0",
         "--wifi-ssid",
         saved[0] if saved else "",
         "--wifi-security",

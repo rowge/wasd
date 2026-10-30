@@ -43,12 +43,16 @@ Window {
     property bool ethernetStarted: false
     property bool wantApps: false
     property bool wantAgents: false
+    property bool wantLaunchers: false
     property bool lookHold: false
     property bool lookBusy: false
     property bool lookDone: false
     property bool agentsHold: false
     property bool agentsBusy: false
     property bool agentsStarted: false
+    property bool launchersHold: false
+    property bool launchersBusy: false
+    property bool launchersStarted: false
     property bool appsStarted: false
     property string failKind: ""
     property string netResume: "apps"
@@ -102,11 +106,13 @@ Window {
         if (wantAgents)
             rows.push("Installing the agents.")
         rows.push("Installing what you checked.")
+        if (wantLaunchers)
+            rows.push("Installing the launchers.")
         rows.push("Finishing up.")
         lines = rows
     }
     readonly property string status: lines[Math.min(stepIndex, lines.length - 1)]
-    readonly property bool showAppTerm: phase === "work" && status === "Installing what you checked."
+    readonly property bool showAppTerm: phase === "work" && (status === "Installing what you checked." || status === "Installing the launchers.")
     property bool awakeHeld: false
     property string appOutput: ""
 
@@ -166,6 +172,7 @@ Window {
         let ethernet = argValue("--want-ethernet") === "1"
         let apps = argValue("--want-apps") === "1"
         let agents = argValue("--want-agents") === "1"
+        let launchers = argValue("--want-launchers") === "1"
         let ssid = argValue("--wifi-ssid")
         let security = argValue("--wifi-security")
         const port = parseInt(argValue("--port") || "0", 10)
@@ -216,6 +223,11 @@ Window {
         } catch (e) {
         }
         try {
+            if (typeof WasdWantLaunchers !== "undefined" && WasdWantLaunchers)
+                launchers = true
+        } catch (e) {
+        }
+        try {
             if (typeof WasdWifiSet !== "undefined" && WasdWifiSet)
                 wifi = false
         } catch (e) {
@@ -234,6 +246,7 @@ Window {
         wantEthernet = ethernet
         wantApps = apps
         wantAgents = agents
+        wantLaunchers = launchers
         refreshLines()
         wifiName = ssid
         wifiSecurity = security
@@ -405,7 +418,7 @@ Window {
 
     function postApps(path, body, done) {
         const xhr = new XMLHttpRequest()
-        xhr.timeout = path === "/apps/install" || path === "/apps/retry" || path === "/agents/install" || path === "/agents/retry" || path === "/look/apply" ? 0 : 30000
+        xhr.timeout = path === "/apps/install" || path === "/apps/retry" || path === "/agents/install" || path === "/agents/retry" || path === "/launchers/install" || path === "/launchers/retry" || path === "/look/apply" ? 0 : 30000
         xhr.open("POST", "http://127.0.0.1:" + helperPort + path)
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE)
@@ -688,6 +701,8 @@ Window {
                 win.phase = "work"
                 if (win.netResume === "agents")
                     win.installNextAgent()
+                else if (win.netResume === "launchers")
+                    win.installNextLauncher()
                 else
                     win.installNext()
             })
@@ -704,12 +719,17 @@ Window {
             phase = "work"
             appsHold = false
             agentsHold = false
+            launchersHold = false
             wantApps = false
             return
         }
         netBusy = true
-        const skippingAgents = netResume === "agents"
-        postApps(skippingAgents ? "/agents/skip" : "/apps/skip", "", function(xhr) {
+        let skipPath = "/apps/skip"
+        if (netResume === "agents")
+            skipPath = "/agents/skip"
+        else if (netResume === "launchers")
+            skipPath = "/launchers/skip"
+        postApps(skipPath, "", function(xhr) {
             win.netBusy = false
             if (xhr.status !== 200) {
                 win.netError = (xhr.responseText || "Could not continue.").trim()
@@ -717,9 +737,14 @@ Window {
             }
             win.phase = "work"
             win.failedApp = ""
-            if (skippingAgents) {
+            if (win.netResume === "agents") {
                 win.agentsHold = false
                 win.agentsBusy = false
+                return
+            }
+            if (win.netResume === "launchers") {
+                win.launchersHold = false
+                win.launchersBusy = false
                 return
             }
             win.appsHold = false
@@ -869,6 +894,112 @@ Window {
         })
     }
 
+    function beginLaunchers() {
+        if (preview || helperPort <= 0) {
+            launchersHold = false
+            return
+        }
+        launchersStarted = true
+        launchersHold = true
+        launchersBusy = true
+        failedApp = ""
+        failKind = "launchers"
+        netResume = "launchers"
+        postApps("/launchers/check", "", function(xhr) {
+            win.launchersBusy = false
+            if (xhr.status !== 200) {
+                win.failKind = "launchers"
+                win.failedApp = (xhr.responseText || "Could not open that launcher.").trim()
+                return
+            }
+            const text = (xhr.responseText || "").trim()
+            if (text === "none") {
+                win.launchersHold = false
+                return
+            }
+            if (text === "offline") {
+                win.phase = "net"
+                win.loadNet()
+                return
+            }
+            if (text === "online") {
+                win.installNextLauncher()
+                return
+            }
+            win.failKind = "launchers"
+            win.failedApp = text || "Could not open that launcher."
+        })
+    }
+
+    function installNextLauncher() {
+        if (preview || helperPort <= 0)
+            return
+        launchersBusy = true
+        failedApp = ""
+        phase = "work"
+        postApps("/launchers/install", "", function(xhr) {
+            win.handleLauncher(xhr)
+        })
+    }
+
+    function handleLauncher(xhr) {
+        launchersBusy = false
+        if (xhr.status !== 200) {
+            failKind = "launchers"
+            failedApp = (xhr.responseText || "Could not open that launcher.").trim()
+            return
+        }
+        const text = (xhr.responseText || "").trim()
+        if (text === "done") {
+            launchersHold = false
+            failedApp = ""
+            return
+        }
+        if (text === "next") {
+            installNextLauncher()
+            return
+        }
+        if (text === "offline") {
+            phase = "net"
+            netResume = "launchers"
+            loadNet()
+            return
+        }
+        const split = text.indexOf("\n")
+        if (split > 0 && text.indexOf("fail\n") === 0) {
+            failKind = "launchers"
+            failedApp = text.slice(split + 1)
+            return
+        }
+        failKind = "launchers"
+        failedApp = text || "Could not open that launcher."
+    }
+
+    function retryLauncher() {
+        if (launchersBusy || preview || helperPort <= 0)
+            return
+        launchersBusy = true
+        postApps("/launchers/retry", "", function(xhr) {
+            win.handleLauncher(xhr)
+        })
+    }
+
+    function continueLauncher() {
+        if (launchersBusy || preview || helperPort <= 0)
+            return
+        launchersBusy = true
+        failedApp = ""
+        postApps("/launchers/continue", "", function(xhr) {
+            win.launchersBusy = false
+            if (xhr.status !== 200) {
+                win.failKind = "launchers"
+                win.failedApp = (xhr.responseText || "Could not continue.").trim()
+                return
+            }
+            win.handleLauncher(xhr)
+        })
+    }
+
     function finish() {
         if (preview || hold || helperPort <= 0) {
             if (!hold)
@@ -902,7 +1033,7 @@ Window {
 
     Timer {
         interval: 2400
-        running: win.phase === "work" && !win.hold && !win.applyingEthernet && !win.appsHold && !win.appsBusy && !win.lookHold && !win.lookBusy && !win.agentsHold && !win.agentsBusy && win.failedApp.length === 0
+        running: win.phase === "work" && !win.hold && !win.applyingEthernet && !win.appsHold && !win.appsBusy && !win.lookHold && !win.lookBusy && !win.agentsHold && !win.agentsBusy && !win.launchersHold && !win.launchersBusy && win.failedApp.length === 0
         repeat: true
         onTriggered: {
             if (win.stepIndex === 0 && !win.lookDone && !win.preview && win.helperPort > 0) {
@@ -916,6 +1047,11 @@ Window {
             const appsAt = win.wantAgents ? 2 : 1
             if (win.wantApps && win.stepIndex === appsAt && !win.appsStarted && !win.preview && win.helperPort > 0) {
                 win.beginApps()
+                return
+            }
+            const launchersAt = appsAt + 1
+            if (win.wantLaunchers && win.stepIndex === launchersAt && !win.launchersStarted && !win.preview && win.helperPort > 0) {
+                win.beginLaunchers()
                 return
             }
             if (win.stepIndex >= win.lines.length - 1) {
@@ -1811,13 +1947,15 @@ Window {
 
                             MouseArea {
                                 anchors.fill: parent
-                                enabled: !win.appsBusy && !win.agentsBusy && !win.lookBusy
+                                enabled: !win.appsBusy && !win.agentsBusy && !win.launchersBusy && !win.lookBusy
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (win.failKind === "look")
                                         win.applyLook()
                                     else if (win.failKind === "agents")
                                         win.retryAgent()
+                                    else if (win.failKind === "launchers")
+                                        win.retryLauncher()
                                     else
                                         win.retryApp()
                                 }
@@ -1845,11 +1983,13 @@ Window {
 
                             MouseArea {
                                 anchors.fill: parent
-                                enabled: !win.appsBusy && !win.agentsBusy
+                                enabled: !win.appsBusy && !win.agentsBusy && !win.launchersBusy
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (win.failKind === "agents")
                                         win.continueAgent()
+                                    else if (win.failKind === "launchers")
+                                        win.continueLauncher()
                                     else
                                         win.continueApp()
                                 }

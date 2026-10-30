@@ -7,13 +7,24 @@
   <meta name="description" content="Download the WASD ISO, check it, and write it to a USB stick.">
   <meta name="theme-color" content="#14161a">
   <link rel="icon" href="favicon.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20261028-5">
+  <link rel="stylesheet" href="styles.css?v=20261030-7">
 </head>
 <body class="guide">
+  <div class="guide-rail">
+  <nav class="home-rail" aria-label="Guides">
+    <a href="https://wasd.run/">Download</a>
+    <a href="/usb">How to make the USB</a>
+    <a href="/apps">How to install WASD</a>
+    <a href="/apps#wasd-look">Make it yours</a>
+    <a href="/apps#launchers">Supports popular launchers</a>
+    <a href="/anti-cheat">Not supported</a>
+    <a href="https://github.com/rowge/wasd">GitHub</a>
+    <a href="/about">About</a>
+  </nav>
   <main>
     <p class="back"><a href="/">WASD</a></p>
     <h1>How to make a bootable USB</h1>
-    <p>Download the ISO from the front page. AMD and Intel is the default disc. NVIDIA is the other one, for GeForce cards.</p>
+    <p>Download the ISO for <a href="https://downloads.wasd.run/WASD-nvidia.iso">NVIDIA</a> if you have a GeForce card, or <a href="https://downloads.wasd.run/WASD.iso">AMD and Intel</a> if not.</p>
     <h2>Check the file</h2>
     <p>When the download finishes, compare it with the checksum published next to it.</p>
     <p class="checks">
@@ -22,7 +33,11 @@
     </p>
     <p>On Linux, in the folder with both files:</p>
     <pre>sha256sum -c WASD.iso.sha256</pre>
-    <p>On macOS the same check is <code>shasum -a 256 -c WASD.iso.sha256</code>. On Windows, <code>certutil -hashfile WASD.iso SHA256</code> and compare it with the text in the checksum file. For the NVIDIA disc, use <code>WASD-nvidia.iso</code> in those commands.</p>
+    <p>On macOS:</p>
+    <pre>shasum -a 256 -c WASD.iso.sha256</pre>
+    <p>On Windows, compare the result with the text in the checksum file:</p>
+    <pre>certutil -hashfile WASD.iso SHA256</pre>
+    <p>For the NVIDIA disc, use <code>WASD-nvidia.iso</code> in those commands.</p>
     <h2>Write it to a USB stick</h2>
     <p>Use a 16 GB or larger stick.</p>
     <p>Use a free tool for the computer you are on. It will erase the stick.</p>
@@ -35,5 +50,6 @@
     <h2>Boot it</h2>
     <p>Restart the PC, open the boot menu, and choose the USB stick. The menu on the stick says <span class="boot">Start WASD</span>.</p>
   </main>
+  </div>
 </body>
 </html>

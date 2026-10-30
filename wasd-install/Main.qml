@@ -47,9 +47,9 @@ Window {
     property string lookOpen: ""
     property string loadingChoice: "stained-glass.jpg"
     property string loginChoice: "throne.jpg"
-    property string themeChoice: "We10XOS-dark"
+    readonly property string themeChoice: "We10XOS-dark"
     property string wallpaperChoice: "stained-glass.jpg"
-    property string appsOpen: "apps"
+    property string appsOpen: "general"
     property string appQuery: ""
     property string savedLine: ""
     property bool advancedOpen: false
@@ -72,6 +72,7 @@ Window {
     property var files: ({})
     property var appOn: ({})
     property var agentOn: ({})
+    property var launcherOn: ({})
     property var searchHits: []
     property var pickedExtras: []
     property var warnings: [
@@ -92,11 +93,6 @@ Window {
     readonly property color danger: "#ff5c5c"
     readonly property color line: Qt.rgba(1, 1, 1, 0.12)
 
-    readonly property var themes: [
-        "Sweet KDE", "Layan", "We10XOS-dark", "Ant-Dark", "Nordic", "ChromeOS",
-        "Otto", "Carl", "WhiteSur-Dark", "Edna-Light", "Expose", "Expose Blue",
-        "Expose Green", "Expose Metallic", "Expose Dark", "Expose Air", "Expose Air Dark"
-    ]
     readonly property var appNames: [
         "Discord", "Element", "Heroic", "Bottles", "OBS Studio", "GOverlay",
         "Easy Effects", "Piper", "OpenRGB", "LACT", "Gwenview", "Okular", "Calculator",
@@ -121,6 +117,9 @@ Window {
         "MiniMax Code", "Muse", "Oh My Pi", "Ori", "Pi", "Qwen", "ChatGPT", "Claude",
         "Hermes Desktop", "OpenClaw", "Perplexity", "T3 Code", "LM Studio", "Ollama"
     ]
+    readonly property var launcherNames: [
+        "Battle.net", "EA App", "Ubisoft Connect", "Rockstar Launcher", "Minecraft"
+    ]
 
     readonly property var iconFiles: files.icons || []
     readonly property var loadingFiles: files.loading || []
@@ -144,6 +143,7 @@ Window {
                 : "Erase the selected disk and install WASD"
     }
     readonly property string appSummary: appCount() + " selected"
+    readonly property string launcherSummary: selectedLauncherNames().join(", ") || "None selected"
     readonly property string agentSummary: selectedAgentNames().join(", ") || "None selected"
     property bool networkConnected: true
     property string networkDetail: "Wired"
@@ -240,6 +240,10 @@ Window {
             agents[name] = name === "Grok Build" || name === "Grok Bot" || name === "Grok"
         }
         agentOn = agents
+        const launchers = {}
+        for (let k = 0; k < launcherNames.length; k++)
+            launchers[launcherNames[k]] = false
+        launcherOn = launchers
         refreshShown()
         if (liveSession) {
             networkConnected = false
@@ -1011,10 +1015,7 @@ Window {
     }
 
     function openApps(which) {
-        if (appsOpen === which)
-            appsOpen = which === "apps" ? "agents" : "apps"
-        else
-            appsOpen = which
+        appsOpen = appsOpen === which ? "" : which
     }
 
     function toggleApp(name, id, extra) {
@@ -1079,6 +1080,35 @@ Window {
         for (let i = 0; i < agentNames.length; i++)
             copy[agentNames[i]] = false
         agentOn = copy
+    }
+
+    function toggleLauncher(name) {
+        const copy = Object.assign({}, launcherOn)
+        copy[name] = !copy[name]
+        launcherOn = copy
+    }
+
+    function selectAllLaunchers() {
+        const copy = {}
+        for (let i = 0; i < launcherNames.length; i++)
+            copy[launcherNames[i]] = true
+        launcherOn = copy
+    }
+
+    function selectNoneLaunchers() {
+        const copy = {}
+        for (let i = 0; i < launcherNames.length; i++)
+            copy[launcherNames[i]] = false
+        launcherOn = copy
+    }
+
+    function selectedLauncherNames() {
+        const names = []
+        for (let i = 0; i < launcherNames.length; i++) {
+            if (launcherOn[launcherNames[i]])
+                names.push(launcherNames[i])
+        }
+        return names
     }
 
     function appCount() {
@@ -1154,7 +1184,8 @@ Window {
             theme: themeChoice,
             wallpaper: wallpaperChoice,
             apps: apps,
-            agents: agents
+            agents: agents,
+            launchers: selectedLauncherNames()
         }
         if (gamesMode === "split") {
             payload.games = {
@@ -1391,7 +1422,7 @@ Window {
                 spacing: 6
 
                 Repeater {
-                    model: ["User", "Look", "Apps & Agents", "System", "Disk"]
+                    model: ["User", "Look", "Apps", "System", "Disk"]
                     delegate: Rectangle {
                         id: step
                         required property string modelData

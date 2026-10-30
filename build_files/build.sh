@@ -81,7 +81,7 @@ install -d /usr/share/wasd/look
 for qml in Look.qml LookPage.qml PageFooter.qml ApplyHost.qml Lister.qml AvatarProbe.qml ChosenProbe.qml; do
     install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/look/${qml}"
 done
-chmod 0755 /usr/bin/wasd-look /usr/libexec/wasd-apply-look
+chmod 0755 /usr/bin/wasd-look /usr/bin/wasd-launchers /usr/libexec/wasd-apply-look
 # Keep every other lock setting. Only the picture is set, to the login picture.
 /usr/libexec/wasd-apply-look --sync-lock throne.jpg
 install -d /usr/share/wasd/install
@@ -103,6 +103,10 @@ install -m 0755 /ctx/wasd-install/lookapply.py /usr/libexec/lookapply.py
 install -m 0755 /ctx/wasd-install/lookapply.py /usr/libexec/wasd-apply-choices
 install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/agents.py
 install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/wasd-install-agents
+install -m 0755 /ctx/wasd-install/launchers.py /usr/libexec/launchers.py
+install -m 0755 /ctx/wasd-install/launchers.py /usr/libexec/wasd-install-launchers
+install -d /usr/share/wasd/launchers
+install -m 0644 /ctx/wasd-install/Launchers.qml /usr/share/wasd/launchers/Launchers.qml
 install -m 0755 /ctx/wasd-install/wasd-webapp /usr/libexec/wasd-webapp
 install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/windowsboot.py
 install -m 0755 /ctx/wasd-install/windowsboot.py /usr/libexec/wasd-windows-boot
@@ -313,6 +317,10 @@ test -s /usr/share/wasd/look/ChosenProbe.qml
 test -x /usr/bin/wasd-look
 test -x /usr/libexec/wasd-apply-look
 test -s /usr/share/applications/wasd-look.desktop
+test -s /usr/share/wasd/launchers/Launchers.qml
+test -x /usr/bin/wasd-launchers
+test -s /usr/share/applications/wasd-launchers.desktop
+test -s /usr/libexec/launchers.py
 test -s /usr/share/polkit-1/actions/org.wasd.look.policy
 test -s /usr/share/wasd/install/Main.qml
 test -s /usr/share/wasd/install/Complete.qml

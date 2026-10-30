@@ -7,16 +7,17 @@
   <meta name="description" content="How to use Install WASD, WASD Look, and a games drive mounted at /games.">
   <meta name="theme-color" content="#14161a">
   <link rel="icon" href="favicon.png?v=20261028-3" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20261028-5">
+  <link rel="stylesheet" href="styles.css?v=20261030-7">
 </head>
 <body class="guide shots">
   <div class="sheet">
   <nav class="toc" aria-label="On this page">
+    <a class="home" href="/">WASD</a>
     <p>On this page</p>
     <a href="#install"><span class="app">Install WASD</span></a>
     <a class="sub" href="#user">User</a>
     <a class="sub" href="#look">Look</a>
-    <a class="sub" href="#apps-agents">Apps &amp; Agents</a>
+    <a class="sub" href="#apps">Apps</a>
     <a class="sub" href="#system">System</a>
     <a class="sub" href="#disk">Disk</a>
     <a href="#games">A drive for games</a>
@@ -25,19 +26,20 @@
     <a class="sub" href="#where">Where the games are</a>
     <a href="#first-boot">The first boot</a>
     <a href="#wasd-look"><span class="app">WASD Look</span></a>
+    <a href="#launchers"><span class="app">WASD Launchers</span></a>
   </nav>
   <main>
     <p class="back"><a href="/">WASD</a></p>
     <h1><span class="app">Install WASD</span> and <span class="app">WASD Look</span></h1>
-    <p><span class="app">Install WASD</span> runs from the USB and writes the system to a drive. <span class="app">WASD Look</span> changes the loading screen, the login screen, or the desktop after install. The first boot opens a short window, <span class="app">Completing the install</span>.</p>
+    <p><span class="app">Install WASD</span> runs from the <a href="/usb">USB you already created</a> and writes the system to a drive. <span class="app">WASD Look</span> changes the loading screen, the login screen, or the desktop after install. The first boot opens a short window, <span class="app">Completing the install</span>.</p>
     <aside class="notice">
       <p>This applies to the install. Turn off BitLocker and fast startup in Windows before you install. A locked or hibernated Windows volume can get in the way even when you are installing to a different drive. If the firmware is legacy BIOS, set it to UEFI. The motherboard manual explains how, and the install stays unavailable until then. If Secure Boot is on, the next boot asks you to enroll a key. Choose Enroll MOK and enter <code>universalblue</code>.</p>
       <p>None of this applies to the live session.</p>
     </aside>
 
     <h2 id="install"><span class="app">Install WASD</span></h2>
-    <p>Boot the USB and choose <span class="boot">Start WASD</span>, or <span class="boot">Start WASD (basic graphics)</span>. The live desktop opens <span class="app">Install WASD</span>. You can close the window and keep using the desktop. Open it again from the <span class="withicon"><img src="images/wasd-logo.png?v=20261028-3" alt="">desktop icon</span> or the menu. Both are named <span class="app">Install WASD</span>.</p>
-    <p>The steps are User, Look, Apps &amp; Agents, System, and Disk. Disk is last. That step erases a drive.</p>
+    <p>Boot the USB and choose <span class="boot">Start WASD</span>. If you have graphics issues booting, you can try <span class="boot">Start WASD (basic graphics)</span>. The live desktop opens <span class="app">Install WASD</span>. You can close the window and keep using the desktop. Open it again from the <span class="withicon"><img src="images/wasd-logo.png?v=20261028-3" alt="">desktop icon</span> or the menu. Both are named <span class="app">Install WASD</span>.</p>
+    <p>The steps are User, Look, Apps, System, and Disk. Disk is last. That step erases a drive.</p>
 
     <h3 id="user">User</h3>
     <figure>
@@ -48,23 +50,23 @@
 
     <h3 id="look">Look</h3>
     <figure>
-      <img src="images/install-look.png?v=20261028-4" alt="Install WASD on the Look step. Loading screen, Login/lock screen, and Desktop are open, each with a large picture and an arrow for more choices.">
-      <figcaption>Loading screen, Login/lock screen, and Desktop stay open. The blue edge marks the picture in use. The arrow shows the rest of the pictures.</figcaption>
+      <img src="images/install-look.png?v=20261030-5" alt="Install WASD on the Look step. Loading screen, Login/lock screen, and Desktop wallpaper are closed, and each row names the picture in use.">
+      <figcaption>Each row starts closed and names the picture in use. Open a row to change it. The blue edge marks the picture in use, and the arrow shows the rest.</figcaption>
     </figure>
-    <p>Loading screen is the picture behind the bar while the computer starts. Login/lock screen is the sign-in picture and the lock screen. Desktop is the wallpaper, with the theme above it. The defaults are the stained-glass loading picture, the throne login picture, and the stained-glass desktop.</p>
+    <p>Loading screen is the picture behind the bar while the computer starts. Login/lock screen is the sign-in picture and the lock screen. Desktop wallpaper is the picture on the desktop. The global theme is We10XOS-dark. System Settings changes that theme. The defaults are the stained-glass loading picture, the throne login picture, and the stained-glass desktop.</p>
     <p>The choices are saved with the install. A new system already uses those three defaults. <span class="app">WASD Look</span> changes them after install. Adding a picture file to the matching folder adds a choice:</p>
     <p>Loading screens: <code>/usr/share/wasd/loading</code></p>
     <p>Login screens: <code>/usr/share/wasd/login</code></p>
     <p>Wallpapers: <code>/usr/share/wallpapers/wasd</code></p>
     <p>Those folders belong to the system, so copying a file into one asks for the administrator password.</p>
 
-    <h3 id="apps-agents">Apps &amp; Agents</h3>
+    <h3 id="apps">Apps</h3>
     <figure>
-      <img src="images/install-apps.png?v=20261028-3" alt="Install WASD with Apps open. The suggested apps are checked, and a search box says Search for any other app.">
-      <figcaption>Apps starts open. <span class="btn line">Select All</span> and <span class="btn line">Select None</span> apply to this list. Search adds a Flathub desktop app, and <span class="btn line">Select All</span> does not check search results.</figcaption>
+      <img src="images/install-apps.png?v=20261030-5" alt="Install WASD on Apps. General is open. The suggested apps are checked, and a search box says Search for any other app.">
+      <figcaption>General starts open. Launchers and Agents start closed, and a closed row shows what is selected. <span class="btn line">Select All</span> and <span class="btn line">Select None</span> apply to the open list. Search adds a Flathub desktop app, and <span class="btn line">Select All</span> does not check search results.</figcaption>
     </figure>
     <figure>
-      <img src="images/install-agents.png?v=20261028-3" alt="Install WASD with Agents open. Grok Build, Grok Bot, and Grok are checked. The other agents are unchecked.">
+      <img src="images/install-agents.png?v=20261030-5" alt="Install WASD with Agents open. Grok Build, Grok Bot, and Grok are checked. The other agents are unchecked.">
       <figcaption>Agents starts closed. Grok Build, Grok Bot, and Grok start checked. The list continues past this picture.</figcaption>
     </figure>
     <p>Steam and the Brave browser are included. Apps selected here are downloaded after the first boot.</p>
@@ -133,17 +135,26 @@
     <p>The lines are "Setting the desktop.", then "Installing the agents." when any were checked, then "Installing what you checked.", and "Finishing up." A saved Ethernet address is applied when those lines start. If the adapter is not connected yet, the window says the address was saved. A Wi-Fi address is used when that network connects. Skipping Wi-Fi does not create a Wi-Fi connection.</p>
     <p>On "Installing what you checked." the selected apps are downloaded. Steam and Brave are already installed. If the computer is offline, the window stops and lets you choose a Wi-Fi network or set an address, a netmask, a gateway, and DNS. The passphrase is typed there and is not saved. You can skip that prompt. The window can still finish, and Discover can add an app later. Closing the window instead of skipping leaves the <span class="withicon"><img src="images/wasd-logo.png?v=20261028-3" alt="">desktop icon</span>.</p>
     <p>If one app fails, the window names it. <span class="btn">Retry</span> tries again. <span class="btn">Continue</span> leaves that one out and goes on. When OBS Studio is selected, its capture plugins are downloaded with it.</p>
-    <p>"Setting the desktop." applies the loading picture, the login picture, the theme, and the wallpaper from the Look step. The lock screen uses that same login picture. The session splash stays the WASD mark. <span class="btn">Retry</span> tries the look again. That step does not offer <span class="btn">Continue</span>.</p>
+    <p>"Setting the desktop." applies We10XOS-dark, the loading picture, the login picture, and the wallpaper. The lock screen uses that same login picture. The session splash stays the WASD mark. System Settings changes the theme later. <span class="btn">Retry</span> tries the look again. That step does not offer <span class="btn">Continue</span>.</p>
     <p>When agents were checked, "Installing the agents." installs them one at a time. Grok, and the other checked web apps, open in their own Brave window. Command-line agents that have an installer are downloaded here. <span class="btn">Retry</span> tries again. <span class="btn">Continue</span> leaves that one out, and its menu entry stays. Sign-in uses your own account. <span class="app">WASD Look</span> can still change the pictures later.</p>
     <p>To sign in automatically again after a password is set, open System Settings, then Security and Privacy, then Login Screen, and turn on Automatically log in.</p>
 
     <h2 id="wasd-look"><span class="app">WASD Look</span></h2>
     <figure>
-      <img src="images/wasd-look.png?v=20261028-4" alt="WASD Look. Loading screen, Login/lock screen, Desktop wallpaper, and User picture, each shown as a large picture with an arrow for more choices.">
-      <figcaption><span class="app">WASD Look</span> matches the Look step, and it adds the user picture. The arrow shows the rest of the pictures. <span class="btn">Apply</span> changes this computer.</figcaption>
+      <img src="images/wasd-look.png?v=20261030-5" alt="WASD Look. Loading screen, Login/lock screen, Desktop wallpaper, and User picture are closed rows, and each names the picture in use.">
+      <figcaption><span class="app">WASD Look</span> matches the Look step, and it adds the user picture. A closed row names the picture in use. <span class="btn">Apply</span> changes this computer.</figcaption>
     </figure>
     <p>Open <span class="app">WASD Look</span> from the menu after the system is installed. It uses the same folders. Loading screens are <code>/usr/share/wasd/loading</code>. Login screens are <code>/usr/share/wasd/login</code>. Wallpapers are <code>/usr/share/wallpapers/wasd</code>. The user picture is the same ten characters. Click the selected character again to clear it. <span class="btn">Apply</span> leaves the account picture alone unless you picked one or cleared it on that visit.</p>
     <p>The wallpaper changes immediately. The user picture and the login/lock screen change at the next login. The lock screen uses that same picture, and it changes the next time the screen locks. The loading screen is rebuilt on that computer and shows on the next boot. That rebuild is not a new download of WASD. Theme choices stay in KDE's own settings.</p>
+
+    <h2 id="launchers"><span class="app">WASD Launchers</span></h2>
+    <figure>
+      <img src="images/wasd-launchers.png?v=20261030-6" alt="WASD Launchers. Battle.net and Ubisoft Connect say Installed, with Nuke/Fix, Reinstall, and Launch. EA App, the Rockstar Launcher, and Minecraft say Not set up yet. A name box and a plus button sit under the list.">
+      <figcaption>Install opens that launcher's window. You finish it there. Launch opens one that is already installed, and Install then says Reinstall. Type a name and press + for a program you already downloaded.</figcaption>
+    </figure>
+    <p>Open <span class="app">WASD Launchers</span> from the menu. The rows are Battle.net, the EA App, Ubisoft Connect, the Rockstar Launcher, and Minecraft. Type a name and press + for a program you already downloaded. WASD makes a folder for it. During install, those launchers are the Launchers group under Apps. That group starts closed, and nothing in it is checked.</p>
+    <p>Minecraft keeps its games and worlds in <code>/games/minecraft</code>. Pressing + makes <code>/games/custom1</code>, then <code>/games/custom2</code>, and so on. Install then opens the program you downloaded. Drive D: in that window is that folder.</p>
+    <p>Nuke/Fix rebuilds that launcher only. Saved games stay.</p>
     <p>The desktop note is on the <a href="/about">About</a> page. The stick is covered in <a href="/usb">How to make a bootable USB</a>.</p>
   </main>
   </div>

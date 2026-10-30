@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Layouts
 
 Item {
     id: page
@@ -21,7 +20,7 @@ Item {
         if (index === 1)
             return "Login/lock screen"
         if (index === 2)
-            return host.tool ? "Desktop wallpaper" : "Desktop"
+            return "Desktop wallpaper"
         return "User picture"
     }
 
@@ -55,6 +54,19 @@ Item {
         return host.avatarChoice
     }
 
+    function pictureLabel(fileName) {
+        if (!fileName)
+            return "None"
+        let stem = fileName
+        const dot = stem.lastIndexOf(".")
+        if (dot > 0)
+            stem = stem.slice(0, dot)
+        stem = stem.replace(/[-_]+/g, " ")
+        if (stem.length === 0)
+            return "None"
+        return stem.charAt(0).toUpperCase() + stem.slice(1)
+    }
+
     function choose(index, fileName) {
         if (host.tool)
             host.choicesHeld = true
@@ -70,139 +82,109 @@ Item {
         }
     }
 
-    ColumnLayout {
+    Flickable {
+        id: scroller
         anchors.fill: parent
-        anchors.leftMargin: 20
-        anchors.rightMargin: 20
-        anchors.topMargin: 16
+        anchors.leftMargin: 32
+        anchors.rightMargin: 32
+        anchors.topMargin: 28
         anchors.bottomMargin: 88
-        spacing: 10
+        contentWidth: width
+        contentHeight: column.height
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        interactive: contentHeight > height
 
-        Text {
-            text: "Look"
-            color: host.ink
-            font.family: host.titleFont
-            font.pixelSize: 26
-            font.weight: Font.DemiBold
-        }
+        Column {
+            id: column
+            width: scroller.width
+            spacing: 0
 
-        Text {
-            text: "Pictures for starting up, signing in, and the desktop."
-            color: host.muted
-            font.family: host.bodyFont
-            font.pixelSize: 13
-        }
-
-        GridLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            columns: 2
-            columnSpacing: 12
-            rowSpacing: 12
+            Text {
+                text: "Look"
+                color: host.ink
+                font.family: host.titleFont
+                font.pixelSize: 28
+                font.weight: Font.DemiBold
+                bottomPadding: 18
+            }
 
             Repeater {
                 model: host.tool ? 4 : 3
 
-                delegate: Rectangle {
-                    id: card
+                delegate: Column {
+                    id: section
                     required property int index
-                    readonly property bool themes: index === 2 && !host.tool
-                    readonly property bool portrait: index === 3
+                    readonly property string key: page.sectionKey(index)
                     readonly property string choice: page.sectionChoice(index)
-                    Layout.fillWidth: true
-                    Layout.fillHeight: host.tool || !card.themes
-                    Layout.preferredHeight: card.themes ? 210 : 240
-                    Layout.maximumHeight: card.themes ? 230 : 4000
-                    Layout.columnSpan: card.themes ? 2 : 1
-                    radius: 14
-                    color: host.card
-                    antialiasing: true
+                    readonly property bool open: host.lookOpen === key
+                    readonly property bool portrait: index === 3
+                    width: column.width
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 8
+                    Rectangle {
+                        width: parent.width
+                        height: 1
+                        color: host.line
+                    }
+
+                    Item {
+                        width: parent.width
+                        height: 48
 
                         Text {
-                            text: page.sectionTitle(card.index)
+                            id: tri
+                            anchors.left: parent.left
+                            anchors.leftMargin: 4
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: section.open ? "▾" : "▸"
+                            color: host.muted
+                            font.pixelSize: 16
+                        }
+
+                        Text {
+                            id: label
+                            anchors.left: tri.right
+                            anchors.leftMargin: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: page.sectionTitle(section.index)
                             color: host.ink
                             font.family: host.bodyFont
+                            font.pixelSize: 18
+                        }
+
+                        Text {
+                            anchors.left: label.right
+                            anchors.right: parent.right
+                            anchors.leftMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: !section.open
+                            text: page.pictureLabel(section.choice)
+                            color: host.muted
+                            font.family: host.bodyFont
                             font.pixelSize: 14
-                            font.bold: true
+                            elide: Text.ElideRight
+                            horizontalAlignment: Text.AlignRight
                         }
 
-                        Text {
-                            visible: card.themes
-                            text: "Theme"
-                            color: host.muted
-                            font.family: host.bodyFont
-                            font.pixelSize: 13
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: host.openLook(section.key)
                         }
+                    }
 
-                        Flickable {
-                            visible: card.themes
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: visible ? 34 : 0
-                            contentWidth: themeRow.width
-                            contentHeight: 34
-                            flickableDirection: Flickable.HorizontalFlick
-                            boundsBehavior: Flickable.StopAtBounds
-                            clip: true
-
-                            Row {
-                                id: themeRow
-                                spacing: 8
-                                height: 34
-
-                                Repeater {
-                                    model: host.themes
-
-                                    delegate: Rectangle {
-                                        id: chip
-                                        required property string modelData
-                                        readonly property bool on: host.themeChoice === modelData
-                                        width: chipText.implicitWidth + 22
-                                        height: 32
-                                        radius: 8
-                                        color: chip.on ? host.brass : "transparent"
-                                        border.width: 1
-                                        border.color: chip.on ? host.brass : host.line
-                                        antialiasing: true
-
-                                        Text {
-                                            id: chipText
-                                            anchors.centerIn: parent
-                                            text: chip.modelData
-                                            color: chip.on ? host.buttonInk : host.ink
-                                            font.family: host.bodyFont
-                                            font.pixelSize: 13
-                                            font.bold: chip.on
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: host.themeChoice = chip.modelData
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Text {
-                            visible: card.themes
-                            text: "Wallpaper"
-                            color: host.muted
-                            font.family: host.bodyFont
-                            font.pixelSize: 13
-                        }
+                    Column {
+                        width: parent.width
+                        visible: section.open
+                        leftPadding: 26
+                        bottomPadding: 16
+                        spacing: 12
 
                         Rectangle {
-                            visible: !card.portrait && !card.themes
-                            Layout.fillWidth: true
-                            Layout.fillHeight: visible
-                            Layout.minimumHeight: visible ? 88 : 0
-                            Layout.preferredHeight: visible ? 120 : 0
+                            visible: !section.portrait
+                            width: parent.width - 26
+                            height: visible ? 220 : 0
                             radius: 10
                             color: "#101114"
                             border.width: 2
@@ -213,34 +195,33 @@ Item {
                             Image {
                                 anchors.fill: parent
                                 anchors.margins: 2
-                                source: card.choice.length > 0 ? host.art(page.sectionFolder(card.index), card.choice) : ""
+                                source: section.choice.length > 0 ? host.art(page.sectionFolder(section.index), section.choice) : ""
                                 fillMode: Image.PreserveAspectCrop
-                                sourceSize: Qt.size(640, 360)
+                                sourceSize: Qt.size(960, 540)
                                 cache: true
                             }
                         }
 
                         Item {
-                            visible: card.portrait
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.minimumHeight: 72
+                            visible: section.portrait
+                            width: parent.width - 26
+                            height: visible ? 128 : 0
 
                             Rectangle {
                                 anchors.centerIn: parent
-                                width: Math.min(112, parent.height)
-                                height: width
+                                width: 112
+                                height: 112
                                 radius: 12
                                 color: "#101114"
                                 border.width: 3
-                                border.color: card.choice.length > 0 ? host.brass : "transparent"
+                                border.color: section.choice.length > 0 ? host.brass : "transparent"
                                 antialiasing: true
 
                                 Image {
                                     anchors.fill: parent
                                     anchors.margins: 3
-                                    visible: card.choice.length > 0
-                                    source: card.choice.length > 0 ? host.art(page.sectionFolder(card.index), card.choice) : ""
+                                    visible: section.choice.length > 0
+                                    source: section.choice.length > 0 ? host.art(page.sectionFolder(section.index), section.choice) : ""
                                     fillMode: Image.PreserveAspectCrop
                                     sourceSize: Qt.size(224, 224)
                                     cache: true
@@ -248,7 +229,7 @@ Item {
 
                                 Text {
                                     anchors.centerIn: parent
-                                    visible: card.choice.length === 0
+                                    visible: section.choice.length === 0
                                     text: "None"
                                     color: host.muted
                                     font.family: host.bodyFont
@@ -257,29 +238,29 @@ Item {
 
                                 MouseArea {
                                     anchors.fill: parent
-                                    enabled: card.choice.length > 0
+                                    enabled: section.choice.length > 0
                                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                    onClicked: page.choose(card.index, card.choice)
+                                    onClicked: page.choose(section.index, section.choice)
                                 }
                             }
                         }
 
                         Item {
                             id: stripBox
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: card.portrait ? 44 : (card.themes ? 76 : 52)
+                            width: parent.width - 26
+                            height: section.portrait ? 44 : 52
 
                             function maxX() {
-                                return Math.max(0, scroller.contentWidth - scroller.width)
+                                return Math.max(0, film.contentWidth - film.width)
                             }
 
                             function scrollBy(direction) {
-                                var step = Math.max(72, scroller.width - 36)
-                                scroller.contentX = Math.max(0, Math.min(stripBox.maxX(), scroller.contentX + direction * step))
+                                var step = Math.max(72, film.width - 36)
+                                film.contentX = Math.max(0, Math.min(stripBox.maxX(), film.contentX + direction * step))
                             }
 
                             Flickable {
-                                id: scroller
+                                id: film
                                 anchors.fill: parent
                                 contentWidth: stripRow.width
                                 contentHeight: height
@@ -294,7 +275,7 @@ Item {
                                         var delta = event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y
                                         if (delta === 0)
                                             return
-                                        scroller.contentX = Math.max(0, Math.min(stripBox.maxX(), scroller.contentX - delta))
+                                        film.contentX = Math.max(0, Math.min(stripBox.maxX(), film.contentX - delta))
                                         event.accepted = true
                                     }
                                 }
@@ -305,14 +286,14 @@ Item {
                                     height: parent.height
 
                                     Repeater {
-                                        model: page.sectionFiles(card.index)
+                                        model: page.sectionFiles(section.index)
 
                                         delegate: Rectangle {
                                             id: thumb
                                             required property string modelData
-                                            readonly property bool on: card.choice === modelData
-                                            width: card.portrait ? 40 : (card.themes ? 120 : 76)
-                                            height: card.portrait ? 40 : (card.themes ? 68 : 44)
+                                            readonly property bool on: section.choice === modelData
+                                            width: section.portrait ? 40 : 76
+                                            height: section.portrait ? 40 : 44
                                             radius: 6
                                             color: "#101114"
                                             border.width: 2
@@ -323,16 +304,16 @@ Item {
                                             Image {
                                                 anchors.fill: parent
                                                 anchors.margins: thumb.on ? 2 : 0
-                                                source: host.art(page.sectionFolder(card.index), thumb.modelData)
+                                                source: host.art(page.sectionFolder(section.index), thumb.modelData)
                                                 fillMode: Image.PreserveAspectCrop
-                                                sourceSize: Qt.size(card.portrait ? 96 : 152, card.portrait ? 96 : 88)
+                                                sourceSize: Qt.size(section.portrait ? 96 : 152, section.portrait ? 96 : 88)
                                                 cache: true
                                             }
 
                                             MouseArea {
                                                 anchors.fill: parent
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: page.choose(card.index, thumb.modelData)
+                                                onClicked: page.choose(section.index, thumb.modelData)
                                             }
                                         }
                                     }
@@ -340,7 +321,7 @@ Item {
                             }
 
                             Rectangle {
-                                visible: stripBox.maxX() > 4 && scroller.contentX > 1
+                                visible: stripBox.maxX() > 4 && film.contentX > 1
                                 z: 2
                                 width: 28
                                 height: Math.min(parent.height - 4, 40)
@@ -369,7 +350,7 @@ Item {
                             }
 
                             Rectangle {
-                                visible: stripBox.maxX() > 4 && scroller.contentX < stripBox.maxX() - 1
+                                visible: stripBox.maxX() > 4 && film.contentX < stripBox.maxX() - 1
                                 z: 2
                                 width: 28
                                 height: Math.min(parent.height - 4, 40)

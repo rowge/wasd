@@ -279,6 +279,13 @@ body.guide.shots main {
   text-decoration: none;
 }
 
+.toc a.home {
+  margin: 0 0 0.9rem;
+  color: var(--ink);
+  letter-spacing: 0.28em;
+  font-size: 0.95rem;
+}
+
 .toc a.sub { margin-left: 0.95rem; }
 
 .toc a:hover { color: #ffffff; }
@@ -345,4 +352,336 @@ body.guide figcaption {
   h1 { font-size: 1.7rem; }
   .downloads { gap: 1.2rem; }
   .btn.wide { white-space: normal; }
+}
+
+body.home {
+  height: auto;
+  display: block;
+  background: #14161a;
+}
+
+.home .museum {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100dvh;
+  object-fit: cover;
+  object-position: center center;
+  pointer-events: none;
+}
+
+.home .bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1.4rem;
+  background: transparent;
+}
+
+.home .bar-mark {
+  color: var(--ink);
+  font-weight: 750;
+  letter-spacing: 0.18em;
+  text-decoration: none;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
+}
+
+.home .bar nav {
+  display: flex;
+  gap: 1.3rem;
+}
+
+.home .bar nav a {
+  color: var(--ink);
+  text-decoration: none;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
+}
+
+.home .bar nav a:hover { color: #ffffff; }
+
+.home main {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.home .wrap {
+  width: min(68rem, calc(100% - 2.4rem));
+  margin: 0 auto;
+}
+
+.home .intro {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 100dvh;
+  padding: 5.5rem 0 2.4rem;
+  text-align: center;
+  background: linear-gradient(to top, rgba(20, 22, 26, 0.78) 0%, rgba(20, 22, 26, 0.28) 22%, rgba(20, 22, 26, 0) 46%);
+}
+
+.home .kicker {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.92rem;
+  font-weight: 650;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.home h1 {
+  margin: 0.2rem 0 0;
+  font-size: clamp(3.4rem, 8vw, 6rem);
+  font-weight: 750;
+  letter-spacing: -0.045em;
+  line-height: 0.9;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.35);
+}
+
+.home .deck {
+  margin: 1.15rem 0 0;
+  font-size: clamp(1.25rem, 2.4vw, 1.7rem);
+  line-height: 1.3;
+}
+
+.home .get-label {
+  margin: 2rem 0 0;
+  color: rgba(244, 242, 238, 0.82);
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.home .get {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.8rem;
+  margin: 0.85rem 0 0;
+}
+
+.home .get a {
+  display: inline-block;
+  min-width: 11rem;
+  padding: 0.85rem 1.25rem;
+  color: var(--button-ink);
+  background: var(--button);
+  border: 1px solid var(--button);
+  border-radius: 9px;
+  font-size: 1.05rem;
+  font-weight: 750;
+  text-align: center;
+  text-decoration: none;
+}
+
+.home .get a.alt {
+  color: var(--ink);
+  background: transparent;
+  border-color: rgba(244, 242, 238, 0.55);
+}
+
+.home .get a:hover { color: var(--button-ink); background: #ffffff; }
+
+.home .get a.alt:hover {
+  color: #16181c;
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.home .usb-link {
+  margin: 1rem 0 0;
+}
+
+.home .usb-link a { color: var(--muted); }
+
+.home .usb-link a:hover { color: #ffffff; }
+
+.home .sheet {
+  position: relative;
+  z-index: 1;
+  background: #14161a;
+  padding: 2.6rem 0;
+}
+
+.home .rail-block {
+  display: grid;
+  grid-template-columns: 13.5rem minmax(0, 68rem);
+  column-gap: 2rem;
+  align-items: start;
+  justify-content: center;
+  width: min(86rem, calc(100% - 2.4rem));
+  margin: 0 auto;
+}
+
+.home .rail-copy { min-width: 0; }
+
+.home .rail-copy .wrap {
+  width: auto;
+  margin: 0;
+}
+
+.home .rail-copy .why {
+  width: min(40rem, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.home .home-rail {
+  position: sticky;
+  top: 1rem;
+  padding-top: 2.4rem;
+}
+
+.home .home-rail a {
+  display: block;
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.home .home-rail a:hover { color: #ffffff; }
+
+.home section.play,
+.home section.why {
+  padding: 2.4rem 0 0.2rem;
+}
+
+.home h2 {
+  margin: 0;
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  text-align: center;
+}
+
+.home .section-lead {
+  width: min(38rem, 100%);
+  margin: 0.8rem auto 0;
+  color: var(--muted);
+  font-size: 1.12rem;
+  text-align: center;
+}
+
+.home .logos {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home .logos li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 100%;
+  margin: 0;
+  padding: 1.15rem 0.75rem 1.15rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.home .logos img {
+  width: 3.1rem;
+  height: 3.1rem;
+}
+
+.home .logos strong {
+  margin-top: 0.35rem;
+  font-size: 1.05rem;
+}
+
+.home .logos span {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.home .why {
+  width: min(40rem, calc(100% - 2.4rem));
+}
+
+.home .points {
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home .points li {
+  margin: 0;
+  padding: 0.9rem 0 0.9rem 0.15rem;
+  border-top: 1px solid var(--line);
+  font-size: 1.12rem;
+  line-height: 1.4;
+}
+
+.home .points li:last-child { border-bottom: 1px solid var(--line); }
+
+body.guide .guide-rail {
+  display: grid;
+  grid-template-columns: 13.5rem minmax(0, 40rem);
+  column-gap: 2rem;
+  align-items: start;
+  justify-content: center;
+  width: min(60rem, calc(100% - 2.4rem));
+  margin: 0 auto;
+}
+
+body.guide .guide-rail main {
+  width: auto;
+  margin: 0;
+}
+
+body.guide .guide-rail .home-rail {
+  position: sticky;
+  top: 1rem;
+  padding-top: 1.6rem;
+}
+
+body.guide .guide-rail .home-rail a {
+  display: block;
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+body.guide .guide-rail .home-rail a:hover { color: #ffffff; }
+
+body.guide pre.letter { white-space: pre-wrap; }
+
+@media (max-width: 860px) {
+  .home .logos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home .rail-block,
+  body.guide .guide-rail {
+    grid-template-columns: 1fr;
+    row-gap: 0.2rem;
+  }
+  .home .home-rail,
+  body.guide .guide-rail .home-rail {
+    position: static;
+    padding-top: 0.2rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .home .bar { align-items: flex-start; }
+  .home .logos { grid-template-columns: 1fr; }
+  .home .get a { width: 100%; }
 }

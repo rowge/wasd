@@ -58,7 +58,7 @@ Item {
             spacing: 0
 
             Text {
-                text: "Apps & Agents"
+                text: "Apps"
                 color: host.ink
                 font.family: host.titleFont
                 font.pixelSize: 28
@@ -81,7 +81,7 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 4
                     anchors.verticalCenter: parent.verticalCenter
-                    text: host.appsOpen === "apps" ? "▾" : "▸"
+                    text: host.appsOpen === "general" ? "▾" : "▸"
                     color: host.muted
                     font.pixelSize: 16
                 }
@@ -90,7 +90,7 @@ Item {
                     anchors.left: appTri.right
                     anchors.leftMargin: 14
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Apps"
+                    text: "General"
                     color: host.ink
                     font.family: host.bodyFont
                     font.pixelSize: 18
@@ -99,7 +99,7 @@ Item {
                 Text {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: host.appsOpen !== "apps"
+                    visible: host.appsOpen !== "general"
                     text: host.appSummary
                     color: host.muted
                     font.family: host.bodyFont
@@ -109,13 +109,13 @@ Item {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: host.openApps("apps")
+                    onClicked: host.openApps("general")
                 }
             }
 
             Column {
                 width: parent.width
-                visible: host.appsOpen === "apps"
+                visible: host.appsOpen === "general"
                 leftPadding: 26
                 bottomPadding: 12
                 spacing: 12
@@ -216,6 +216,128 @@ Item {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: host.toggleApp(name, id, extra)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: host.line
+            }
+
+            Item {
+                width: parent.width
+                height: 48
+
+                Text {
+                    id: launcherTri
+                    anchors.left: parent.left
+                    anchors.leftMargin: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: host.appsOpen === "launchers" ? "▾" : "▸"
+                    color: host.muted
+                    font.pixelSize: 16
+                }
+
+                Text {
+                    id: launcherLabel
+                    anchors.left: launcherTri.right
+                    anchors.leftMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Launchers"
+                    color: host.ink
+                    font.family: host.bodyFont
+                    font.pixelSize: 18
+                }
+
+                Text {
+                    anchors.left: launcherLabel.right
+                    anchors.right: parent.right
+                    anchors.leftMargin: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: host.appsOpen !== "launchers"
+                    text: host.launcherSummary
+                    color: host.muted
+                    font.family: host.bodyFont
+                    font.pixelSize: 14
+                    elide: Text.ElideRight
+                    horizontalAlignment: Text.AlignRight
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: host.openApps("launchers")
+                }
+            }
+
+            Column {
+                width: parent.width
+                visible: host.appsOpen === "launchers"
+                leftPadding: 26
+                bottomPadding: 12
+                spacing: 12
+
+                Row {
+                    spacing: 8
+
+                    ChoiceButton {
+                        objectName: "selectAllLaunchers"
+                        label: "Select All"
+                        host: page.host
+                        onClicked: host.selectAllLaunchers()
+                    }
+
+                    ChoiceButton {
+                        objectName: "selectNoneLaunchers"
+                        label: "Select None"
+                        host: page.host
+                        onClicked: host.selectNoneLaunchers()
+                    }
+                }
+
+                Grid {
+                    width: parent.width - 26
+                    columns: 2
+                    columnSpacing: 24
+                    rowSpacing: 8
+
+                    Repeater {
+                        model: host.launcherNames
+                        delegate: Item {
+                            required property string modelData
+                            width: (parent.width - 24) / 2
+                            height: 26
+
+                            Rectangle {
+                                id: mark
+                                width: 16
+                                height: 16
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: host.launcherOn[modelData] ? host.brass : "transparent"
+                                border.width: 2
+                                border.color: host.launcherOn[modelData] ? host.brass : host.muted
+                            }
+
+                            Text {
+                                anchors.left: mark.right
+                                anchors.leftMargin: 10
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData
+                                color: host.ink
+                                font.family: host.bodyFont
+                                font.pixelSize: 15
+                                elide: Text.ElideRight
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: host.toggleLauncher(modelData)
                             }
                         }
                     }
