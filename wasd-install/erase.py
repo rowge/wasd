@@ -105,6 +105,8 @@ WIFI_SECRETS = {
 }
 SYSROOT = Path("/run/wasd-sysroot")
 GAMES_MOUNT = Path("/run/wasd-games")
+# bootc switch mounts the new disk here, in the live session's /run.
+BOOTC_STORAGE = Path("/run/bootc/storage")
 MOUNT_POINTS = {str(SYSROOT), str(GAMES_MOUNT)}
 MOUNT_FS = {"btrfs", "ext4", "xfs", "ntfs3", "exfat"}
 REV_NAME = re.compile(r"^[0-9a-f]{64}$")
@@ -1545,18 +1547,40 @@ def deployment_fstab(mount, rev):
 
 
 def append_fstab(path, line, root):
+    """Add the /games line. A missing table is created in its own directory.
+
+    This image does not ship a filesystem table. The root partition is
+    found by its type. The games line is the table when there was none.
+    """
     root_path = Path(root).resolve()
-    file = Path(path).resolve()
-    if not file.is_file() or not file.is_relative_to(root_path):
+    requested = Path(path)
+    if requested.is_symlink():
         raise GamesProblem("the filesystem table left the new system")
     if line.count("\n") != 1 or not line.endswith("\n") or not line.startswith("UUID=") or " /games " not in line:
         raise GamesProblem("the filesystem table line is wrong")
-    text = file.read_text(errors="replace")
+    if requested.exists():
+        file = requested.resolve()
+        if not file.is_file() or not file.is_relative_to(root_path):
+            raise GamesProblem("the filesystem table left the new system")
+        text = file.read_text(errors="replace")
+    else:
+        parent = requested.parent
+        if parent.is_symlink():
+            raise GamesProblem("the filesystem table left the new system")
+        parent = parent.resolve()
+        if not parent.is_dir() or not parent.is_relative_to(root_path):
+            raise GamesProblem("the new system has no filesystem table")
+        file = parent / requested.name
+        if file.exists():
+            raise GamesProblem("the filesystem table left the new system")
+        text = ""
     if " /games " in text:
         return False
     if text and not text.endswith("\n"):
         text += "\n"
     temporary = file.with_name(file.name + ".wasd-games")
+    if temporary.is_symlink():
+        raise GamesProblem("the filesystem table left the new system")
     try:
         temporary.write_text(text + line)
         os.chmod(temporary, 0o644)
@@ -1769,6 +1793,62 @@ def mount_library(mount):
     apps.mkdir(mode=0o755, exist_ok=True)
 
 
+def library_owner(text):
+    """The one human account, as uid and gid. Several accounts stay with root."""
+    if not isinstance(text, str):
+        return None
+    found = []
+    for line in text.splitlines():
+        parts = line.split(":")
+        if len(parts) < 6:
+            continue
+        name, uid_text, gid_text, home = parts[0], parts[2], parts[3], parts[5]
+        if not USER_NAME.fullmatch(name or ""):
+            continue
+        if not uid_text.isdigit() or not gid_text.isdigit():
+            continue
+        uid = int(uid_text)
+        gid = int(gid_text)
+        if uid < 1000 or uid > 60000 or gid < 1000 or gid > 60000:
+            continue
+        if home != f"/var/home/{name}":
+            continue
+        found.append((uid, gid))
+    if len(found) != 1:
+        return None
+    return found[0]
+
+
+def read_owner(deploy, jail):
+    path = Path(deploy) / "etc" / "passwd"
+    jail_path = Path(jail).resolve()
+    if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(jail_path):
+        return None
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return None
+    return library_owner(text)
+
+
+def give_library(mount, uid, gid):
+    """Let that account write the new library. A root folder cannot take games."""
+    if isinstance(uid, bool) or isinstance(gid, bool):
+        return
+    if not isinstance(uid, int) or not isinstance(gid, int) or uid < 1000 or gid < 1000:
+        return
+    root = Path(mount).resolve()
+    if root != GAMES_MOUNT.resolve() or not os.path.ismount(root):
+        raise GamesProblem("the games folder is not mounted")
+    for folder in (root / "SteamLibrary", root / "SteamLibrary" / "steamapps"):
+        if folder.is_symlink() or not folder.is_dir():
+            raise GamesProblem("the games folder is a link")
+        try:
+            os.chown(folder, uid, gid)
+        except OSError as exc:
+            games_log(str(exc))
+
+
 def attach_games(root_name, uuid, fstype):
     """Mount the remembered WASD filesystem and add /games to it.
 
@@ -1789,8 +1869,6 @@ def attach_games(root_name, uuid, fstype):
         mounted_sys = True
         rev = read_rev(SYSROOT)
         fstab = deployment_fstab(SYSROOT, rev)
-        if not fstab.is_file():
-            raise GamesProblem("the new system has no filesystem table")
         deploy = path_inside(SYSROOT, ("ostree", "deploy", "default", "deploy", f"{rev}.0"))
         games_dir = deploy / "games"
         # Do not follow a symlink. /games is already a directory in the
@@ -1802,6 +1880,9 @@ def attach_games(root_name, uuid, fstype):
         run_disk(["mount", "-t", fstype, f"UUID={uuid}", str(GAMES_MOUNT)])
         mounted_games = True
         mount_library(GAMES_MOUNT)
+        owner = read_owner(deploy, SYSROOT)
+        if owner:
+            give_library(GAMES_MOUNT, owner[0], owner[1])
         finished = True
     finally:
         games_ok = quiet_umount(GAMES_MOUNT) if mounted_games else True
@@ -1880,10 +1961,216 @@ def add_kept_games(os_device, plan):
     attach_games(root, uuid, mount_fs)
 
 
+def unescape_mount(text):
+    """Mount-table escapes are three octal digits. Other backslashes stay."""
+    if not isinstance(text, str):
+        return ""
+    out = []
+    index = 0
+    while index < len(text):
+        digits = text[index + 1:index + 4]
+        if (
+            text[index] == "\\"
+            and len(digits) == 3
+            and all(char in "01234567" for char in digits)
+        ):
+            out.append(chr(int(digits, 8)))
+            index += 4
+            continue
+        out.append(text[index])
+        index += 1
+    return "".join(out)
+
+
+def mount_rows(text):
+    """Mount point and source from a mountinfo table. A bad line is skipped."""
+    rows = []
+    if not isinstance(text, str):
+        return rows
+    for line in text.splitlines():
+        left, sep, right = line.partition(" - ")
+        if not sep:
+            continue
+        left_fields = left.split()
+        right_fields = right.split()
+        # The mount point is field 5. Optional fields come after the options.
+        if len(left_fields) < 6 or len(right_fields) < 2:
+            continue
+        mountpoint = unescape_mount(left_fields[4])
+        source = unescape_mount(right_fields[1])
+        if not mountpoint.startswith("/"):
+            continue
+        rows.append((mountpoint, source))
+    return rows
+
+
+def mount_source_node(source):
+    """The device node in a mount source, without a btrfs subvolume."""
+    if not isinstance(source, str) or not source.startswith("/dev/"):
+        return ""
+    node = source.split("[", 1)[0].removeprefix("/dev/")
+    if not node or node != Path(node).name:
+        return ""
+    return node
+
+
+def source_holds_disk(source, device):
+    node = mount_source_node(source)
+    return bool(node) and (node == device or partition_of(device, node))
+
+
+def release_allowed(mountpoint):
+    """Installer mounts this step may remove. The live root is not one."""
+    if not isinstance(mountpoint, str) or not mountpoint.startswith("/") or "\x00" in mountpoint:
+        return False
+    if mountpoint != Path(mountpoint).as_posix():
+        return False
+    if any(part in {".", ".."} for part in Path(mountpoint).parts):
+        return False
+    if mountpoint in {str(SYSROOT), str(GAMES_MOUNT), str(BOOTC_STORAGE)}:
+        return True
+    prefix = str(SYSROOT) + "/"
+    if not mountpoint.startswith(prefix):
+        return False
+    return Path(mountpoint).name in {"sysroot", "proc"}
+
+
+def mounts_holding(device, text):
+    """Installer mounts of this disk, children first.
+
+    /run/bootc/storage is included only when its source is this disk.
+    A proc bind on the system root is included when that root is this disk,
+    because it keeps the disk busy even though its source is proc.
+    The live root is never included. nvme0n1 does not match nvme0n10.
+    """
+    if not DEVICE_NAME.fullmatch(device or ""):
+        raise GamesProblem("the disk name is not a whole disk")
+    rows = mount_rows(text)
+    sysroot = str(SYSROOT)
+    sysroot_on_disk = any(
+        mountpoint == sysroot and source_holds_disk(source, device)
+        for mountpoint, source in rows
+    )
+    found = []
+    for mountpoint, source in rows:
+        if not release_allowed(mountpoint):
+            continue
+        on_disk = source_holds_disk(source, device)
+        under = mountpoint == sysroot or mountpoint.startswith(sysroot + "/")
+        if mountpoint in {str(BOOTC_STORAGE), str(GAMES_MOUNT)}:
+            keep = on_disk
+        elif under:
+            keep = on_disk or sysroot_on_disk
+        else:
+            keep = False
+        if keep:
+            found.append(mountpoint)
+    ordered = []
+    seen = set()
+    for mountpoint in sorted(found, key=len, reverse=True):
+        if mountpoint in seen:
+            continue
+        seen.add(mountpoint)
+        ordered.append(mountpoint)
+    return ordered
+
+
+def disk_mountpoints(device, text):
+    """Every mount whose source is this disk, including the live root."""
+    if not DEVICE_NAME.fullmatch(device or ""):
+        raise GamesProblem("the disk name is not a whole disk")
+    found = []
+    seen = set()
+    for mountpoint, source in mount_rows(text):
+        if not source_holds_disk(source, device) or mountpoint in seen:
+            continue
+        seen.add(mountpoint)
+        found.append(mountpoint)
+    return found
+
+
+def mount_listed(path, text=None):
+    """Whether path is a mount point.
+
+    None means the mount table could not be read. False means the table
+    was read and this path is not a mount point.
+    """
+    target = str(path)
+    if text is None:
+        try:
+            text = Path("/proc/self/mountinfo").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+    for mountpoint, _source in mount_rows(text):
+        if mountpoint == target:
+            return True
+    return False
+
+
+def quiet_release(mountpoint):
+    """Unmount one installer path. A path outside that list is refused."""
+    stop_if_checking("release a mount")
+    if not release_allowed(mountpoint):
+        raise GamesProblem("the mount is not a games mount")
+    path = Path(mountpoint)
+    if path.is_symlink():
+        raise GamesProblem("the mount folder is a link")
+    try:
+        result = subprocess.run(
+            ["umount", mountpoint],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        games_log(str(exc))
+        return False
+    if result.returncode != 0:
+        games_log(result.stderr)
+        return False
+    return True
+
+
+def release_disk_mounts(device):
+    """Drop installer mounts that still hold this disk.
+
+    The update step bind-mounts the new system onto itself. That bind keeps
+    the same device id, so it can look unmounted while sfdisk still refuses
+    the disk. bootc switch also leaves /run/bootc/storage on the new disk.
+    Only those installer paths are unmounted. The live root stays, and a
+    bootc mount from another disk stays. The partition is not written when
+    any mount of this disk remains.
+    """
+    stop_if_checking("release disk mounts")
+    require_live()
+    if not DEVICE_NAME.fullmatch(device or ""):
+        raise GamesProblem("the disk name is not a whole disk")
+    assert_not_live(device)
+    try:
+        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        games_log(str(exc))
+        raise GamesProblem("the mounted disks could not be read") from exc
+    for mountpoint in mounts_holding(device, text):
+        if not quiet_release(mountpoint):
+            raise GamesProblem("the disk stayed mounted")
+    try:
+        after = Path("/proc/self/mountinfo").read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        games_log(str(exc))
+        raise GamesProblem("the mounted disks could not be read") from exc
+    remaining = disk_mountpoints(device, after)
+    if remaining:
+        games_log("still mounted: " + " ".join(remaining))
+        raise GamesProblem("the disk stayed mounted")
+
+
 def prepare_games(os_device, plan):
     stop_if_checking("prepare games")
     try:
         mode = plan.get("mode")
+        if mode in {"split", "format", "keep"}:
+            release_disk_mounts(os_device)
         if mode == "split":
             add_split_games(os_device, plan)
         elif mode == "format":
@@ -3014,10 +3301,16 @@ def chroot_argv(deploy, jail, source):
 
 
 def umount_bound(path):
+    """Unmount one bind under the new system.
+
+    A bind onto the same filesystem keeps the same device id, so the usual
+    mount test says it is already gone. The mount table is the check. When
+    that table cannot be read, the unmount is still tried. The leaf is the
+    mount. Resolving it can name the host proc instead.
+    """
     stop_if_checking("unmount the new system root")
     require_live()
     raw = Path(path)
-    # The leaf is the mount. Resolving it can name the host proc instead.
     if raw.is_symlink() or not raw.is_absolute():
         return False
     argv = ["umount", str(raw)]
@@ -3025,7 +3318,8 @@ def umount_bound(path):
         checked_post(argv, SYSROOT)
     except PostProblem:
         return False
-    if not os.path.ismount(raw):
+    listed = mount_listed(raw)
+    if listed is False:
         return True
     result = run_post(argv, SYSROOT, check=False)
     return result.returncode == 0
@@ -3560,6 +3854,57 @@ def check_games():
     split_body = inspect.getsource(add_split_games)
     if "wipefs" in split_body or "--wipe" in split_body:
         raise SystemExit("the split wipes the WASD disk")
+    prepare_body = inspect.getsource(prepare_games)
+    if prepare_body.find("release_disk_mounts(") < 0 or prepare_body.find("release_disk_mounts(") > prepare_body.find("add_split_games("):
+        raise SystemExit("the games step partitions a disk that is still mounted")
+    bound_body = inspect.getsource(umount_bound)
+    if "os.path.ismount" in bound_body or "mount_listed" not in bound_body:
+        raise SystemExit("a same-filesystem bind was treated as unmounted")
+    if bound_body.find("mount_listed") > bound_body.find("run_post"):
+        raise SystemExit("the unmount runs before the mount table is read")
+    if unescape_mount(r"\040") != " " or unescape_mount(r"\134040") != "\\040" or unescape_mount(r"\u0020") != "\\u0020":
+        raise SystemExit("a mount path was unescaped as text")
+    rev = "ab" * 32
+    bind = f"/run/wasd-sysroot/ostree/deploy/default/deploy/{rev}.0/sysroot"
+    proc_bind = f"/run/wasd-sysroot/ostree/deploy/default/deploy/{rev}.0/proc"
+    sample = "\n".join((
+        "36 35 259:3 / /run/wasd-sysroot rw,relatime shared:1 - btrfs /dev/nvme0n1p3 rw",
+        f"37 36 259:3 /ostree/deploy/default/deploy/{rev}.0/sysroot {bind} rw,relatime master:1 - btrfs /dev/nvme0n1p3 rw",
+        f"44 37 259:3 /proc {proc_bind} rw - proc proc rw",
+        "38 1 259:3 /ostree/bootc/storage /run/bootc/storage rw - btrfs /dev/nvme0n1p3[/ostree/bootc/storage] rw",
+        "39 1 8:1 / /run/bootc/other rw - btrfs /dev/sda1 rw",
+        "40 1 259:3 / / rw - btrfs /dev/nvme0n1p3 rw",
+        "41 1 259:4 / /mnt/keep rw - btrfs /dev/nvme0n1p4 rw",
+        "42 1 259:10 / /mnt/other rw - ext4 /dev/nvme0n10p1 rw",
+        r"43 1 259:3 / /run/wasd\040sysroot/sysroot rw - btrfs /dev/nvme0n1p3 rw",
+        "45 1 259:5 / /run/wasd-games rw - btrfs /dev/nvme0n1p5 rw",
+    ))
+    held = mounts_holding("nvme0n1", sample)
+    if held != [bind, proc_bind, "/run/bootc/storage", "/run/wasd-sysroot", "/run/wasd-games"]:
+        raise SystemExit(f"disk mounts were {held}")
+    for kept in ("/", "/mnt/keep", "/mnt/other", "/run/wasd sysroot/sysroot", "/run/bootc/other"):
+        if kept in held:
+            raise SystemExit(f"a kept mount was released: {kept}")
+    if mount_listed(bind, sample) is not True or mount_listed("/missing", sample) is not False:
+        raise SystemExit("the mount table was misread")
+    if "/" not in disk_mountpoints("nvme0n1", sample) or "/mnt/other" in disk_mountpoints("nvme0n1", sample):
+        raise SystemExit("the live root was ignored or another disk was counted")
+    other = "\n".join((
+        "38 1 8:1 / /run/bootc/storage rw - btrfs /dev/sda1 rw",
+        "40 1 259:3 / / rw - btrfs /dev/nvme0n1p3 rw",
+        "46 1 8:1 / /run/wasd-sysroot rw - btrfs /dev/sda1 rw",
+    ))
+    if mounts_holding("nvme0n1", other):
+        raise SystemExit("another disk was released")
+    trick = "42 1 259:10 / /run/wasd-sysroot rw - ext4 /dev/nvme0n10p1 rw\n"
+    if mounts_holding("nvme0n1", trick) or mounts_holding("nvme0n10", trick) != ["/run/wasd-sysroot"]:
+        raise SystemExit("nvme0n1 was confused with nvme0n10")
+    try:
+        mounts_holding("nvme0n1p3", sample)
+    except GamesProblem:
+        pass
+    else:
+        raise SystemExit("a partition was accepted as the held disk")
 
     uuid = "01234567-89ab-cdef-0123-456789abcdef"
     with tempfile.TemporaryDirectory(prefix="wasd-games-check-", dir="/tmp") as tmp:
@@ -3576,6 +3921,28 @@ def check_games():
             raise SystemExit("fstab was updated twice")
         if fstab.read_text().count(" /games ") != 1:
             raise SystemExit("fstab line was doubled")
+        fstab.unlink()
+        if not append_fstab(fstab, line, root) or fstab.read_text() != line:
+            raise SystemExit("a missing filesystem table was not created")
+        if append_fstab(fstab, line, root):
+            raise SystemExit("a created filesystem table was updated twice")
+        nested = root / "missing" / "fstab"
+        try:
+            append_fstab(nested, line, root)
+        except GamesProblem:
+            pass
+        else:
+            raise SystemExit("a filesystem table was created without its directory")
+        if library_owner(
+            "root:x:0:0:root:/root:/bin/bash\nrowge:x:1000:1000:Games:/var/home/rowge:/bin/bash\n"
+        ) != (1000, 1000):
+            raise SystemExit("the games folder owner was wrong")
+        if library_owner(
+            "root:x:0:0:root:/root:/bin/bash\n"
+            "rowge:x:1000:1000:Games:/var/home/rowge:/bin/bash\n"
+            "guest:x:1001:1001:Guest:/var/home/guest:/bin/bash\n"
+        ) is not None or library_owner("rowge:x:1000:1000:Games:/home/rowge:/bin/bash\n") is not None:
+            raise SystemExit("an extra account was given the games folder")
         outside = Path(tmp) / "out"
         outside.mkdir()
         secret = outside / "fstab"
@@ -3706,6 +4073,8 @@ def check_games():
         (lambda: fs_type("nvme0n1p4"), "type"),
         (lambda: assert_not_live("nvme0n1"), "live"),
         (lambda: quiet_umount(SYSROOT), "umount"),
+        (lambda: quiet_release(str(BOOTC_STORAGE)), "release one"),
+        (lambda: release_disk_mounts("nvme0n1"), "release"),
         (lambda: run_disk(["sfdisk", "--json", "/dev/nvme0n1"]), "sfdisk"),
     )
     for call, label in guards:
