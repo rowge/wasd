@@ -42,6 +42,10 @@ Window {
     property string avatarChoice: "knight.jpg"
     property bool avatarTouched: false
     property bool choicesHeld: false
+    property bool loadingDirty: false
+    property bool loginDirty: false
+    property string appliedLoading: "stained-glass.jpg"
+    property string appliedLogin: "throne.jpg"
     property bool avatarReady: false
     property string savedLine: ""
     property bool applying: false
@@ -126,6 +130,24 @@ Window {
         return /^[A-Za-z0-9._-]+$/.test(name)
     }
 
+    function needsSystem() {
+        if (avatarTouched)
+            return true
+        if (loadingDirty && loadingChoice !== appliedLoading)
+            return true
+        if (loginDirty && loginChoice !== appliedLogin)
+            return true
+        return false
+    }
+
+    function rememberApplied() {
+        appliedLoading = loadingChoice
+        appliedLogin = loginChoice
+        loadingDirty = false
+        loginDirty = false
+        avatarTouched = false
+    }
+
     function applyLook() {
         if (applying)
             return
@@ -154,7 +176,7 @@ Window {
         savedLine = "Applying."
         applyLoader.active = true
         if (applyLoader.item)
-            applyLoader.item.start(wallpaperChoice, loginChoice, loadingChoice, avatarTouched ? avatarChoice : null)
+            applyLoader.item.start(wallpaperChoice, loginChoice, loadingChoice, avatarTouched ? avatarChoice : null, needsSystem())
     }
 
     function listsReady(icons, loading, login, wallpapers) {
@@ -172,8 +194,6 @@ Window {
     }
 
     function choicesFound(payload) {
-        if (choicesHeld)
-            return
         let data = {}
         try {
             data = JSON.parse(payload || "")
@@ -181,6 +201,12 @@ Window {
             return
         }
         if (!data || typeof data !== "object")
+            return
+        if (safeName(data.loading || ""))
+            appliedLoading = data.loading
+        if (safeName(data.login || ""))
+            appliedLogin = data.login
+        if (choicesHeld)
             return
         if (safeName(data.loading || ""))
             loadingChoice = data.loading
@@ -220,16 +246,18 @@ Window {
         source: "ApplyHost.qml"
         onLoaded: {
             if (look.applying)
-                item.start(look.wallpaperChoice, look.loginChoice, look.loadingChoice, look.avatarTouched ? look.avatarChoice : null)
+                item.start(look.wallpaperChoice, look.loginChoice, look.loadingChoice, look.avatarTouched ? look.avatarChoice : null, look.needsSystem())
         }
     }
 
     Connections {
         target: applyLoader.item
         enabled: applyLoader.item !== null
-        function onFinished(line) {
+        function onFinished(line, ok) {
             look.applying = false
             look.savedLine = line
+            if (ok)
+                look.rememberApplied()
         }
     }
 

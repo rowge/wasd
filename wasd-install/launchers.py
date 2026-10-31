@@ -476,11 +476,25 @@ def write_menu(home, name):
 
 
 def program_path(home, name, root=None):
+    """The program to launch.
+
+    Minecraft's download is the launcher itself. It does not add
+    MinecraftLauncher.exe under Program Files. That file still wins when a
+    future installer creates it.
+    """
     launcher = require_launcher(home, name)
+    home = Path(home)
     if not launcher.program:
         return _cache(home, launcher)
     root = Path(root) if root is not None else games_root(home)
-    return _prefix(root, launcher).joinpath(*launcher.program)
+    installed = _prefix(root, launcher).joinpath(*launcher.program)
+    if installed.is_file() and not installed.is_symlink():
+        return installed
+    if launcher.launcher_id == "minecraft":
+        cached = _cache(home, launcher)
+        if cached.is_file() and not cached.is_symlink():
+            return cached
+    return installed
 
 
 def needs_setup(home, name, root=None):
@@ -1137,6 +1151,26 @@ def self_check():
             raise SystemExit(f"Minecraft did not use the official launcher: {fetches[before_fetches:]}")
         if not calls or "wineboot" not in calls[0][0] or not calls[-1][0][-1].endswith("Minecraft.exe"):
             raise SystemExit(f"Minecraft was not opened: {calls}")
+        mine_rows = {row["name"]: row for row in status_rows(home, root)}
+        if not mine_rows["Minecraft"]["ready"]:
+            raise SystemExit("Minecraft's launcher was not counted as installed")
+        calls.clear()
+        launch_installed(home, "Minecraft", runner, root)
+        if not str(calls[-1][0][-1]).endswith("/minecraft/Minecraft.exe"):
+            raise SystemExit(f"Launch did not open the Minecraft launcher: {calls}")
+        installed_mine = (
+            _prefix(root, CATALOG["Minecraft"])
+            / "drive_c"
+            / "Program Files (x86)"
+            / "Minecraft Launcher"
+            / "MinecraftLauncher.exe"
+        )
+        installed_mine.parent.mkdir(parents=True)
+        installed_mine.write_bytes(b"MZ")
+        calls.clear()
+        launch_installed(home, "Minecraft", runner, root)
+        if not str(calls[-1][0][-1]).endswith("MinecraftLauncher.exe"):
+            raise SystemExit(f"Launch ignored the installed Minecraft launcher: {calls}")
         download = home / "Downloads"
         download.mkdir()
         chosen = download / "MyGame.exe"
@@ -1355,6 +1389,10 @@ def self_check():
         raise SystemExit("first boot lost the launcher line or the app output")
     if "launcherNames" not in main or 'launchers[launcherNames[k]] = false' not in main:
         raise SystemExit("launchers do not start unchecked")
+    if "Do not log in at the end of the Battle.net installation. Just close the window." not in main:
+        raise SystemExit("Battle.net has no login warning")
+    if "dismissBattleNetWarn" not in main:
+        raise SystemExit("the Battle.net warning cannot be closed")
     for name in CATALOG:
         if name not in launch:
             raise SystemExit(f"{name} is missing from WASD Launchers")

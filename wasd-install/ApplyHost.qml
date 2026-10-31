@@ -3,14 +3,16 @@ import org.kde.plasma.plasma5support as P5Support
 
 Item {
     id: host
-    signal finished(string line)
+    signal finished(string line, bool ok)
 
     property string wallpaperCommand: ""
     property string applyCommand: ""
     property bool wallpaperDone: false
+    property bool writeSystem: false
 
-    function start(wallpaper, login, loading, avatar) {
+    function start(wallpaper, login, loading, avatar, writeSystem) {
         wallpaperDone = false
+        host.writeSystem = writeSystem === true
         wallpaperCommand = "/usr/bin/plasma-apply-wallpaperimage /usr/share/wallpapers/wasd/" + wallpaper
         let picture = ""
         if (avatar === null || avatar === undefined)
@@ -43,7 +45,13 @@ Item {
             if (sourceName === host.wallpaperCommand && !host.wallpaperDone) {
                 host.wallpaperDone = true
                 if (code !== 0) {
-                    host.finished(stderr || "The wallpaper did not change.")
+                    host.finished(stderr || "The wallpaper did not change.", false)
+                    return
+                }
+                // A desktop wallpaper does not need the login or loading helper.
+                // That helper is what left Apply grey after one wallpaper change.
+                if (!host.writeSystem) {
+                    host.finished("The wallpaper is changed.", true)
                     return
                 }
                 exec.connectSource(host.applyCommand)
@@ -51,11 +59,11 @@ Item {
             }
             if (code !== 0) {
                 const detail = stderr || stdout || "The login screen and the loading screen were not changed."
-                host.finished("The wallpaper is changed. " + detail)
+                host.finished("The wallpaper is changed. " + detail, false)
                 return
             }
             const rest = stdout || "The login screen changes at the next login. The lock screen uses that same picture the next time the screen locks. The loading screen changes on the next boot."
-            host.finished("The wallpaper is changed. " + rest)
+            host.finished("The wallpaper is changed. " + rest, true)
         }
     }
 }

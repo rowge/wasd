@@ -543,8 +543,44 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit("Select All is missing from Launchers")
         if quick.findChild(QQuickItem, "selectNoneLaunchers") is None:
             raise SystemExit("Select None is missing from Launchers")
+        if not QMetaObject.invokeMethod(window, "selectNoneLaunchers"):
+            raise SystemExit("selectNoneLaunchers did not run")
+        pump(50)
+        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Battle.net")):
+            raise SystemExit("toggleLauncher did not run")
+        pump(50)
+        if window.property("battleNetWarn") is not True:
+            raise SystemExit("Battle.net did not open the warning")
+        warn_body = quick.findChild(QQuickItem, "battleNetWarnBody")
+        expected_warn = "Do not log in at the end of the Battle.net installation. Just close the window."
+        if warn_body is None or warn_body.property("text") != expected_warn:
+            raise SystemExit(f"Battle.net warning was {None if warn_body is None else warn_body.property('text')}")
+        if quick.findChild(QQuickItem, "battleNetWarnOk") is None:
+            raise SystemExit("the Battle.net warning has no OK")
+        if not QMetaObject.invokeMethod(window, "dismissBattleNetWarn"):
+            raise SystemExit("the Battle.net warning did not close")
+        pump(50)
+        if window.property("battleNetWarn") is not False:
+            raise SystemExit("the Battle.net warning stayed open")
+        if "Battle.net" not in (window.property("launcherSummary") or ""):
+            raise SystemExit("closing the warning unchecked Battle.net")
+        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Battle.net")):
+            raise SystemExit("toggleLauncher did not turn Battle.net off")
+        pump(50)
+        if window.property("battleNetWarn") is not False:
+            raise SystemExit("turning Battle.net off opened the warning")
+        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "EA App")):
+            raise SystemExit("toggleLauncher did not run for EA App")
+        pump(50)
+        if window.property("battleNetWarn") is not False:
+            raise SystemExit("EA App opened the Battle.net warning")
         if not QMetaObject.invokeMethod(window, "selectAllLaunchers"):
             raise SystemExit("selectAllLaunchers did not run")
+        pump(50)
+        if window.property("battleNetWarn") is not True:
+            raise SystemExit("Select All did not warn about Battle.net")
+        if not QMetaObject.invokeMethod(window, "dismissBattleNetWarn"):
+            raise SystemExit("the Battle.net warning did not close")
         pump(50)
         launcher_summary = window.property("launcherSummary") or ""
         if "Battle.net" not in launcher_summary or "Rockstar Launcher" not in launcher_summary:

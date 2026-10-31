@@ -73,6 +73,8 @@ Window {
     property var appOn: ({})
     property var agentOn: ({})
     property var launcherOn: ({})
+    property bool battleNetWarn: false
+    readonly property string battleNetWarnBody: "Do not log in at the end of the Battle.net installation. Just close the window."
     property var searchHits: []
     property var pickedExtras: []
     property var warnings: [
@@ -1083,16 +1085,26 @@ Window {
     }
 
     function toggleLauncher(name) {
+        const turningOn = name === "Battle.net" && !launcherOn[name]
         const copy = Object.assign({}, launcherOn)
         copy[name] = !copy[name]
         launcherOn = copy
+        if (turningOn)
+            battleNetWarn = true
     }
 
     function selectAllLaunchers() {
+        const show = !launcherOn["Battle.net"]
         const copy = {}
         for (let i = 0; i < launcherNames.length; i++)
             copy[launcherNames[i]] = true
         launcherOn = copy
+        if (show)
+            battleNetWarn = true
+    }
+
+    function dismissBattleNetWarn() {
+        battleNetWarn = false
     }
 
     function selectNoneLaunchers() {
@@ -1473,6 +1485,87 @@ Window {
             Loader {
                 anchors.fill: parent
                 sourceComponent: win.installStage !== "" ? statusComp : win.page === 0 ? userComp : win.page === 1 ? lookComp : win.page === 2 ? appsComp : win.page === 3 ? systemComp : diskComp
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: win.battleNetWarn
+        z: 20
+        color: Qt.rgba(0, 0, 0, 0.62)
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        Rectangle {
+            objectName: "battleNetWarn"
+            z: 1
+            anchors.centerIn: parent
+            width: Math.min(520, parent.width - 80)
+            height: battleNetColumn.height + 36
+            radius: 14
+            color: win.card
+            border.width: 1
+            border.color: win.line
+            antialiasing: true
+
+            MouseArea {
+                anchors.fill: parent
+            }
+
+            Column {
+                id: battleNetColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 18
+                spacing: 12
+
+                Text {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: "Battle.net"
+                    color: win.ink
+                    font.family: win.titleFont
+                    font.pixelSize: 26
+                }
+
+                Text {
+                    objectName: "battleNetWarnBody"
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: win.battleNetWarnBody
+                    color: win.ink
+                    font.family: win.bodyFont
+                    font.pixelSize: 16
+                }
+
+                Rectangle {
+                    objectName: "battleNetWarnOk"
+                    width: battleNetOkLabel.implicitWidth + 28
+                    height: 36
+                    radius: 9
+                    color: win.button
+                    antialiasing: true
+
+                    Text {
+                        id: battleNetOkLabel
+                        anchors.centerIn: parent
+                        text: "OK"
+                        color: win.buttonInk
+                        font.family: win.bodyFont
+                        font.pixelSize: 16
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: win.dismissBattleNetWarn()
+                    }
+                }
             }
         }
     }

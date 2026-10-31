@@ -1097,6 +1097,13 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
         raise SystemExit("the installer did not keep We10XOS-dark")
     if "themeChoice" in window:
         raise SystemExit("WASD Look still keeps a theme choice")
+    host_qml = (Path(__file__).resolve().parent / "ApplyHost.qml").read_text(encoding="utf-8")
+    if "writeSystem" not in host_qml or 'host.finished("The wallpaper is changed.", true)' not in host_qml:
+        raise SystemExit("a wallpaper change still waits on the login helper")
+    if "needsSystem" not in window:
+        raise SystemExit("WASD Look does not skip the login helper for a wallpaper")
+    if "host.loadingDirty = true" not in page or "host.loginDirty = true" not in page:
+        raise SystemExit("a login or loading change is not sent to the helper")
     print("look self-check ok")
 
 

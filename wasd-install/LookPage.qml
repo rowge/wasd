@@ -70,11 +70,15 @@ Item {
     function choose(index, fileName) {
         if (host.tool)
             host.choicesHeld = true
-        if (index === 0)
+        if (index === 0) {
             host.loadingChoice = fileName
-        else if (index === 1)
+            if (host.tool)
+                host.loadingDirty = true
+        } else if (index === 1) {
             host.loginChoice = fileName
-        else if (index === 2)
+            if (host.tool)
+                host.loginDirty = true
+        } else if (index === 2)
             host.wallpaperChoice = fileName
         else {
             host.avatarTouched = true

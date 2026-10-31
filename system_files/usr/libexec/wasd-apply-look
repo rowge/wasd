@@ -10,6 +10,8 @@ current=0
 sync_lock=0
 clear_avatar=0
 avatar_set=0
+rebuild_only=0
+rebuild_digest=""
 login=""
 loading=""
 avatar=""
@@ -204,6 +206,52 @@ PY
     fi
 }
 
+rebuild_loading() {
+    local log output status
+    log=$(mktemp)
+    if command -v rpm-ostree >/dev/null 2>&1; then
+        set +e
+        output=$(rpm-ostree initramfs --enable --arg=-I --arg=/etc/wasd/loading-background.png 2>&1)
+        status=$?
+        set -e
+        if [[ $status -eq 0 ]]; then
+            rm -f "$log"
+            return 0
+        fi
+        if grep -qi 'already enabled' <<<"$output"; then
+            # The same request does not rebuild. Turn it off and back on
+            # so this picture is included. Neither command reboots.
+            if ! rpm-ostree initramfs --disable >"$log" 2>&1; then
+                cat "$log" >&2
+                rm -f "$log"
+                return 1
+            fi
+            if ! rpm-ostree initramfs --enable --arg=-I --arg=/etc/wasd/loading-background.png >"$log" 2>&1; then
+                cat "$log" >&2
+                rm -f "$log"
+                return 1
+            fi
+            rm -f "$log"
+            return 0
+        fi
+        printf '%s\n' "$output" >&2
+        rm -f "$log"
+        return "$status"
+    fi
+    if command -v dracut >/dev/null 2>&1; then
+        if ! dracut -f >"$log" 2>&1; then
+            cat "$log" >&2
+            rm -f "$log"
+            return 1
+        fi
+        rm -f "$log"
+        return 0
+    fi
+    rm -f "$log"
+    echo "This system cannot rebuild the loading screen." >&2
+    return 1
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --names-only)
@@ -237,12 +285,37 @@ while [[ $# -gt 0 ]]; do
             avatar_set=1
             shift 2
             ;;
+        --rebuild-loading)
+            rebuild_digest=${2-}
+            rebuild_only=1
+            shift 2
+            ;;
         *)
             echo "Unknown argument." >&2
             exit 2
             ;;
     esac
 done
+
+if [[ $rebuild_only -eq 1 ]]; then
+    dest=/etc/wasd/loading-background.png
+    if [[ ! $rebuild_digest =~ ^[0-9a-f]{64}$ || ! -f $dest ]]; then
+        echo "The loading picture is not ready." >&2
+        exit 1
+    fi
+    actual=$(sha256sum "$dest" | awk 'NR==1 { print $1 }')
+    if [[ $rebuild_digest != "$actual" ]]; then
+        echo "The loading picture changed." >&2
+        exit 1
+    fi
+    if ! rebuild_loading; then
+        exit 1
+    fi
+    install -d -m 0755 /etc/wasd
+    printf '%s\n' "$actual" > /etc/wasd/loading-rebuilt
+    chmod 0644 /etc/wasd/loading-rebuilt
+    exit 0
+fi
 
 if [[ $current -eq 1 ]]; then
     current_avatar
@@ -394,63 +467,29 @@ if [[ $lock_uid =~ ^[0-9]+$ && $lock_uid != 0 ]]; then
     fi
 fi
 
-rebuild_loading() {
-    local log output status
-    log=$(mktemp)
-    if command -v rpm-ostree >/dev/null 2>&1; then
-        set +e
-        output=$(rpm-ostree initramfs --enable --arg=-I --arg=/etc/wasd/loading-background.png 2>&1)
-        status=$?
-        set -e
-        if [[ $status -eq 0 ]]; then
-            rm -f "$log"
-            return 0
-        fi
-        if grep -qi 'already enabled' <<<"$output"; then
-            # The same request does not rebuild. Turn it off and back on
-            # so this picture is included. Neither command reboots.
-            if ! rpm-ostree initramfs --disable >"$log" 2>&1; then
-                cat "$log" >&2
-                rm -f "$log"
-                return 1
-            fi
-            if ! rpm-ostree initramfs --enable --arg=-I --arg=/etc/wasd/loading-background.png >"$log" 2>&1; then
-                cat "$log" >&2
-                rm -f "$log"
-                return 1
-            fi
-            rm -f "$log"
-            return 0
-        fi
-        printf '%s\n' "$output" >&2
-        rm -f "$log"
-        return "$status"
-    fi
-    if command -v dracut >/dev/null 2>&1; then
-        if ! dracut -f >"$log" 2>&1; then
-            cat "$log" >&2
-            rm -f "$log"
-            return 1
-        fi
-        rm -f "$log"
-        return 0
-    fi
-    rm -f "$log"
-    echo "This system cannot rebuild the loading screen." >&2
-    return 1
+loading_digest() {
+    sha256sum "$dest" | awk 'NR==1 { print $1 }'
 }
 
-if ! rebuild_loading; then
-    if [[ $avatar_set -eq 1 ]]; then
-        echo "The user picture and the login screen are saved. The lock screen uses that same picture. The loading screen waits for the next system update, then a restart."
-    else
-        echo "The login screen is saved. The lock screen uses that same picture. The loading screen waits for the next system update, then a restart."
-    fi
-    exit 0
+# The pictures are already saved. Rebuilding the boot picture takes several
+# minutes and used to leave WASD Look on Applying until it finished. Skip it
+# when this picture is already included. Otherwise start it and return.
+loading_note="The loading screen changes on the next boot."
+digest=$(loading_digest || true)
+stamp=/etc/wasd/loading-rebuilt
+if [[ ! $digest =~ ^[0-9a-f]{64}$ ]]; then
+    loading_note="The loading screen waits for the next system update, then a restart."
+elif [[ -f $stamp ]] && [[ $(tr -d '[:space:]' < "$stamp") == "$digest" ]]; then
+    :
+elif systemctl is-active --quiet wasd-loading-rebuild.service 2>/dev/null; then
+    :
+elif ! systemd-run --collect --unit=wasd-loading-rebuild --quiet \
+    /usr/libexec/wasd-apply-look --rebuild-loading "$digest"; then
+    loading_note="The loading screen waits for the next system update, then a restart."
 fi
 
 if [[ $avatar_set -eq 1 ]]; then
-    echo "The user picture and the login screen change at the next login. The lock screen uses that same picture the next time the screen locks. The loading screen changes on the next boot."
+    echo "The user picture and the login screen change at the next login. The lock screen uses that same picture the next time the screen locks. ${loading_note}"
 else
-    echo "The login screen changes at the next login. The lock screen uses that same picture the next time the screen locks. The loading screen changes on the next boot."
+    echo "The login screen changes at the next login. The lock screen uses that same picture the next time the screen locks. ${loading_note}"
 fi
