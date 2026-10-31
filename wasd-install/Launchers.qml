@@ -22,6 +22,8 @@ Window {
     property string confirmName: ""
     property string rowError: ""
     property string programFor: ""
+    property bool rockstarWarn: false
+    readonly property string rockstarWarnBody: "Click OK on the final error in the Rockstar installation. It still works."
 
     readonly property color bg: "#14161a"
     readonly property color titlebar: "#101114"
@@ -148,6 +150,19 @@ Window {
             win.applyStatus(xhr.responseText || "")
         }
         xhr.send("")
+    }
+
+    function startInstall(name) {
+        if (name === "Rockstar Launcher") {
+            rockstarWarn = true
+            return
+        }
+        act("/install", name)
+    }
+
+    function dismissRockstarWarn() {
+        rockstarWarn = false
+        act("/install", "Rockstar Launcher")
     }
 
     function act(path, name) {
@@ -431,7 +446,7 @@ Window {
                                                 programDialog.open()
                                             return
                                         }
-                                        win.act("/install", name)
+                                        win.startInstall(name)
                                     }
                                 }
                             }
@@ -680,5 +695,83 @@ Window {
             win.attachProgram(name, path)
         }
         onRejected: win.programFor = ""
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: win.rockstarWarn
+        z: 20
+        color: Qt.rgba(0, 0, 0, 0.62)
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        Rectangle {
+            objectName: "rockstarInstallWarn"
+            anchors.centerIn: parent
+            width: Math.min(520, parent.width - 80)
+            height: rockstarInstallColumn.height + 36
+            radius: 14
+            color: win.card
+            border.width: 1
+            border.color: win.line
+
+            MouseArea {
+                anchors.fill: parent
+            }
+
+            Column {
+                id: rockstarInstallColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 18
+                spacing: 12
+
+                Text {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: "Rockstar Launcher"
+                    color: win.ink
+                    font.family: win.titleFont
+                    font.pixelSize: 26
+                }
+
+                Text {
+                    objectName: "rockstarInstallWarnBody"
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: win.rockstarWarnBody
+                    color: win.ink
+                    font.family: win.bodyFont
+                    font.pixelSize: 16
+                }
+
+                Rectangle {
+                    objectName: "rockstarInstallWarnOk"
+                    width: rockstarInstallOkLabel.implicitWidth + 28
+                    height: 36
+                    radius: 9
+                    color: win.button
+
+                    Text {
+                        id: rockstarInstallOkLabel
+                        anchors.centerIn: parent
+                        text: "OK"
+                        color: win.buttonInk
+                        font.family: win.bodyFont
+                        font.pixelSize: 16
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: win.dismissRockstarWarn()
+                    }
+                }
+            }
+        }
     }
 }

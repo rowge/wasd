@@ -1395,6 +1395,11 @@ def self_check():
         raise SystemExit("Battle.net has no login warning")
     if "dismissBattleNetWarn" not in main:
         raise SystemExit("the Battle.net warning cannot be closed")
+    rockstar_warn = "Click OK on the final error in the Rockstar installation. It still works."
+    if rockstar_warn not in main or "dismissRockstarWarn" not in main:
+        raise SystemExit("Rockstar has no installer warning")
+    if rockstar_warn not in launch or "rockstarInstallWarn" not in launch:
+        raise SystemExit("WASD Launchers has no Rockstar warning")
     for name in CATALOG:
         if name not in launch:
             raise SystemExit(f"{name} is missing from WASD Launchers")

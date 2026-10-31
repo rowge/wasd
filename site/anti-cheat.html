@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>What's not supported, and how to help. — WASD</title>
-  <meta name="description" content="What will not run on WASD, including the EA App, and how to ask the studios for support.">
+  <meta name="description" content="What will not run on Linux, including the EA App, and how to ask the studios for support.">
   <meta name="theme-color" content="#14161a">
   <link rel="icon" href="favicon.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20261031-1">
+  <link rel="stylesheet" href="styles.css?v=20261031-4">
 </head>
 <body class="guide">
   <div class="guide-rail">
@@ -24,39 +24,48 @@
   <main>
     <p class="back"><a href="/">WASD</a></p>
     <h1>What's not supported, and how to help.</h1>
-    <p>Some well-known games will not run here. The list below is the ones people ask about. It is not every game. This is the state of those games on Linux as of October 2026. It is not a test of one WASD computer.</p>
+    <p>Some well-known games will not run on Linux. The list below is the ones people ask about. It is not every game. This is the state of those games on Linux as of October 2026.</p>
 
     <h2>What will not run</h2>
     <ul class="missing">
-      <li>Valorant and League of Legends. They use Vanguard, and there is no version of it for this system.</li>
-      <li>Call of Duty and Warzone. They use Ricochet, and there is no version of it for this system.</li>
-      <li>Battlefield 6, and other EA games that use Javelin. That anti-cheat does not run here.</li>
+      <li>Valorant and League of Legends. They use Vanguard, and there is no version of it for Linux.</li>
+      <li>Call of Duty and Warzone. They use Ricochet, and there is no version of it for Linux.</li>
+      <li>Battlefield 6, and other EA games that use Javelin. That anti-cheat does not run on Linux.</li>
       <li>Fortnite. It uses Easy Anti-Cheat, and Epic has not turned the Linux mode on.</li>
       <li>Apex Legends. It had Linux support, and EA turned it off in October 2024.</li>
       <li>Rainbow Six Siege. It uses BattlEye, and Ubisoft has not turned that mode on.</li>
       <li>Grand Theft Auto Online. It uses BattlEye, which Rockstar added in September 2024, and Rockstar has not turned that mode on.</li>
-      <li>Destiny 2. It uses BattlEye. Bungie says the game is not supported here. Trying to get around that check can close the account.</li>
+      <li>Destiny 2. It uses BattlEye. Bungie says the game is not supported on Linux. Trying to get around that check can close the account.</li>
       <li>Red Dead Online. It is not reliable.</li>
-      <li>The EA App. It is currently known broken. I'll add it back as soon as I become aware that it is fixed.</li>
+      <li>The EA App. It is currently known broken on Linux. I'll add it back as soon as I become aware that it is fixed.</li>
+    </ul>
+
+    <h2>What works</h2>
+    <ul class="works">
+      <li>Steam is ready to sign in.</li>
+      <li>Battle.net is ready to install. Do not log in at the end of the installation. Close the window, and sign in the next time you open it.</li>
+      <li>Ubisoft Connect is ready to install. A story you play on your own usually runs on Linux. Rainbow Six Siege does not.</li>
+      <li>The Rockstar Launcher is ready to install. Click OK on the final error. It still works. The Grand Theft Auto V story and the Red Dead Redemption 2 story usually run on Linux. Grand Theft Auto Online and Red Dead Online do not.</li>
+      <li>Minecraft is ready to install. This is Java Edition.</li>
     </ul>
 
     <h3>No path at all</h3>
-    <p>The game checks for its anti-cheat before it starts. When that check has no way to run here, the game does not start.</p>
-    <p>Valorant and League of Legends use Vanguard. It is a Windows driver that starts with Windows, before the game. There is no version of it for this system. Those games run here only if Riot ships a different anti-cheat.</p>
-    <p>Call of Duty and Warzone use Ricochet. It is the same kind of Windows driver. There is no version of it for this system.</p>
-    <p>Battlefield 6, and other EA games that use Javelin, use a Windows kernel anti-cheat. It does not run here.</p>
+    <p>The game checks for its anti-cheat before it starts. When that check has no way to run on Linux, the game does not start.</p>
+    <p>Valorant and League of Legends use Vanguard. It is a Windows driver that starts with Windows, before the game. There is no version of it for Linux. Those games run on Linux only if Riot ships a different anti-cheat.</p>
+    <p>Call of Duty and Warzone use Ricochet. It is the same kind of Windows driver. There is no version of it for Linux.</p>
+    <p>Battlefield 6, and other EA games that use Javelin, use a Windows kernel anti-cheat. It does not run on Linux.</p>
     <h3>The studio can turn it on</h3>
-    <p>Easy Anti-Cheat and BattlEye are also Windows drivers. Each one also has a separate mode for Proton. Proton is the part of this system that runs a Windows game. That mode is not the Windows driver running on Linux. The studio that publishes the game is the one that turns it on.</p>
-    <p>Elden Ring and Rust have it on. Those games can run.</p>
-    <p>Fortnite uses Easy Anti-Cheat, and Epic has not turned that mode on. Apex Legends had Linux support, and EA turned it off in October 2024. Rainbow Six Siege uses BattlEye, and Ubisoft has not turned that mode on. Grand Theft Auto Online uses BattlEye, which Rockstar added in September 2024, and Rockstar has not turned that mode on. Destiny 2 uses BattlEye. Bungie says the game is not supported here. Trying to get around that check can close the account.</p>
+    <p>Easy Anti-Cheat and BattlEye are also Windows drivers. Each one also has a separate mode for Proton. Proton is what runs a Windows game on Linux. That mode is not the Windows driver running on Linux. The studio that publishes the game is the one that turns it on.</p>
+    <p>Elden Ring and Rust have it on. Those games can run on Linux.</p>
+    <p>Fortnite uses Easy Anti-Cheat, and Epic has not turned that mode on. Apex Legends had Linux support, and EA turned it off in October 2024. Rainbow Six Siege uses BattlEye, and Ubisoft has not turned that mode on. Grand Theft Auto Online uses BattlEye, which Rockstar added in September 2024, and Rockstar has not turned that mode on. Destiny 2 uses BattlEye. Bungie says the game is not supported on Linux. Trying to get around that check can close the account.</p>
     <h3>The EA App</h3>
-    <p>The EA App is currently known broken. Its installer does not finish, so WASD does not set it up. I'll add it back as soon as I become aware that it is fixed.</p>
-    <p>Games from EA need that app. That includes a game with no anti-cheat. Until the app works, those games are not part of WASD. Apex Legends, EA Sports FC online, and Battlefield 6 online also use anti-cheat that does not run here.</p>
+    <p>The EA App is currently known broken on Linux. Its installer does not finish. I'll add it back as soon as I become aware that it is fixed.</p>
+    <p>Games from EA need that app. That includes a game with no anti-cheat. Until the app works on Linux, those games are not included. Apex Legends, EA Sports FC online, and Battlefield 6 online also use anti-cheat that does not run on Linux.</p>
     <h3>Games from Ubisoft and Rockstar</h3>
-    <p>Ubisoft Connect and the Rockstar Launcher do open. A game you play on your own from those stores is the kind that usually runs. The Assassin's Creed and Far Cry stories, the Grand Theft Auto V story, and the Red Dead Redemption 2 story are in that group.</p>
-    <p>An online game from the same store can still refuse to start. Rainbow Six Siege and Grand Theft Auto Online are in that group. Red Dead Online is not reliable. The single-player story of Grand Theft Auto can still be played. The online mode cannot.</p>
+    <p>Ubisoft Connect and the Rockstar Launcher do open. A game you play on your own from those stores is the kind that usually runs on Linux. The Assassin's Creed and Far Cry stories, the Grand Theft Auto V story, and the Red Dead Redemption 2 story are in that group.</p>
+    <p>An online game from the same store can still refuse to start. Rainbow Six Siege and Grand Theft Auto Online are in that group. Red Dead Online is not reliable. The single-player story of Grand Theft Auto can still be played on Linux. The online mode cannot.</p>
 
-    <h2>Here's what you can do to help</h2>
+    <h2 class="help">Here's what you can do to help</h2>
     <p>Contact the studios and tell them you demand Linux support. A polite note is the one a studio can pass along. You can send this. Put the game's name in the first lines.</p>
     <pre class="letter">Hello,
 

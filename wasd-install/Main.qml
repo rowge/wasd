@@ -74,7 +74,10 @@ Window {
     property var agentOn: ({})
     property var launcherOn: ({})
     property bool battleNetWarn: false
+    property bool rockstarWarn: false
+    property bool rockstarWarnNext: false
     readonly property string battleNetWarnBody: "Do not log in at the end of the Battle.net installation. Just close the window."
+    readonly property string rockstarWarnBody: "Click OK on the final error in the Rockstar installation. It still works."
     property var searchHits: []
     property var pickedExtras: []
     property var warnings: [
@@ -1085,26 +1088,42 @@ Window {
     }
 
     function toggleLauncher(name) {
-        const turningOn = name === "Battle.net" && !launcherOn[name]
+        const battleOn = name === "Battle.net" && !launcherOn[name]
+        const rockstarOn = name === "Rockstar Launcher" && !launcherOn[name]
         const copy = Object.assign({}, launcherOn)
         copy[name] = !copy[name]
         launcherOn = copy
-        if (turningOn)
+        if (battleOn)
             battleNetWarn = true
+        else if (rockstarOn)
+            rockstarWarn = true
     }
 
     function selectAllLaunchers() {
-        const show = !launcherOn["Battle.net"]
+        const battle = !launcherOn["Battle.net"]
+        const rockstar = !launcherOn["Rockstar Launcher"]
         const copy = {}
         for (let i = 0; i < launcherNames.length; i++)
             copy[launcherNames[i]] = true
         launcherOn = copy
-        if (show)
+        rockstarWarnNext = battle && rockstar
+        if (battle)
             battleNetWarn = true
+        else if (rockstar)
+            rockstarWarn = true
     }
 
     function dismissBattleNetWarn() {
         battleNetWarn = false
+        if (rockstarWarnNext) {
+            rockstarWarnNext = false
+            rockstarWarn = true
+        }
+    }
+
+    function dismissRockstarWarn() {
+        rockstarWarn = false
+        rockstarWarnNext = false
     }
 
     function selectNoneLaunchers() {
@@ -1564,6 +1583,87 @@ Window {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: win.dismissBattleNetWarn()
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: win.rockstarWarn
+        z: 21
+        color: Qt.rgba(0, 0, 0, 0.62)
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        Rectangle {
+            objectName: "rockstarWarn"
+            z: 1
+            anchors.centerIn: parent
+            width: Math.min(520, parent.width - 80)
+            height: rockstarColumn.height + 36
+            radius: 14
+            color: win.card
+            border.width: 1
+            border.color: win.line
+            antialiasing: true
+
+            MouseArea {
+                anchors.fill: parent
+            }
+
+            Column {
+                id: rockstarColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 18
+                spacing: 12
+
+                Text {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: "Rockstar Launcher"
+                    color: win.ink
+                    font.family: win.titleFont
+                    font.pixelSize: 26
+                }
+
+                Text {
+                    objectName: "rockstarWarnBody"
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: win.rockstarWarnBody
+                    color: win.ink
+                    font.family: win.bodyFont
+                    font.pixelSize: 16
+                }
+
+                Rectangle {
+                    objectName: "rockstarWarnOk"
+                    width: rockstarOkLabel.implicitWidth + 28
+                    height: 36
+                    radius: 9
+                    color: win.button
+                    antialiasing: true
+
+                    Text {
+                        id: rockstarOkLabel
+                        anchors.centerIn: parent
+                        text: "OK"
+                        color: win.buttonInk
+                        font.family: win.bodyFont
+                        font.pixelSize: 16
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: win.dismissRockstarWarn()
                     }
                 }
             }

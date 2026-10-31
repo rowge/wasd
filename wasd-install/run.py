@@ -572,15 +572,47 @@ def qml_app(save_path, shot_dir, live):
         if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Ubisoft Connect")):
             raise SystemExit("toggleLauncher did not run for Ubisoft Connect")
         pump(50)
+        if window.property("battleNetWarn") is not False or window.property("rockstarWarn") is not False:
+            raise SystemExit("Ubisoft Connect opened a launcher warning")
+        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Rockstar Launcher")):
+            raise SystemExit("toggleLauncher did not run for Rockstar Launcher")
+        pump(50)
         if window.property("battleNetWarn") is not False:
-            raise SystemExit("Ubisoft Connect opened the Battle.net warning")
+            raise SystemExit("Rockstar opened the Battle.net warning")
+        if window.property("rockstarWarn") is not True:
+            raise SystemExit("Rockstar did not open the warning")
+        rockstar_body = quick.findChild(QQuickItem, "rockstarWarnBody")
+        expected_rockstar = "Click OK on the final error in the Rockstar installation. It still works."
+        if rockstar_body is None or rockstar_body.property("text") != expected_rockstar:
+            raise SystemExit(f"Rockstar warning was {None if rockstar_body is None else rockstar_body.property('text')}")
+        if quick.findChild(QQuickItem, "rockstarWarnOk") is None:
+            raise SystemExit("the Rockstar warning has no OK")
+        if not QMetaObject.invokeMethod(window, "dismissRockstarWarn"):
+            raise SystemExit("the Rockstar warning did not close")
+        pump(50)
+        if window.property("rockstarWarn") is not False:
+            raise SystemExit("the Rockstar warning stayed open")
+        if "Rockstar Launcher" not in (window.property("launcherSummary") or ""):
+            raise SystemExit("closing the warning unchecked Rockstar")
+        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Rockstar Launcher")):
+            raise SystemExit("toggleLauncher did not turn Rockstar off")
+        pump(50)
+        if window.property("rockstarWarn") is not False:
+            raise SystemExit("turning Rockstar off opened the warning")
         if not QMetaObject.invokeMethod(window, "selectAllLaunchers"):
             raise SystemExit("selectAllLaunchers did not run")
         pump(50)
         if window.property("battleNetWarn") is not True:
             raise SystemExit("Select All did not warn about Battle.net")
+        if window.property("rockstarWarn") is not False:
+            raise SystemExit("Select All showed Rockstar before Battle.net")
         if not QMetaObject.invokeMethod(window, "dismissBattleNetWarn"):
             raise SystemExit("the Battle.net warning did not close")
+        pump(50)
+        if window.property("rockstarWarn") is not True:
+            raise SystemExit("Select All did not warn about Rockstar after Battle.net")
+        if not QMetaObject.invokeMethod(window, "dismissRockstarWarn"):
+            raise SystemExit("the Rockstar warning did not close")
         pump(50)
         launcher_summary = window.property("launcherSummary") or ""
         if "Battle.net" not in launcher_summary or "Rockstar Launcher" not in launcher_summary:

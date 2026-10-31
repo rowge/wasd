@@ -126,6 +126,12 @@ body.guide h2 {
   font-size: 1.35rem;
 }
 
+body.guide h2.help {
+  font-size: 2.15rem;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
 body.guide h3 {
   margin: 1rem 0 0;
   font-size: 1.1rem;
@@ -133,12 +139,14 @@ body.guide h3 {
 
 body.guide p { margin: 0.55rem 0 0; }
 
-body.guide ul.missing {
+body.guide ul.missing,
+body.guide ul.works {
   margin: 0.85rem 0 0;
   padding: 0 0 0 1.2rem;
 }
 
-body.guide ul.missing li {
+body.guide ul.missing li,
+body.guide ul.works li {
   margin: 0.45rem 0 0;
   padding: 0;
 }
@@ -359,7 +367,8 @@ body.guide figcaption {
 
 @media (max-width: 640px) {
   .hero { height: min(46vh, 70vw, max(6rem, calc(100dvh - 28rem))); }
-  h1 { font-size: 1.7rem; }
+  h1,
+  body.guide h2.help { font-size: 1.7rem; }
   .downloads { gap: 1.2rem; }
   .btn.wide { white-space: normal; }
 }
@@ -586,7 +595,7 @@ body.home {
 
 .home .logos {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.75rem;
   margin: 1.5rem 0 0;
   padding: 0;
