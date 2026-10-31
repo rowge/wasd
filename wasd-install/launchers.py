@@ -20,7 +20,6 @@ from pathlib import Path
 GAMES_DIRS = (
     "launchers",
     "battlenet",
-    "ea",
     "ubisoft",
     "rockstar",
     "minecraft",
@@ -28,7 +27,8 @@ GAMES_DIRS = (
     "saves",
 )
 # A games drive prepared before Minecraft and custom still counts.
-_READY_DIRS = ("launchers", "battlenet", "ea", "ubisoft", "rockstar", "saves")
+# ea is not required, so an older drive still counts.
+_READY_DIRS = ("launchers", "battlenet", "ubisoft", "rockstar", "saves")
 BANNED_ARGS = {"/S", "-S", "/silent", "--silent", "/SILENT", "--silent"}
 _CUSTOM_ID = re.compile(r"custom([1-9]\d*)")
 
@@ -65,12 +65,6 @@ CATALOG = {
         "https://www.battle.net/download/getInstallerForGame?os=win&installer=Battle.net-Setup.exe",
         "Battle.net-Setup.exe",
         ("drive_c", "Program Files (x86)", "Battle.net", "Battle.net Launcher.exe"),
-    ),
-    "EA App": Launcher(
-        "ea",
-        "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
-        "EAappInstaller.exe",
-        ("drive_c", "Program Files", "Electronic Arts", "EA Desktop", "EA Desktop", "EALauncher.exe"),
     ),
     "Ubisoft Connect": Launcher(
         "ubisoft",
@@ -1001,6 +995,14 @@ def self_check():
             raise SystemExit(f"a bad launcher list was accepted: {bad}")
     if launchers_problem({"launchers": ["Nope"]}) != "Choose the launchers again. Nothing was erased.":
         raise SystemExit("an unknown launcher had the wrong refusal")
+    if "EA App" in CATALOG or "ea" in GAMES_DIRS or "ea" in _READY_DIRS:
+        raise SystemExit("EA App is still offered")
+    try:
+        names_from({"launchers": ["EA App"]})
+    except LauncherError:
+        pass
+    else:
+        raise SystemExit("EA App was still accepted")
     if launchers_problem({"user": "alex"}) != "":
         raise SystemExit("a missing launcher list was refused")
 
@@ -1103,7 +1105,7 @@ def self_check():
         if len(fetches) != before or not calls[-1][0][-1].endswith("Battle.net Launcher.exe"):
             raise SystemExit("Launch did not start the installed launcher")
         try:
-            launch_installed(home, "EA App", runner, root)
+            launch_installed(home, "Ubisoft Connect", runner, root)
         except LauncherError:
             pass
         else:
@@ -1112,22 +1114,22 @@ def self_check():
         install_launcher(home, "Battle.net", runner, fetch, root, force_setup=True)
         if len(fetches) != before or not calls[-1][0][-1].endswith("Battle.net-Setup.exe"):
             raise SystemExit("Reinstall did not open the setup")
-        ea = layout(home, "EA App", root)
-        (ea / "system.reg").write_text("ok\n", encoding="utf-8")
+        ubisoft = layout(home, "Ubisoft Connect", root)
+        (ubisoft / "system.reg").write_text("ok\n", encoding="utf-8")
         calls.clear()
-        install_launcher(home, "EA App", runner, fetch, root)
+        install_launcher(home, "Ubisoft Connect", runner, fetch, root)
         if any("wineboot" in item[0] for item in calls):
             raise SystemExit("a prepared prefix was created again")
-        if fetches[-1] != CATALOG["EA App"].setup_url:
-            raise SystemExit("the EA setup was not the published one")
+        if fetches[-1] != CATALOG["Ubisoft Connect"].setup_url:
+            raise SystemExit("the Ubisoft setup was not the published one")
         rows = {row["name"]: row for row in status_rows(home, root)}
-        if not rows["Battle.net"]["ready"] or rows["EA App"]["ready"]:
+        if "EA App" in rows or not rows["Battle.net"]["ready"] or rows["Ubisoft Connect"]["ready"]:
             raise SystemExit(f"the menu status was wrong: {rows}")
         write_marker()
         if marker_path().read_text(encoding="utf-8") != "ok\n":
             raise SystemExit("the launcher marker was not written")
         log = Path(os.environ["WASD_APP_LOG"]).read_text(encoding="utf-8")
-        if "Battle.net\n" not in log or "EA App\n" not in log:
+        if "Battle.net\n" not in log or "Ubisoft Connect\n" not in log:
             raise SystemExit("the install log did not name the launcher")
         mine = layout(home, "Minecraft", root)
         world_link = mine / "drive_c" / "users" / "steamuser" / "AppData" / "Roaming" / ".minecraft"
@@ -1264,7 +1266,7 @@ def self_check():
                 if response.read().decode() != "ok" or not calls[-1][0][-1].endswith("Battle.net-Setup.exe"):
                     raise SystemExit("the window reinstall did not open the setup")
             missing = urllib.request.Request(
-                f"http://127.0.0.1:{port}/launch", data=b"EA App", method="POST"
+                f"http://127.0.0.1:{port}/launch", data=b"Ubisoft Connect", method="POST"
             )
             try:
                 urllib.request.urlopen(missing, timeout=2)
@@ -1396,6 +1398,8 @@ def self_check():
     for name in CATALOG:
         if name not in launch:
             raise SystemExit(f"{name} is missing from WASD Launchers")
+    if "EA App" in launch or "EA App" in main:
+        raise SystemExit("EA App is still in the installer")
     if "preview" not in launch or "/remake" not in launch or "/launch" not in launch:
         raise SystemExit("WASD Launchers cannot preview, launch, or remake")
     if "Nuke/Fix" not in launch or "Reinstall" not in launch or "Saved games stay." not in launch:

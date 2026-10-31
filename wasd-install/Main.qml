@@ -120,7 +120,7 @@ Window {
         "Hermes Desktop", "OpenClaw", "Perplexity", "T3 Code", "LM Studio", "Ollama"
     ]
     readonly property var launcherNames: [
-        "Battle.net", "EA App", "Ubisoft Connect", "Rockstar Launcher", "Minecraft"
+        "Battle.net", "Ubisoft Connect", "Rockstar Launcher", "Minecraft"
     ]
 
     readonly property var iconFiles: files.icons || []

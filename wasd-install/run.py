@@ -569,11 +569,11 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if window.property("battleNetWarn") is not False:
             raise SystemExit("turning Battle.net off opened the warning")
-        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "EA App")):
-            raise SystemExit("toggleLauncher did not run for EA App")
+        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Ubisoft Connect")):
+            raise SystemExit("toggleLauncher did not run for Ubisoft Connect")
         pump(50)
         if window.property("battleNetWarn") is not False:
-            raise SystemExit("EA App opened the Battle.net warning")
+            raise SystemExit("Ubisoft Connect opened the Battle.net warning")
         if not QMetaObject.invokeMethod(window, "selectAllLaunchers"):
             raise SystemExit("selectAllLaunchers did not run")
         pump(50)

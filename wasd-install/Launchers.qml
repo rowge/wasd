@@ -42,7 +42,6 @@ Window {
         launcherModel.clear()
         const rows = [
             ["Battle.net", "battlenet"],
-            ["EA App", "ea"],
             ["Ubisoft Connect", "ubisoft"],
             ["Rockstar Launcher", "rockstar"],
             ["Minecraft", "minecraft"]
