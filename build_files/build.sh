@@ -420,6 +420,11 @@ grep -q '^LC_TIME="en_US.UTF-8"$' /etc/locale.conf
 grep -q '^LC_TIME=en_US.UTF-8$' /etc/xdg/plasma-localerc
 grep -q '^LANG=C.UTF-8$' /etc/skel/.config/plasma-localerc
 grep -q '^LC_TIME=en_US.UTF-8$' /etc/skel/.config/plasma-localerc
+# Plugged in: the screen turns off after 5 minutes and the machine stays awake.
+# AutoSuspendAction 0 is PowerDevil's NoAction. Battery profiles are untouched.
+grep -q '^TurnOffDisplayWhenIdle=true$' /etc/xdg/powerdevilrc
+grep -q '^TurnOffDisplayIdleTimeoutSec=300$' /etc/xdg/powerdevilrc
+grep -q '^AutoSuspendAction=0$' /etc/xdg/powerdevilrc
 if ! locale -a | grep -Eiq '^en_US\.(utf8|utf-8)$'; then
     echo "en_US.UTF-8 locale is not installed" >&2
     exit 1
