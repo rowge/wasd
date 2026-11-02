@@ -142,8 +142,23 @@ test -x /usr/bin/wasd-qml
 ldd /usr/bin/wasd-qml | grep 'libQt6Qml.so' >/dev/null
 
 # Keep shared libraries. Only the Waydroid packages themselves go.
-dnf5 -y remove --setopt=clean_requirements_on_remove=False waydroid waydroid-selinux
-if rpm -q waydroid >/dev/null 2>&1 || rpm -q waydroid-selinux >/dev/null 2>&1; then
+# The NVIDIA image ships waydroid-nvidia, which provides waydroid.
+# Removing the name waydroid leaves that package and its menu entry.
+waydroid_pkgs=()
+for name in waydroid waydroid-selinux waydroid-nvidia waydroid-nvidia-selinux; do
+    if rpm -q "$name" >/dev/null 2>&1; then
+        waydroid_pkgs+=("$name")
+    fi
+done
+if ((${#waydroid_pkgs[@]})); then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=False "${waydroid_pkgs[@]}"
+fi
+if rpm -q waydroid >/dev/null 2>&1 \
+    || rpm -q waydroid-selinux >/dev/null 2>&1 \
+    || rpm -q waydroid-nvidia >/dev/null 2>&1 \
+    || rpm -q waydroid-nvidia-selinux >/dev/null 2>&1 \
+    || rpm -q --whatprovides waydroid >/dev/null 2>&1 \
+    || [[ -e /usr/bin/waydroid || -e /usr/share/applications/Waydroid.desktop ]]; then
     echo "waydroid is still installed" >&2
     exit 1
 fi
@@ -189,6 +204,11 @@ fi
 # Bazzite's flatpak recipe downloads their list from GitHub on each run.
 # Point it at the list in this image or Firefox comes back.
 python3 /ctx/patch.py
+if grep -q 'id: "waydroid"' /usr/share/yafti/yafti.yml \
+    || grep -q "id: 'waydroid'" /usr/share/yafti/yafti.yml; then
+    echo "the portal still offers Waydroid" >&2
+    exit 1
+fi
 
 # Theme files are already in place. The base image's initramfs still has
 # Bazzite's splash baked in, so the installed system needs a new one.
@@ -393,6 +413,24 @@ test ! -e /etc/skel/.ssh/authorized_keys
 test ! -e /etc/ssh/sshd_config.d/50-wasd-test.conf
 test ! -e /usr/lib/systemd/system/multi-user.target.wants/sshd.service
 test "$(readlink /etc/localtime)" = "../usr/share/zoneinfo/America/Los_Angeles"
+# Plasma's digital clock follows LC_TIME and has no 12/24 switch.
+# C.UTF-8 is 24-hour. en_US is 12-hour. LANG stays C.
+grep -q '^LANG="C.UTF-8"$' /etc/locale.conf
+grep -q '^LC_TIME="en_US.UTF-8"$' /etc/locale.conf
+grep -q '^LC_TIME=en_US.UTF-8$' /etc/xdg/plasma-localerc
+grep -q '^LANG=C.UTF-8$' /etc/skel/.config/plasma-localerc
+grep -q '^LC_TIME=en_US.UTF-8$' /etc/skel/.config/plasma-localerc
+if ! locale -a | grep -Eiq '^en_US\.(utf8|utf-8)$'; then
+    echo "en_US.UTF-8 locale is not installed" >&2
+    exit 1
+fi
+python3 - << 'PY'
+import locale
+locale.setlocale(locale.LC_TIME, "en_US.UTF-8")
+fmt = locale.nl_langinfo(locale.T_FMT)
+if fmt != "%r":
+    raise SystemExit(f"en_US time format is {fmt}, expected %r")
+PY
 for gone in \
     app/com.discordapp.Discord/ \
     app/im.riot.Riot/ \

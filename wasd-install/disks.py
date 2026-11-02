@@ -280,7 +280,10 @@ def live_payload():
     if legacy:
         warnings.append("Set the firmware to UEFI in the BIOS. The motherboard manual explains how.")
     if secure_boot_on():
-        warnings.append("Secure Boot is on. On the next boot, choose Enroll MOK and enter universalblue.")
+        warnings.append(
+            "Secure Boot is on. The next boot is a blue screen. "
+            "The steps are at wasd.run/mok. The password is universalblue."
+        )
     if 0 < memory_kb() < 5_000_000:
         warnings.append("This computer has very little memory. The install may fail.")
     if not disks:

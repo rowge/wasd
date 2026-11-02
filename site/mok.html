@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The blue Secure Boot screen — WASD</title>
+  <meta name="description" content="The blue screens after install, and the keys to press to enroll the Secure Boot key.">
+  <meta name="theme-color" content="#14161a">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="stylesheet" href="styles.css?v=20261031-4">
+</head>
+<body class="guide">
+  <div class="guide-rail">
+  <nav class="home-rail" aria-label="Guides">
+    <a href="https://wasd.run/">Download</a>
+    <a href="/usb">How to make the USB</a>
+    <a href="/apps">How to install WASD</a>
+    <a href="/apps#wasd-look">Make it yours</a>
+    <a href="/apps#launchers">Supports popular launchers</a>
+    <a href="/anti-cheat">Not supported</a>
+    <a href="https://github.com/rowge/wasd">GitHub</a>
+    <a href="/about">About</a>
+  </nav>
+  <main>
+    <p class="back"><a href="/apps">WASD</a></p>
+    <h1>The blue Secure Boot screen</h1>
+    <p>When Secure Boot is on, the boot after you install stops on a blue screen. The live session does not show it. The title is Shim UEFI key management. The black bar is the choice. The down arrow moves it. Enter takes it. There is no mouse.</p>
+    <p>The password is <code>universalblue</code>. Nothing you type appears. The keyboard is English QWERTY.</p>
+
+    <h2>Press a key</h2>
+    <figure>
+      <img src="images/mok-press-key.png?v=20261101" alt="A blue screen titled Shim UEFI key management. The center says Press any key to perform MOK management. The corner says Booting in 10 seconds.">
+      <figcaption>Press any key before the corner counts down to zero. If it boots on its own, the key is still waiting and this screen comes back next time.</figcaption>
+    </figure>
+
+    <h2>Enroll MOK</h2>
+    <figure>
+      <img src="images/mok-menu.png?v=20261101" alt="A blue screen titled Perform MOK management. Continue boot is highlighted in black. The other rows are Enroll MOK, Enroll key from disk, and Enroll hash from disk.">
+      <figcaption>Continue boot is highlighted. Leave it. Press the down arrow once, so Enroll MOK is highlighted, and press Enter.</figcaption>
+    </figure>
+
+    <h2>Continue</h2>
+    <figure>
+      <img src="images/mok-view.png?v=20261101" alt="A blue screen titled [Enroll MOK]. View key 0 is highlighted in black. Continue is the other row.">
+      <figcaption>View key 0 is highlighted. You can open it and come back. Press the down arrow so Continue is highlighted, and press Enter.</figcaption>
+    </figure>
+
+    <h2>Yes</h2>
+    <figure>
+      <img src="images/mok-yes.png?v=20261101" alt="A blue screen titled Enroll the key(s)?. No is highlighted in black. Yes is the other row.">
+      <figcaption>No is highlighted. Press the down arrow so Yes is highlighted, and press Enter. Enter on No leaves the key unenrolled.</figcaption>
+    </figure>
+
+    <h2>The password</h2>
+    <figure>
+      <img src="images/mok-password.png?v=20261101" alt="A blue screen with a small box that says Password:.">
+      <figcaption>Type <code>universalblue</code> and press Enter. The letters do not appear. A wrong password says Password doesn't match. After three wrong tries, the blue screen comes back on the next boot.</figcaption>
+    </figure>
+
+    <h2>Reboot</h2>
+    <figure>
+      <img src="images/mok-reboot.png?v=20261101" alt="A blue screen titled Perform MOK management. Reboot is highlighted in black. The other rows are Enroll key from disk and Enroll hash from disk.">
+      <figcaption>Reboot is highlighted. Enroll MOK is gone. Press Enter. The computer restarts, and the key is enrolled.</figcaption>
+    </figure>
+  </main>
+  </div>
+</body>
+</html>
