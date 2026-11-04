@@ -478,6 +478,6 @@ Item {
         host: page.host
         nextText: "Next"
         onBack: host.page = 1
-        onGo: host.page = 3
+        onGo: host.advanceApps()
     }
 }

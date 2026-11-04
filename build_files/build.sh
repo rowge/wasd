@@ -92,6 +92,7 @@ install -m 0644 /ctx/wasd-install/disks.py /usr/libexec/disks.py
 install -m 0755 /ctx/wasd-install/liveinfo.py /usr/libexec/wasd-live-info
 install -m 0755 /ctx/wasd-install/erase.py /usr/libexec/wasd-erase
 install -m 0755 /ctx/wasd-install/awake.py /usr/libexec/wasd-awake
+install -m 0755 /ctx/wasd-install/gamepower.py /usr/libexec/wasd-game-power
 install -m 0755 /ctx/wasd-install/set_password.py /usr/libexec/wasd-set-password
 install -m 0644 /ctx/wasd-install/set_password.py /usr/libexec/set_password.py
 install -m 0755 /ctx/wasd-install/network.py /usr/libexec/wasd-network
@@ -129,6 +130,11 @@ rpm -q gcc-c++ >/dev/null 2>&1 && had_cxx=1
 dnf5 -y install --setopt=install_weak_deps=False qt6-qtdeclarative-devel gcc-c++ pkgconf
 g++ -O2 -std=c++17 -o /usr/bin/wasd-qml /ctx/wasd-qml.cpp \
     $(pkg-config --cflags --libs Qt6Gui Qt6Qml Qt6Quick)
+# umu refuses to start as root. Minecraft's games folder is mounted in a
+# user namespace whose root is the signed-in account, and this library
+# reports that account's id so umu will start.
+gcc -O2 -shared -fPIC -o /usr/libexec/wasd-noroot.so /ctx/wasd-noroot.c
+test -f /usr/libexec/wasd-noroot.so
 if [[ $had_qml_devel -eq 0 ]]; then
     dnf5 -y remove --setopt=clean_requirements_on_remove=True qt6-qtdeclarative-devel
 fi

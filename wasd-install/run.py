@@ -131,7 +131,7 @@ def search_flathub(query):
         if not app_id or not name:
             continue
         found.append({"name": name, "id": app_id})
-        if len(found) >= 6:
+        if len(found) >= 12:
             break
     return found
 
@@ -647,6 +647,43 @@ def qml_app(save_path, shot_dir, live):
         if "Grok Build" not in agent_summary or agent_summary == "None selected":
             raise SystemExit(f"agents were not all selected: {agent_summary}")
         grab(shot / "agents-all.png")
+        window.setProperty("page", 2)
+        window.setProperty("appsOpen", "general")
+        pump(20)
+        if not QMetaObject.invokeMethod(window, "advanceApps"):
+            raise SystemExit("Next did not leave General")
+        pump(20)
+        if window.property("appsOpen") != "launchers" or int(window.property("page") or 0) != 2:
+            raise SystemExit(f"Next did not open Launchers: {window.property('appsOpen')} page {window.property('page')}")
+        if not QMetaObject.invokeMethod(window, "advanceApps"):
+            raise SystemExit("Next did not leave Launchers")
+        pump(20)
+        if window.property("appsOpen") != "agents" or int(window.property("page") or 0) != 2:
+            raise SystemExit(f"Next did not open Agents: {window.property('appsOpen')} page {window.property('page')}")
+        if not QMetaObject.invokeMethod(window, "advanceApps"):
+            raise SystemExit("Next did not leave Agents")
+        pump(20)
+        if int(window.property("page") or 0) != 3:
+            raise SystemExit(f"Next stayed on the apps page: {window.property('page')}")
+        window.setProperty("page", 2)
+        window.setProperty("appsOpen", "")
+        if not QMetaObject.invokeMethod(window, "advanceApps"):
+            raise SystemExit("Next did not open a closed section")
+        pump(20)
+        if window.property("appsOpen") != "general" or int(window.property("page") or 0) != 2:
+            raise SystemExit(f"Next skipped a closed section: {window.property('appsOpen')} page {window.property('page')}")
+        if not QMetaObject.invokeMethod(window, "queryEdited", Q_ARG("QVariant", "Proton")):
+            raise SystemExit("the app search did not run")
+        found_pass = False
+        shown = ""
+        for _ in range(25):
+            pump(200)
+            shown = window.property("searchShownIds") or ""
+            if "me.proton.Pass" in shown:
+                found_pass = True
+                break
+        if not found_pass:
+            raise SystemExit(f"Proton Pass was not offered: {shown!r}")
         window.setProperty("page", 3)
         window.setProperty("networkConnected", False)
         window.setProperty("networkOpen", True)

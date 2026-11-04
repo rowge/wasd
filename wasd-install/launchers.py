@@ -10,10 +10,13 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import threading
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -84,6 +87,8 @@ CATALOG = {
         "https://launcher.mojang.com/download/Minecraft.exe",
         "Minecraft.exe",
         ("drive_c", "Program Files (x86)", "Minecraft Launcher", "MinecraftLauncher.exe"),
+        # Mounted over the games folder at launch. A symlink makes this
+        # launcher refuse to create its files, and typing in it stalls.
         user_link=("AppData", "Roaming", ".minecraft"),
     ),
 }
@@ -331,21 +336,6 @@ def _unlink_tree(path):
     path.rmdir()
 
 
-def _link_under(folder, parts, target):
-    """Point folder/parts at target. Parent folders are created, never followed."""
-    if not parts:
-        return
-    current = _safe_dir(folder)
-    for part in parts[:-1]:
-        if part in ("", ".", ".."):
-            raise LauncherError("The launcher folder is a link.")
-        current = _safe_dir(current / part)
-    leaf = parts[-1]
-    if leaf in ("", ".", ".."):
-        raise LauncherError("The launcher folder is a link.")
-    _replace_link(current / leaf, target)
-
-
 def _replace_link(link, target):
     """Point link at target. A real directory is moved aside, never followed."""
     link = Path(link)
@@ -368,22 +358,153 @@ def _replace_link(link, target):
     link.symlink_to(target)
 
 
+def _account_names(user_name):
+    names = []
+    for name in (user_name, "steamuser"):
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _prepare_game_mount(folder, parts, target):
+    """Leave an empty real directory where the games folder is mounted.
+
+    Minecraft will not create a folder through a symlink, and it retries
+    that path while the window is waiting for a key. The mount exists only
+    for the launch command. A remake deletes this empty directory and
+    leaves the games folder alone.
+    """
+    if not parts:
+        return
+    current = _safe_dir(folder)
+    for part in parts[:-1]:
+        if part in ("", ".", ".."):
+            raise LauncherError("The launcher folder is a link.")
+        current = _safe_dir(current / part)
+    leaf = parts[-1]
+    if leaf in ("", ".", ".."):
+        raise LauncherError("The launcher folder is a link.")
+    slot = current / leaf
+    target = _safe_dir(target)
+    if slot.is_symlink():
+        slot.unlink()
+    elif slot.is_dir():
+        for child in list(slot.iterdir()):
+            dest = target / child.name
+            if dest.exists() or dest.is_symlink():
+                continue
+            shutil.move(str(child), str(dest))
+        if any(slot.iterdir()):
+            raise LauncherError("The games drive could not be prepared.")
+    elif slot.exists():
+        raise LauncherError("The games drive could not be prepared.")
+    slot.mkdir(parents=True, exist_ok=True)
+    if slot.is_symlink() or not slot.is_dir() or any(slot.iterdir()):
+        raise LauncherError("The games drive could not be prepared.")
+
+
+def _mounted_argv(argv, mounts):
+    """Run argv with the games folder mounted on each empty directory."""
+    if not mounts:
+        return list(argv)
+    # The namespace root is this account. umu still sees euid 0 unless
+    # wasd-noroot.so reports the id captured here, before the namespace.
+    euid = os.getuid()
+    if euid <= 0:
+        raise LauncherError("The games drive could not be prepared.")
+    lines = ["set -eu"]
+    for source, target in mounts:
+        source = Path(source)
+        target = Path(target)
+        if (
+            not source.is_absolute()
+            or source.is_symlink()
+            or not source.is_dir()
+            or not target.is_absolute()
+            or target.is_symlink()
+            or not target.is_dir()
+            or any(target.iterdir())
+        ):
+            raise LauncherError("The games drive could not be prepared.")
+        lines.append(
+            "mount --bind " + shlex.quote(str(source)) + " " + shlex.quote(str(target))
+        )
+    lines.append("so=/usr/libexec/wasd-noroot.so")
+    lines.append('if [ ! -f "$so" ]; then so="${HOME}/.local/lib/wasd-noroot.so"; fi')
+    lines.append('if [ ! -f "$so" ]; then exit 1; fi')
+    lines.append(f"export WASD_EUID={euid}")
+    lines.append('export LD_PRELOAD="$so${LD_PRELOAD:+:$LD_PRELOAD}"')
+    lines.append('exec "$@"')
+    return [
+        "unshare",
+        "--user",
+        "--mount",
+        "--map-root-user",
+        "--propagation",
+        "private",
+        "--",
+        "bash",
+        "-c",
+        "\n".join(lines) + "\n",
+        "bash",
+        *argv,
+    ]
+
+
+def _prefer_minecraft_vulkan(games):
+    # OpenGL creates the window and plays the music, and the window stays black.
+    # Vulkan draws that same window. An explicit graphics choice stays as it is.
+    games = Path(games)
+    if games.is_symlink() or not games.is_dir():
+        return
+    path = games / "options.txt"
+    if path.is_symlink():
+        return
+    chosen = 'preferredGraphicsBackend:"vulkan"'
+    try:
+        if not path.exists():
+            path.write_text(chosen + "\n", encoding="utf-8")
+            return
+        if not path.is_file():
+            return
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    default = 'preferredGraphicsBackend:"default"'
+    if default not in text:
+        return
+    try:
+        path.write_text(text.replace(default, chosen, 1), encoding="utf-8")
+    except OSError:
+        return
+
+
+def _launch_argv(user_name, launcher, prefix, games, args):
+    command = umu_argv(list(args))
+    if launcher.user_link:
+        mounts = []
+        for name in _account_names(user_name):
+            slot = prefix / "drive_c" / "users" / name
+            for part in launcher.user_link:
+                slot = slot / part
+            mounts.append((games, slot))
+        command = _mounted_argv(command, mounts)
+    _check_argv(command)
+    return command
+
+
 def ensure_links(prefix, games, saves, user_name, launcher):
     prefix = _safe_dir(prefix)
     dos = _safe_dir(prefix / "dosdevices")
     _replace_link(dos / "d:", games)
-    users = []
-    for name in (user_name, "steamuser"):
-        if name and name not in users:
-            users.append(name)
-    for name in users:
+    for name in _account_names(user_name):
         folder = _safe_dir(prefix / "drive_c" / "users" / name)
         _replace_link(folder / "Documents", saves)
         my_docs = folder / "My Documents"
         if my_docs.is_symlink() or not my_docs.exists():
             _replace_link(my_docs, saves)
         if launcher.user_link:
-            _link_under(folder, launcher.user_link, games)
+            _prepare_game_mount(folder, launcher.user_link, games)
     if launcher.games_link:
         moved = prefix.joinpath(*launcher.games_link)
         parent = _safe_dir(moved.parent)
@@ -441,7 +562,239 @@ def nuke(home, name, root=None):
     return prefix
 
 
-def _desktop_text(home, name):
+def _png_rgba(width, height, rgba):
+    if width < 1 or height < 1 or len(rgba) != width * height * 4:
+        return b""
+
+    def chunk(tag, payload):
+        body = tag + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    rows = []
+    stride = width * 4
+    for y in range(height):
+        rows.append(b"\x00" + rgba[y * stride:(y + 1) * stride])
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+def _dib_to_rgba(dib):
+    """Turn one 32-bit icon image into top-down RGBA. Other depths are skipped."""
+    if len(dib) < 40:
+        return None
+    size, width, height, planes, bitcount, comp = struct.unpack_from("<IiiHHI", dib, 0)
+    if size < 40 or width < 1 or width > 1024 or planes != 1 or bitcount != 32 or comp not in (0, 3):
+        return None
+    xor_h = height // 2 if height >= width * 2 else height
+    if xor_h < 1 or xor_h > 1024:
+        return None
+    pixels = size + xor_h * width * 4
+    if len(dib) < pixels:
+        return None
+    raw = dib[size:pixels]
+    if all(raw[i] == 0 for i in range(3, len(raw), 4)):
+        fixed = bytearray(raw)
+        for i in range(3, len(fixed), 4):
+            fixed[i] = 255
+        raw = bytes(fixed)
+    rgba = bytearray(xor_h * width * 4)
+    row = width * 4
+    for y in range(xor_h):
+        src = (xor_h - 1 - y) * row
+        for x in range(width):
+            b, g, r, a = raw[src:src + 4]
+            rgba[(y * width + x) * 4:(y * width + x) * 4 + 4] = bytes((r, g, b, a))
+            src += 4
+    return width, xor_h, bytes(rgba)
+
+
+def _rva_offset(rva, sections):
+    for virtual, virtual_size, raw, raw_size in sections:
+        span = max(virtual_size, raw_size)
+        if virtual <= rva < virtual + span:
+            return raw + (rva - virtual)
+    return None
+
+
+def pe_icon_png(path):
+    """Return a PNG of the largest 32-bit icon stored in a program, or None."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return None
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        return None
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    if pe <= 0 or pe + 24 > len(data) or data[pe:pe + 4] != b"PE\0\0":
+        return None
+    coff = pe + 4
+    sections_n, optional_size = struct.unpack_from("<H", data, coff + 2)[0], struct.unpack_from("<H", data, coff + 16)[0]
+    optional = coff + 20
+    if optional + optional_size > len(data) or sections_n > 96:
+        return None
+    magic = struct.unpack_from("<H", data, optional)[0]
+    if magic == 0x20B:
+        count_at, dirs_at = optional + 108, optional + 112
+    elif magic == 0x10B:
+        count_at, dirs_at = optional + 92, optional + 96
+    else:
+        return None
+    if count_at + 4 > len(data):
+        return None
+    dir_count = struct.unpack_from("<I", data, count_at)[0]
+    if dir_count < 3 or dirs_at + dir_count * 8 > len(data):
+        return None
+    resource_rva, resource_size = struct.unpack_from("<II", data, dirs_at + 16)
+    if resource_rva == 0 or resource_size == 0:
+        return None
+    sections = []
+    table = optional + optional_size
+    for index in range(sections_n):
+        at = table + index * 40
+        if at + 40 > len(data):
+            return None
+        virtual_size, virtual, raw_size, raw = struct.unpack_from("<IIII", data, at + 8)
+        sections.append((virtual, virtual_size, raw, raw_size))
+    base = _rva_offset(resource_rva, sections)
+    if base is None:
+        return None
+
+    def directory(relative):
+        at = base + relative
+        if at + 16 > len(data):
+            return []
+        named, ids = struct.unpack_from("<HH", data, at + 12)
+        found = []
+        cursor = at + 16
+        for entry in range(named + ids):
+            if cursor + 8 > len(data):
+                break
+            ident, offset = struct.unpack_from("<II", data, cursor)
+            cursor += 8
+            if entry >= named:
+                found.append((ident, offset))
+        return found
+
+    best = None
+    for ident, offset in directory(0):
+        if ident != 3 or not offset & 0x80000000:
+            continue
+        for _name, name_offset in directory(offset & 0x7FFFFFFF):
+            if not name_offset & 0x80000000:
+                continue
+            for _lang, leaf in directory(name_offset & 0x7FFFFFFF):
+                if leaf & 0x80000000:
+                    continue
+                info = base + leaf
+                if info + 16 > len(data):
+                    continue
+                leaf_rva, leaf_size = struct.unpack_from("<II", data, info)
+                file_at = _rva_offset(leaf_rva, sections)
+                if file_at is None or leaf_size < 40 or file_at + leaf_size > len(data):
+                    continue
+                parsed = _dib_to_rgba(data[file_at:file_at + leaf_size])
+                if parsed and (best is None or parsed[0] > best[0]):
+                    best = parsed
+    if best is None:
+        return None
+    return _png_rgba(best[0], best[1], best[2])
+
+
+def _pe_containing_dib(dib):
+    """A program file whose only icon is dib. The self-check reads it back."""
+    def directory(named, ids):
+        return struct.pack("<IIHHHH", 0, 0, 0, 0, named, ids)
+
+    def entry(ident, offset, subdir):
+        if subdir:
+            offset |= 0x80000000
+        return struct.pack("<II", ident, offset)
+
+    blob = b"".join((
+        directory(0, 1),
+        entry(3, 24, True),
+        directory(0, 1),
+        entry(1, 48, True),
+        directory(0, 1),
+        entry(0, 72, False),
+        struct.pack("<IIII", 0x1000 + 88, len(dib), 0, 0),
+        dib,
+    ))
+    optional = bytearray(240)
+    struct.pack_into("<H", optional, 0, 0x20B)
+    struct.pack_into("<I", optional, 16, 0)  # AddressOfEntryPoint
+    struct.pack_into("<Q", optional, 24, 0x140000000)
+    struct.pack_into("<I", optional, 32, 0x1000)
+    struct.pack_into("<I", optional, 36, 0x200)
+    struct.pack_into("<I", optional, 56, 0x2000)
+    struct.pack_into("<I", optional, 60, 0x200)
+    struct.pack_into("<H", optional, 68, 3)
+    struct.pack_into("<H", optional, 108, 16)
+    struct.pack_into("<II", optional, 112 + 16, 0x1000, len(blob))
+    coff = struct.pack("<HHIIIHH", 0x8664, 1, 0, 0, 0, len(optional), 0x22)
+    section = struct.pack("<8sIIIIIIHHI", b".rsrc\0\0\0", len(blob), 0x1000, 0x200, 0x200, 0, 0, 0, 0, 0x40000040)
+    dos = bytearray(64)
+    dos[:2] = b"MZ"
+    struct.pack_into("<I", dos, 0x3C, 64)
+    file_bytes = bytes(dos) + b"PE\0\0" + coff + bytes(optional) + section
+    file_bytes += b"\0" * (0x200 - len(file_bytes))
+    file_bytes += blob
+    file_bytes += b"\0" * ((0x200 - (len(blob) % 0x200)) % 0x200)
+    return file_bytes
+
+
+def _menu_icon(home, name, root):
+    """Use the launcher's own icon after one has been extracted.
+
+    A new menu entry keeps the WASD icon until that file exists.
+    Proton's shortcut icon wins. Otherwise the icon is taken from the program.
+    """
+    launcher = require_launcher(home, name)
+    home = Path(home)
+    icons = _prefix(root, launcher) / "drive_c" / "proton_shortcuts" / "icons"
+    best = None
+    best_rank = -1
+    hint = Path(launcher.program[-1]).stem.lower() if launcher.program else ""
+    if icons.is_dir() and not icons.is_symlink():
+        for png in icons.glob("*x*/apps/*.png"):
+            if not png.is_file() or png.is_symlink():
+                continue
+            try:
+                size = int(png.parent.parent.name.split("x", 1)[0])
+            except ValueError:
+                continue
+            rank = size + (100000 if hint and hint in png.name.lower() else 0)
+            if rank >= best_rank:
+                best = png
+                best_rank = rank
+    if best is None:
+        program = program_path(home, name, root)
+        data = b""
+        if program.is_file() and not program.is_symlink():
+            data = pe_icon_png(program) or b""
+    else:
+        try:
+            data = best.read_bytes()
+        except OSError:
+            data = b""
+    if not data:
+        return "wasd-logo"
+    dest_dir = home / ".local/share/icons/wasd"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{launcher.launcher_id}.png"
+    if dest.is_symlink():
+        return "wasd-logo"
+    dest.write_bytes(data)
+    os.chmod(dest, 0o644)
+    return str(dest)
+
+
+def _desktop_text(home, name, root):
     script = Path(__file__).resolve()
     python = sys.executable
     command = f'"{python}" "{script}" --open "{name}"'
@@ -450,21 +803,22 @@ def _desktop_text(home, name):
         "Type=Application\n"
         f"Name={name}\n"
         f"Exec={command}\n"
-        "Icon=wasd-logo\n"
+        f"Icon={_menu_icon(home, name, root)}\n"
         "Terminal=false\n"
         "Categories=Game;\n"
         "StartupNotify=true\n"
     )
 
 
-def write_menu(home, name):
+def write_menu(home, name, root=None):
     launcher = require_launcher(home, name)
     home = Path(home)
+    root = Path(root) if root is not None else games_root(home)
     desktop = home / ".local/share/applications" / f"wasd-launcher-{launcher.launcher_id}.desktop"
     if desktop.is_symlink():
         raise LauncherError("The menu entry is a link.")
     desktop.parent.mkdir(parents=True, exist_ok=True)
-    desktop.write_text(_desktop_text(home, name), encoding="utf-8")
+    desktop.write_text(_desktop_text(home, name, root), encoding="utf-8")
     os.chmod(desktop, 0o644)
     return desktop
 
@@ -521,10 +875,25 @@ def umu_argv(args):
     return [umu_bin(), *args]
 
 
-def umu_env(prefix):
+# Proton turns on write-copy for these stores. Battle.net crashes after
+# sign-in without it. The menu launch has to name the store.
+_WRITECOPY = {
+    "battlenet": "battlenet",
+    "ubisoft": "ubisoft",
+}
+
+
+def umu_env(prefix, launcher):
     env = os.environ.copy()
     env["WINEPREFIX"] = str(prefix)
     env["GAMEID"] = "umu-default"
+    env["WASD_GAME"] = "1"
+    env.pop("STORE", None)
+    env.pop("WINE_SIMULATE_WRITECOPY", None)
+    store = _WRITECOPY.get(launcher.launcher_id)
+    if store:
+        env["STORE"] = store
+        env["WINE_SIMULATE_WRITECOPY"] = "1"
     return env
 
 
@@ -646,13 +1015,12 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
     root = Path(root) if root is not None else games_root(home)
     games = _games(root, launcher)
     saves = _saves(root, launcher)
-    write_menu(home, name)
+    write_menu(home, name, root)
     if not launcher.setup_url and not launcher.setup_name:
         return prefix
-    env = umu_env(prefix)
+    env = umu_env(prefix, launcher)
     if not (prefix / "system.reg").is_file():
-        boot = umu_argv(["wineboot", "-u"])
-        _check_argv(boot)
+        boot = _launch_argv(home.name, launcher, prefix, games, ["wineboot", "-u"])
         if runner(boot, env) != 0:
             raise LauncherError("Could not open that launcher.")
         ensure_links(prefix, games, saves, home.name, launcher)
@@ -675,10 +1043,15 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
         if setup.is_symlink() or not setup.is_file():
             raise LauncherError("Could not open that launcher.")
         target = setup
-    command = umu_argv([str(target)])
-    _check_argv(command)
+    # A later open can turn the slot back into a link. Mounting needs a real directory.
+    if launcher.user_link:
+        ensure_links(prefix, games, saves, home.name, launcher)
+    if launcher.launcher_id == "minecraft":
+        _prefer_minecraft_vulkan(games)
+    command = _launch_argv(home.name, launcher, prefix, games, [str(target)])
     code = runner(command, env)
     ensure_links(prefix, games, saves, home.name, launcher)
+    write_menu(home, name, root)
     if code != 0:
         raise LauncherError("Could not open that launcher.")
     return prefix
@@ -695,10 +1068,16 @@ def launch_installed(home, name, runner, root=None):
     prefix = _prefix(root, launcher)
     if prefix.is_symlink() or not prefix.is_dir():
         raise LauncherError("Could not open that launcher.")
+    games = _games(root, launcher)
+    saves = _saves(root, launcher)
+    if launcher.user_link:
+        ensure_links(prefix, games, saves, home.name, launcher)
+    if launcher.launcher_id == "minecraft":
+        _prefer_minecraft_vulkan(games)
     feed_log(name + "\n")
-    command = umu_argv([str(program)])
-    _check_argv(command)
-    code = runner(command, umu_env(prefix))
+    command = _launch_argv(home.name, launcher, prefix, games, [str(program)])
+    code = runner(command, umu_env(prefix, launcher))
+    write_menu(home, name, root)
     if code != 0:
         raise LauncherError("Could not open that launcher.")
     return prefix
@@ -756,7 +1135,7 @@ def add_custom(home, name, program, runner, fetch, root=None):
     if row["file"]:
         return install_launcher(home, name, runner, fetch, root, force_setup=True)
     prefix = layout(home, name, root)
-    write_menu(home, name)
+    write_menu(home, name, root)
     return prefix
 
 
@@ -1081,6 +1460,16 @@ def self_check():
             raise SystemExit(f"the prefix was not prepared with umu: {calls}")
         if calls[0][1].get("GAMEID") != "umu-default" or calls[0][1].get("WINEPREFIX") != str(prefix):
             raise SystemExit("the prefix environment was wrong")
+        if calls[0][1].get("WASD_GAME") != "1":
+            raise SystemExit("a launcher was not marked as a game")
+        if calls[0][1].get("STORE") != "battlenet" or calls[0][1].get("WINE_SIMULATE_WRITECOPY") != "1":
+            raise SystemExit("Battle.net did not turn on write-copy")
+        rock_env = umu_env(prefix, CATALOG["Rockstar Launcher"])
+        if "STORE" in rock_env or "WINE_SIMULATE_WRITECOPY" in rock_env:
+            raise SystemExit("Rockstar turned on the Battle.net workaround")
+        ubi_env = umu_env(prefix, CATALOG["Ubisoft Connect"])
+        if ubi_env.get("STORE") != "ubisoft" or ubi_env.get("WINE_SIMULATE_WRITECOPY") != "1":
+            raise SystemExit("Ubisoft did not turn on write-copy")
         opened = calls[-1][0]
         if opened[-1].endswith("Battle.net-Setup.exe") is False or len(opened) != 2:
             raise SystemExit(f"the vendor window was not the only argument: {opened}")
@@ -1088,6 +1477,21 @@ def self_check():
         entry = desktop.read_text(encoding="utf-8")
         if "Name=Battle.net" not in entry or '--open "Battle.net"' not in entry:
             raise SystemExit("Battle.net was not added to the menu")
+        if "Icon=wasd-logo" not in entry:
+            raise SystemExit("a new launcher did not start with the WASD icon")
+        icon_dir = prefix / "drive_c/proton_shortcuts/icons/256x256/apps"
+        icon_dir.mkdir(parents=True, exist_ok=True)
+        (icon_dir / "1AC2_Battle.net Launcher.0.png").write_bytes(b"blizzard-icon")
+        write_menu(home, "Battle.net", root)
+        entry = desktop.read_text(encoding="utf-8")
+        icon = ""
+        for line in entry.splitlines():
+            if line.startswith("Icon="):
+                icon = line.split("=", 1)[1]
+        if not icon.endswith("/.local/share/icons/wasd/battlenet.png"):
+            raise SystemExit(f"Battle.net kept the WASD icon: {icon}")
+        if Path(icon).read_bytes() != b"blizzard-icon":
+            raise SystemExit("the Battle.net icon was not copied")
         if (home / "Desktop").exists():
             raise SystemExit("a launcher was put on the desktop")
         program = program_path(home, "Battle.net", root)
@@ -1132,18 +1536,24 @@ def self_check():
         if "Battle.net\n" not in log or "Ubisoft Connect\n" not in log:
             raise SystemExit("the install log did not name the launcher")
         mine = layout(home, "Minecraft", root)
-        world_link = mine / "drive_c" / "users" / "steamuser" / "AppData" / "Roaming" / ".minecraft"
-        home_link = mine / "drive_c" / "users" / home.name / "AppData" / "Roaming" / ".minecraft"
+        world_slot = mine / "drive_c" / "users" / "steamuser" / "AppData" / "Roaming" / ".minecraft"
+        home_slot = mine / "drive_c" / "users" / home.name / "AppData" / "Roaming" / ".minecraft"
         minecraft_games = root / "minecraft"
-        if not world_link.is_symlink() or world_link.resolve() != minecraft_games.resolve():
-            raise SystemExit("Minecraft worlds stayed in the launcher")
-        if not home_link.is_symlink() or home_link.resolve() != minecraft_games.resolve():
-            raise SystemExit("Minecraft worlds were not linked for the account")
-        (world_link / "saves").mkdir()
-        (world_link / "saves" / "world.txt").write_text("keep\n", encoding="utf-8")
+        if world_slot.is_symlink() or home_slot.is_symlink() or any(world_slot.iterdir()) or any(home_slot.iterdir()):
+            raise SystemExit("Minecraft worlds are behind a link")
+        (minecraft_games / "saves").mkdir()
+        (minecraft_games / "saves" / "world.txt").write_text("keep\n", encoding="utf-8")
+        (world_slot / "extra.txt").write_text("moved\n", encoding="utf-8")
+        ensure_links(mine, minecraft_games, root / "saves" / "minecraft", home.name, CATALOG["Minecraft"])
+        if (minecraft_games / "extra.txt").read_text(encoding="utf-8") != "moved\n":
+            raise SystemExit("a Minecraft file stayed in the launcher")
+        if any(world_slot.iterdir()):
+            raise SystemExit("the Minecraft mount folder was not emptied")
         nuke(home, "Minecraft", root)
         if (minecraft_games / "saves" / "world.txt").read_text(encoding="utf-8") != "keep\n":
             raise SystemExit("nuking Minecraft deleted the worlds")
+        if (minecraft_games / "extra.txt").read_text(encoding="utf-8") != "moved\n":
+            raise SystemExit("nuking Minecraft deleted a moved file")
         if not (mine / "dosdevices" / "d:").is_symlink():
             raise SystemExit("Minecraft lost drive D:")
         calls.clear()
@@ -1151,8 +1561,52 @@ def self_check():
         install_launcher(home, "Minecraft", runner, fetch, root)
         if fetches[before_fetches:] != [CATALOG["Minecraft"].setup_url]:
             raise SystemExit(f"Minecraft did not use the official launcher: {fetches[before_fetches:]}")
-        if not calls or "wineboot" not in calls[0][0] or not calls[-1][0][-1].endswith("Minecraft.exe"):
+        if not calls or calls[0][0][0] != "unshare" or "wineboot" not in calls[0][0]:
+            raise SystemExit(f"Minecraft was not opened on its games folder: {calls}")
+        mounted = "\n".join(str(part) for part in calls[-1][0])
+        if "mount --bind" not in mounted or str(minecraft_games) not in mounted or str(world_slot) not in mounted:
+            raise SystemExit(f"Minecraft was not mounted on the games folder: {calls[-1][0]}")
+        if "wasd-noroot.so" not in mounted or "WASD_EUID=" not in mounted:
+            raise SystemExit("Minecraft would launch as root")
+        if not calls[-1][0][-1].endswith("Minecraft.exe"):
             raise SystemExit(f"Minecraft was not opened: {calls}")
+        options = minecraft_games / "options.txt"
+        if options.read_text(encoding="utf-8") != 'preferredGraphicsBackend:"vulkan"\n':
+            raise SystemExit("Minecraft did not choose Vulkan")
+        options.write_text(
+            'version:1\npreferredGraphicsBackend:"default"\nfullscreen:false\n',
+            encoding="utf-8",
+        )
+        if world_slot.is_symlink() or world_slot.is_file():
+            world_slot.unlink()
+        elif world_slot.exists():
+            shutil.rmtree(world_slot)
+        world_slot.symlink_to(minecraft_games)
+        (mine / "system.reg").write_text("WINE REGISTRY Version 2\n", encoding="utf-8")
+        calls.clear()
+        install_launcher(home, "Minecraft", runner, fetch, root)
+        if world_slot.is_symlink() or not world_slot.is_dir() or any(world_slot.iterdir()):
+            raise SystemExit("Minecraft left the games folder as a link")
+        mounted = "\n".join(str(part) for part in calls[-1][0])
+        if "mount --bind" not in mounted or "wineboot" in calls[-1][0]:
+            raise SystemExit(f"Minecraft did not mount after the link came back: {calls[-1][0]}")
+        kept = options.read_text(encoding="utf-8")
+        if 'preferredGraphicsBackend:"vulkan"' not in kept or "fullscreen:false" not in kept:
+            raise SystemExit(f"Minecraft did not switch the default graphics choice: {kept!r}")
+        options.write_text('preferredGraphicsBackend:"opengl"\n', encoding="utf-8")
+        pixel = struct.pack("<IiiHHIIiiII", 40, 1, 2, 1, 32, 0, 4, 0, 0, 0, 0)
+        pixel += bytes((0x10, 0x20, 0x30, 0xFF)) + b"\x00\x00\x00\x00"
+        _cache(home, CATALOG["Minecraft"]).write_bytes(_pe_containing_dib(pixel))
+        write_menu(home, "Minecraft", root)
+        mine_icon = ""
+        mine_entry = (home / ".local/share/applications/wasd-launcher-minecraft.desktop").read_text(encoding="utf-8")
+        for line in mine_entry.splitlines():
+            if line.startswith("Icon="):
+                mine_icon = line.split("=", 1)[1]
+        if not mine_icon.endswith("/.local/share/icons/wasd/minecraft.png"):
+            raise SystemExit(f"Minecraft kept the WASD icon: {mine_icon}")
+        if not Path(mine_icon).read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+            raise SystemExit("Minecraft's icon was not its own")
         mine_rows = {row["name"]: row for row in status_rows(home, root)}
         if not mine_rows["Minecraft"]["ready"]:
             raise SystemExit("Minecraft's launcher was not counted as installed")
@@ -1160,6 +1614,8 @@ def self_check():
         launch_installed(home, "Minecraft", runner, root)
         if not str(calls[-1][0][-1]).endswith("/minecraft/Minecraft.exe"):
             raise SystemExit(f"Launch did not open the Minecraft launcher: {calls}")
+        if options.read_text(encoding="utf-8") != 'preferredGraphicsBackend:"opengl"\n':
+            raise SystemExit("Minecraft overwrote an explicit graphics choice")
         installed_mine = (
             _prefix(root, CATALOG["Minecraft"])
             / "drive_c"

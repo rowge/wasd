@@ -79,6 +79,8 @@ Window {
     readonly property string battleNetWarnBody: "Do not log in at the end of the Battle.net installation. Just close the window."
     readonly property string rockstarWarnBody: "Click OK on the final error in the Rockstar installation. It still works."
     property var searchHits: []
+    property int searchSerial: 0
+    property string searchShownIds: ""
     property var pickedExtras: []
     property var warnings: [
         "Turn off BitLocker and fast startup in Windows before you install.",
@@ -1023,6 +1025,20 @@ Window {
         appsOpen = appsOpen === which ? "" : which
     }
 
+    function advanceApps() {
+        const order = ["general", "launchers", "agents"]
+        let index = -1
+        for (let i = 0; i < order.length; i++) {
+            if (appsOpen === order[i])
+                index = i
+        }
+        if (index < order.length - 1) {
+            appsOpen = order[index + 1]
+            return
+        }
+        page = 3
+    }
+
     function toggleApp(name, id, extra) {
         if (extra) {
             const next = []
@@ -1168,22 +1184,69 @@ Window {
     function refreshShown() {
         const query = appQuery.trim().toLowerCase()
         shownApps.clear()
+        if (!query) {
+            for (let i = 0; i < appNames.length; i++)
+                shownApps.append({ name: appNames[i], id: appIds[i], extra: false })
+            searchShownIds = ""
+            return
+        }
+        const seen = {}
         for (let i = 0; i < appNames.length; i++) {
-            if (query && appNames[i].toLowerCase().indexOf(query) < 0)
+            if (appNames[i].toLowerCase().indexOf(query) < 0)
                 continue
+            seen[appIds[i]] = true
             shownApps.append({ name: appNames[i], id: appIds[i], extra: false })
         }
-        if (!query)
-            return
         for (let j = 0; j < searchHits.length; j++) {
             const hit = searchHits[j]
-            if (!hit || appIds.indexOf(hit.id) >= 0)
+            if (!hit || !hit.id || seen[hit.id])
                 continue
-            const name = hit.name || hit.id
-            if (name.toLowerCase().indexOf(query) < 0)
-                continue
-            shownApps.append({ name: name, id: hit.id, extra: true })
+            const curated = appIds.indexOf(hit.id)
+            seen[hit.id] = true
+            if (curated >= 0)
+                shownApps.append({ name: appNames[curated], id: appIds[curated], extra: false })
+            else
+                shownApps.append({ name: hit.name || hit.id, id: hit.id, extra: true })
         }
+        const ids = []
+        for (let n = 0; n < shownApps.count; n++)
+            ids.push(shownApps.get(n).id)
+        searchShownIds = ids.join(" ")
+    }
+
+    function searchFlathub(query) {
+        searchSerial = searchSerial + 1
+        const serial = searchSerial
+        const xhr = new XMLHttpRequest()
+        xhr.open("POST", "https://flathub.org/api/v2/search")
+        xhr.setRequestHeader("Content-Type", "application/json")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE || serial !== win.searchSerial)
+                return
+            const hits = []
+            if (xhr.status === 200) {
+                try {
+                    const data = JSON.parse(xhr.responseText)
+                    const rows = data.hits || []
+                    for (let i = 0; i < rows.length; i++) {
+                        const hit = rows[i]
+                        if (!hit || hit.type !== "desktop-application")
+                            continue
+                        const id = hit.app_id || ""
+                        const name = hit.name || id
+                        if (!id || !name)
+                            continue
+                        hits.push({ name: name, id: id })
+                        if (hits.length >= 12)
+                            break
+                    }
+                } catch (e) {
+                }
+            }
+            win.searchHits = hits
+            win.refreshShown()
+        }
+        xhr.send(JSON.stringify({ query: query }))
     }
 
     function choicesJson() {
@@ -1347,12 +1410,14 @@ Window {
         id: searchTimer
         interval: 300
         onTriggered: {
-            if (win.bridge && win.appQuery.trim().length >= 2)
-                win.bridge.search(win.appQuery.trim())
-            else {
+            const query = win.appQuery.trim()
+            if (query.length < 2) {
+                win.searchSerial = win.searchSerial + 1
                 win.searchHits = []
                 win.refreshShown()
+                return
             }
+            win.searchFlathub(query)
         }
     }
 

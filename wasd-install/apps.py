@@ -618,6 +618,8 @@ def self_check():
         raise SystemExit(f"OBS plugins were not queued: {queue}")
     if download_plan([{"name": "Brave", "id": "com.brave.Browser"}]) != ([], 0):
         raise SystemExit("Brave alone still wants a download")
+    if download_plan([{"name": "Proton Pass", "id": "me.proton.Pass"}]) != (["me.proton.Pass"], 0):
+        raise SystemExit("a searched Flathub app was not queued")
     if download_plan("nope") is not None:
         raise SystemExit("a broken app list was planned")
     if not connectivity_online("full") or not connectivity_online("limited\n"):
