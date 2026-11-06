@@ -414,6 +414,8 @@ grep -q '^x-scheme-handler/https=com.brave.Browser.desktop$' /etc/xdg/mimeapps.l
 grep -q '^text/html=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
 grep -q 'https://wasd.run' /etc/brave/policies/managed/homepage.json
 grep -q -- '--password-store=basic' /etc/skel/.var/app/com.brave.Browser/config/brave-flags.conf
+grep -q '/var/mnt:ro' /etc/flatpak/overrides/com.brave.Browser
+grep -q 'xdg-pictures:ro' /etc/flatpak/overrides/com.brave.Browser
 grep -q '^First Use=false$' /etc/xdg/kwalletrc
 test ! -e /etc/skel/.ssh/authorized_keys
 test ! -e /etc/ssh/sshd_config.d/50-wasd-test.conf

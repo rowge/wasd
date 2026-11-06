@@ -1,0 +1,2 @@
+[Context]
+filesystems=/mnt:ro;/var/mnt:ro;/media:ro;/run/media:ro;xdg-documents:ro;xdg-pictures:ro;xdg-videos:ro;

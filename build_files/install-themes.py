@@ -445,6 +445,18 @@ def apply_default(root):
             "KDE",
             {"LookAndFeelPackage": DEFAULT_LOOK, "widgetStyle": "kvantum"},
         )
+        # The open and save window is a grid of pictures, large enough to
+        # recognize one, instead of a list of names.
+        set_keys(
+            base / "kdeglobals",
+            "KFileDialog Settings",
+            {
+                "View Style": "Simple",
+                "Decoration position": "2",
+                "Show Inline Previews": "true",
+                "iconViewIconSize": "192",
+            },
+        )
         set_keys(base / "ksplashrc", "KSplash", {"Engine": "KSplashQML", "Theme": SPLASH_THEME})
         kvantum = base / "Kvantum/kvantum.kvconfig"
         set_keys(kvantum, "General", {"theme": KVANTUM_THEME})
@@ -494,6 +506,11 @@ def check(root):
         fail("the default global theme was not set")
     if "ColorScheme=We10XOSDark" not in kdeglobals:
         fail("the default color scheme was not set")
+    if "View Style=Simple" not in kdeglobals or "iconViewIconSize=192" not in kdeglobals:
+        fail("the file window does not show large pictures")
+    skel_globals = (root / "etc/skel/.config/kdeglobals").read_text(encoding="utf-8")
+    if "View Style=Simple" not in skel_globals or "iconViewIconSize=192" not in skel_globals:
+        fail("a new account does not get large pictures in the file window")
     ksplash = (root / "etc/xdg/ksplashrc").read_text(encoding="utf-8")
     if f"Theme={SPLASH_THEME}" not in ksplash:
         fail("the session splash was not left on the WASD mark")
@@ -519,6 +536,21 @@ def check(root):
 def self_check():
     import tempfile
 
+    with tempfile.TemporaryDirectory() as tmp:
+        dialog = Path(tmp) / "etc/xdg/kdeglobals"
+        set_keys(
+            dialog,
+            "KFileDialog Settings",
+            {
+                "View Style": "Simple",
+                "Decoration position": "2",
+                "Show Inline Previews": "true",
+                "iconViewIconSize": "192",
+            },
+        )
+        written = dialog.read_text(encoding="utf-8")
+        if "View Style=Simple" not in written or "iconViewIconSize=192" not in written:
+            fail("the file window settings were not written")
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         package = root / "usr/share/plasma/look-and-feel" / DEFAULT_LOOK
