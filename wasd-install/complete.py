@@ -1934,6 +1934,22 @@ def self_check():
     if sentinel.exists():
         raise SystemExit("self-check held the screen")
     os.environ.pop("WASD_AWAKE", None)
+    import wallet
+
+    if wallet.decide("missing") != "create-gpg" or wallet.decide("gpg") != "skip":
+        raise SystemExit("the wallet decision was wrong")
+    if wallet.decide("blowfish") != "skip" or wallet.decide("other") != "skip":
+        raise SystemExit("an existing wallet would be replaced")
+    wallet_source = inspect.getsource(ensure_wallet)
+    if "WASD_SELF_CHECK" not in wallet_source or "--gpg" not in wallet_source:
+        raise SystemExit("the wallet setup would run during self-check")
+    if "--lock" in wallet_source:
+        raise SystemExit("a password would create a wallet")
+    main_source = inspect.getsource(main)
+    if 'if not choices["password"]:' not in main_source or "ensure_wallet()" not in main_source:
+        raise SystemExit("the wallet is not tied to the unchecked password")
+    if main_source.find("ensure_wallet()") < main_source.find('if not choices["password"]:'):
+        raise SystemExit("the wallet runs when a password was chosen")
     server.shutdown()
     for child in tmp.rglob("*"):
         if not child.is_file():
@@ -1945,6 +1961,19 @@ def self_check():
             raise SystemExit(f"the posted address was written to {child}")
     shutil.rmtree(tmp)
     print("complete self-check ok")
+
+
+def ensure_wallet():
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        return
+    helper = os.environ.get("WASD_WALLET", "/usr/libexec/wasd-wallet")
+    try:
+        proc = subprocess.run([helper, "--gpg"], capture_output=True)
+    except OSError:
+        print("The wallet was not set up.", file=sys.stderr)
+        return
+    if proc.returncode != 0:
+        print("The wallet was not set up.", file=sys.stderr)
 
 
 def main():
@@ -2005,6 +2034,8 @@ def main():
         "--port",
         str(port),
     ]
+    if not choices["password"]:
+        ensure_wallet()
     try:
         proc = subprocess.run(command)
     finally:

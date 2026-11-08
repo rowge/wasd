@@ -13,7 +13,8 @@ Item {
     signal go()
     signal alt()
 
-    implicitHeight: foot.altText !== "" && foot.showGo ? 108 : 64
+    readonly property int goExtra: foot.showGo ? Math.max(0, goButton.height - 44) : 0
+    implicitHeight: (foot.altText !== "" && foot.showGo ? 108 : 64) + foot.goExtra
 
     Text {
         id: backText
@@ -59,7 +60,7 @@ Item {
         visible: foot.altText !== ""
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: foot.showGo && foot.altText !== "" ? 52 : 10
+        anchors.bottomMargin: foot.showGo && foot.altText !== "" ? 52 + foot.goExtra : 10
         width: altLabel.implicitWidth + 36
         height: 44
         radius: 9
@@ -93,8 +94,9 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.bottomMargin: foot.altText !== "" && foot.showGo ? 0 : 10
-        width: goLabel.implicitWidth + 36
-        height: 44
+        readonly property int maxWidth: Math.max(160, foot.width - 72)
+        width: Math.min(goLabel.implicitWidth + 36, maxWidth)
+        height: Math.max(44, goLabel.implicitHeight + 18)
         radius: 9
         color: foot.nextEnabled ? host.button : Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35)
         antialiasing: true
@@ -103,6 +105,9 @@ Item {
             id: goLabel
             objectName: "eraseButtonLabel"
             anchors.centerIn: parent
+            width: Math.min(implicitWidth, goButton.maxWidth - 36)
+            wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
             text: foot.nextText
             color: host.buttonInk
             font.family: host.bodyFont

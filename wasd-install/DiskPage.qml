@@ -11,7 +11,7 @@ Item {
         anchors.leftMargin: 40
         anchors.rightMargin: 40
         anchors.topMargin: 36
-        anchors.bottomMargin: 128
+        anchors.bottomMargin: diskFoot.implicitHeight + 36
         contentWidth: width
         contentHeight: column.height
         clip: true
@@ -431,6 +431,7 @@ Item {
     }
 
     PageFooter {
+        id: diskFoot
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom

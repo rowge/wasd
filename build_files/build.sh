@@ -95,6 +95,9 @@ install -m 0755 /ctx/wasd-install/awake.py /usr/libexec/wasd-awake
 install -m 0755 /ctx/wasd-install/gamepower.py /usr/libexec/wasd-game-power
 install -m 0755 /ctx/wasd-install/set_password.py /usr/libexec/wasd-set-password
 install -m 0644 /ctx/wasd-install/set_password.py /usr/libexec/set_password.py
+install -m 0755 /ctx/wasd-install/wallet.py /usr/libexec/wasd-wallet
+install -m 0644 /ctx/wasd-install/wallet.py /usr/libexec/wallet.py
+/usr/libexec/wasd-wallet --self-check
 install -m 0755 /ctx/wasd-install/network.py /usr/libexec/wasd-network
 install -m 0755 /ctx/wasd-install/network.py /usr/libexec/wasd-connect-wifi
 install -m 0644 /ctx/wasd-install/network.py /usr/libexec/network.py
@@ -122,12 +125,26 @@ install -m 0755 /ctx/wasd-install/complete.py /usr/bin/wasd-complete
 chmod 0755 /usr/bin/wasd-install
 
 # Plasma ships the Qt 6 libraries. It does not ship the qml command.
-# Compile a small opener, then drop the compiler and the headers.
+# Compile a small opener and the wallet helper, then drop the compiler and the headers.
+# The wallet devel package does not ship the backend header. Download the header
+# that matches the installed library, because a mismatch crashes on the first wallet.
 had_qml_devel=0
 had_cxx=0
+had_qtbase=0
+had_gpg=0
+had_kwallet_devel=0
+had_ssl=0
+had_curl=0
 rpm -q qt6-qtdeclarative-devel >/dev/null 2>&1 && had_qml_devel=1
 rpm -q gcc-c++ >/dev/null 2>&1 && had_cxx=1
-dnf5 -y install --setopt=install_weak_deps=False qt6-qtdeclarative-devel gcc-c++ pkgconf
+rpm -q qt6-qtbase-devel >/dev/null 2>&1 && had_qtbase=1
+rpm -q gpgmepp-devel >/dev/null 2>&1 && had_gpg=1
+rpm -q kf6-kwallet-devel >/dev/null 2>&1 && had_kwallet_devel=1
+rpm -q openssl-devel >/dev/null 2>&1 && had_ssl=1
+rpm -q curl >/dev/null 2>&1 && had_curl=1
+dnf5 -y install --setopt=install_weak_deps=False \
+    qt6-qtdeclarative-devel qt6-qtbase-devel gcc-c++ pkgconf \
+    gpgmepp-devel kf6-kwallet-devel openssl-devel curl
 g++ -O2 -std=c++17 -o /usr/bin/wasd-qml /ctx/wasd-qml.cpp \
     $(pkg-config --cflags --libs Qt6Gui Qt6Qml Qt6Quick)
 # umu refuses to start as root. Minecraft's games folder is mounted in a
@@ -135,10 +152,82 @@ g++ -O2 -std=c++17 -o /usr/bin/wasd-qml /ctx/wasd-qml.cpp \
 # reports that account's id so umu will start.
 gcc -O2 -shared -fPIC -o /usr/libexec/wasd-noroot.so /ctx/wasd-noroot.c
 test -f /usr/libexec/wasd-noroot.so
-if [[ $had_qml_devel -eq 0 ]]; then
+kwallet_ver=$(rpm -q --qf '%{VERSION}' kf6-kwallet)
+kwallet_hdr=$(mktemp -d)
+kwallet_base="https://invent.kde.org/frameworks/kwallet/-/raw/v${kwallet_ver}/src/runtime/kwalletbackend"
+for name in kwalletbackend.h kwalletentry.h backendpersisthandler.h; do
+    curl -fsSL -o "${kwallet_hdr}/${name}" "${kwallet_base}/${name}"
+done
+cat > "${kwallet_hdr}/kwalletbackend_export.h" << 'EOF'
+#ifndef KWALLETBACKEND_EXPORT_H
+#define KWALLETBACKEND_EXPORT_H
+#define KWALLETBACKEND_EXPORT
+#endif
+EOF
+g++ -O2 -std=c++17 -DHAVE_GPGMEPP -o /usr/libexec/wasd-wallet-file /ctx/wasd-wallet.cpp \
+    -I"${kwallet_hdr}" \
+    $(pkg-config --cflags Qt6Core Qt6DBus KF6Wallet gpgmepp) \
+    $(pkg-config --libs Qt6Core Qt6DBus gpgmepp) \
+    -lKF6WalletBackend -lcrypto
+rm -rf "${kwallet_hdr}"
+wallet_home=$(mktemp -d)
+chmod 700 "${wallet_home}"
+env -u XDG_DATA_HOME -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR HOME="${wallet_home}" \
+    /usr/libexec/wasd-wallet-file self-check
+rm -rf "${wallet_home}"
+gpg_home=$(mktemp -d)
+chmod 700 "${gpg_home}"
+cat > "${gpg_home}/batch" << 'EOF'
+%no-protection
+Key-Type: eddsa
+Key-Curve: ed25519
+Key-Usage: sign
+Subkey-Type: ecdh
+Subkey-Curve: cv25519
+Subkey-Usage: encrypt
+Name-Real: WASD
+Name-Comment: wasd-wallet
+Expire-Date: 0
+%commit
+EOF
+chmod 600 "${gpg_home}/batch"
+gpg --homedir "${gpg_home}" --batch --pinentry-mode loopback --generate-key "${gpg_home}/batch"
+wallet_fpr=$(gpg --homedir "${gpg_home}" --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr" {print $10; exit}')
+gpg_wallet=$(mktemp -d)
+chmod 700 "${gpg_wallet}"
+env -u XDG_DATA_HOME -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR \
+    HOME="${gpg_wallet}" GNUPGHOME="${gpg_home}" \
+    /usr/libexec/wasd-wallet-file create-gpg "${wallet_fpr}"
+gpg_kind=$(env -u XDG_DATA_HOME -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR \
+    HOME="${gpg_wallet}" GNUPGHOME="${gpg_home}" \
+    /usr/libexec/wasd-wallet-file kind)
+case "${gpg_kind}" in
+    gpg\ *) ;;
+    *)
+        echo "the wallet helper did not write a GPG wallet" >&2
+        exit 1
+        ;;
+esac
+rm -rf "${gpg_home}" "${gpg_wallet}"
+if [[ $had_qml_devel -eq 0 ]] && rpm -q qt6-qtdeclarative-devel >/dev/null 2>&1; then
     dnf5 -y remove --setopt=clean_requirements_on_remove=True qt6-qtdeclarative-devel
 fi
-if [[ $had_cxx -eq 0 ]]; then
+if [[ $had_qtbase -eq 0 ]] && rpm -q qt6-qtbase-devel >/dev/null 2>&1; then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=True qt6-qtbase-devel
+fi
+if [[ $had_gpg -eq 0 ]] && rpm -q gpgmepp-devel >/dev/null 2>&1; then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=True gpgmepp-devel
+fi
+if [[ $had_kwallet_devel -eq 0 ]] && rpm -q kf6-kwallet-devel >/dev/null 2>&1; then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=True kf6-kwallet-devel
+fi
+if [[ $had_ssl -eq 0 ]] && rpm -q openssl-devel >/dev/null 2>&1; then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=True openssl-devel
+fi
+if [[ $had_curl -eq 0 ]] && rpm -q curl >/dev/null 2>&1; then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=True curl
+fi
+if [[ $had_cxx -eq 0 ]] && rpm -q gcc-c++ >/dev/null 2>&1; then
     dnf5 -y remove --setopt=clean_requirements_on_remove=True gcc-c++
 fi
 rpm -q qt6-qtdeclarative
@@ -412,8 +501,27 @@ grep -q '^org.freedesktop.Platform.VulkanLayer.vkBasalt//25.08$' /usr/share/ublu
 grep -q '^x-scheme-handler/http=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
 grep -q '^x-scheme-handler/https=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
 grep -q '^text/html=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
-grep -q 'https://wasd.run' /etc/brave/policies/managed/homepage.json
+grep -q 'https://wasd.run' /etc/brave/policies/recommended/homepage.json
+grep -q '"HomepageLocation"' /etc/brave/policies/recommended/homepage.json
+grep -q '"RestoreOnStartup"' /etc/brave/policies/recommended/homepage.json
+if grep -R -E 'HomepageLocation|RestoreOnStartup' /etc/brave/policies/managed >/dev/null; then
+    echo "Brave homepage is locked" >&2
+    exit 1
+fi
+grep -q '"PromotionalTabsEnabled": false' /etc/brave/policies/managed/promotions.json
+test ! -e /etc/brave/policies/managed/homepage.json
 grep -q -- '--password-store=basic' /etc/skel/.var/app/com.brave.Browser/config/brave-flags.conf
+grep -q '^no-allow-external-cache$' /etc/gnupg/gpg-agent.conf
+test -x /usr/libexec/wasd-wallet
+test -s /usr/libexec/wallet.py
+test -x /usr/libexec/wasd-wallet-file
+command -v gpg >/dev/null
+command -v gpgconf >/dev/null
+wallet_ldd=$(ldd /usr/libexec/wasd-wallet-file)
+if [[ "$wallet_ldd" != *libKF6WalletBackend.so.6* ]]; then
+    echo "the wallet helper is not linked to the wallet library" >&2
+    exit 1
+fi
 grep -q '/var/mnt:ro' /etc/flatpak/overrides/com.brave.Browser
 grep -q 'xdg-pictures:ro' /etc/flatpak/overrides/com.brave.Browser
 grep -q '^First Use=false$' /etc/xdg/kwalletrc

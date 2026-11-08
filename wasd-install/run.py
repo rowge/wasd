@@ -366,6 +366,20 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit(f"windows drive was not accepted for games: {window.property('gamesMode')}")
         if window.property("gamesConfirmed") is not True:
             raise SystemExit("the games wipe was not confirmed")
+        two_drive = quick.findChild(QQuickItem, "eraseButtonLabel")
+        if two_drive is None or two_drive.property("text") != "Erase Samsung 990 2TB and wipe WD Black 1TB for /games":
+            actual = None if two_drive is None else two_drive.property("text")
+            raise SystemExit(f"the two-drive wipe button was {actual}")
+        window.setProperty("gamesMode", "keep")
+        pump(50)
+        if two_drive.property("text") != "Erase Samsung 990 2TB and use WD Black 1TB for /games":
+            raise SystemExit(f"the two-drive keep button was {two_drive.property('text')}")
+        window.setProperty("confirmAction", "gamesKeep")
+        window.setProperty("confirmIndex", 1)
+        if window.confirmBody() != "WASD will use this drive and will NOT wipe it. Are you sure?":
+            raise SystemExit(f"the keep question was {window.confirmBody()}")
+        window.setProperty("confirmAction", "")
+        window.setProperty("gamesMode", "format")
         if int(window.property("diskIndex")) != 0:
             raise SystemExit(f"choosing /games cleared the WASD drive: {window.property('diskIndex')}")
         if not QMetaObject.invokeMethod(window, "clearGames"):

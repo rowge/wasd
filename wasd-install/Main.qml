@@ -141,6 +141,11 @@ Window {
             : "Set up /games"
     readonly property string eraseLabel: {
         const windows = diskIndex >= 0 && diskIndex < disks.count && disks.get(diskIndex).windows
+        const otherGames = gamesChosen && gamesDiskIndex >= 0 && gamesDiskIndex !== diskIndex
+        if (otherGames && gamesMode === "keep")
+            return "Erase " + driveLabel(diskIndex) + " and use " + driveLabel(gamesDiskIndex) + " for /games"
+        if (otherGames && gamesMode === "format")
+            return "Erase " + driveLabel(diskIndex) + " and wipe " + driveLabel(gamesDiskIndex) + " for /games"
         if (gamesChosen)
             return windows
                     ? "Erase Windows and install with the games partition"
@@ -532,6 +537,15 @@ Window {
 
     function encodeChoices() {
         encodedChoices = utf8Base64(choicesJson())
+    }
+
+    function driveLabel(index) {
+        if (index < 0 || index >= disks.count)
+            return "the drive"
+        const row = disks.get(index)
+        const name = String(row.name || "").trim() || "the drive"
+        const size = String(row.size || "").trim().replace(/(\d)\s+(TB|GB|MB)$/i, "$1$2")
+        return size ? name + " " + size : name
     }
 
     function diskLine(index) {
@@ -999,7 +1013,7 @@ Window {
         if (confirmIndex < 0 || confirmIndex >= disks.count)
             return ""
         if (confirmAction === "gamesKeep")
-            return "WASD will use this drive and will not erase it. Are you sure?"
+            return "WASD will use this drive and will NOT wipe it. Are you sure?"
         if (confirmAction === "leave")
             return "The files will be deleted. WASD will not install here and will not use it for games. Are you sure?"
         if (confirmAction === "gamesWipe")
