@@ -9,6 +9,7 @@
 #include <gpgme++/decryptionresult.h>
 #include <gpgme++/global.h>
 #include <gpgme++/key.h>
+#include <gpgme++/keylistresult.h>
 
 #include <QDBusConnection>
 #include <QDBusMessage>
