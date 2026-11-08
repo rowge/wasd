@@ -2,7 +2,7 @@ name: Build WASD
 
 on:
   push:
-    branches: [main]
+    branches: [normal, hardcore]
     paths:
       - Containerfile
       - build_files/**
@@ -17,6 +17,13 @@ on:
       - .github/workflows/build.yml
   workflow_dispatch:
     inputs:
+      channel:
+        description: Which download this build updates
+        type: choice
+        options:
+          - hardcore
+          - normal
+        default: hardcore
       compression:
         description: Squashfs compression
         type: choice
@@ -31,8 +38,9 @@ env:
   # steps do not load a shell profile, so the wrapper has to be on PATH here.
   PATH: /home/wasd-builder/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# One build at a time. A second push waits. This runner is only for pushes to
-# main and manual runs, because the repo is public.
+# One build at a time. A second push waits. hardcore publishes the fast
+# download. normal publishes the default download. The repo is public, so
+# this does not run on pull requests.
 concurrency:
   group: wasd-hammerite
   cancel-in-progress: false
@@ -57,6 +65,8 @@ jobs:
     env:
       IMAGE_NAME: ${{ matrix.image_name }}
       VARIANT: ${{ matrix.variant }}
+      # A push uses the branch name. A manual run uses the channel input.
+      WASD_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.channel || github.ref_name }}
 
     steps:
       - name: Checkout
@@ -81,8 +91,14 @@ jobs:
       - name: Image name and tag
         run: |
           set -euo pipefail
-          echo "Building ${VARIANT} as ${IMAGE_NAME}"
-          echo "DEFAULT_TAG=$(just generate-default-tag)" >> "$GITHUB_ENV"
+          if [[ $WASD_CHANNEL != normal && $WASD_CHANNEL != hardcore ]]; then
+            echo "The image channel is not normal or hardcore." >&2
+            exit 1
+          fi
+          echo "Building ${VARIANT} as ${IMAGE_NAME} (${WASD_CHANNEL})"
+          # normal also receives the latest tag below, so installs already
+          # following latest stay on the default download.
+          echo "DEFAULT_TAG=${WASD_CHANNEL}" >> "$GITHUB_ENV"
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> "$GITHUB_ENV"
 
       - name: Build the image
@@ -101,6 +117,9 @@ jobs:
         run: |
           set -euo pipefail
           alias_tags="$(just generate-build-tags "$IMAGE_NAME" "$DEFAULT_TAG")"
+          if [[ $WASD_CHANNEL == normal ]]; then
+            alias_tags="${alias_tags} latest latest-$(date -u +%Y%m%d)"
+          fi
           echo "Tags: ${alias_tags}"
           just tag-images "$IMAGE_NAME" "$DEFAULT_TAG" "$alias_tags"
           echo "alias_tags=${alias_tags}" >> "$GITHUB_OUTPUT"
@@ -153,6 +172,7 @@ jobs:
             --security-opt label=disable \
             --build-arg "BASE_IMAGE=${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}" \
             --build-arg "INSTALL_IMAGE_PAYLOAD=${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}" \
+            --build-arg "WASD_CHANNEL=${WASD_CHANNEL}" \
             --build-arg FLATPAK_DIR_SHORTNAME=kde_flatpaks \
             -t "localhost/wasd-live:${VARIANT}" \
             installer/
@@ -183,7 +203,18 @@ jobs:
           set -euo pipefail
           short_sha=$(git rev-parse --short HEAD)
           stamp=$(date -u +%Y%m%d)
-          if [[ $VARIANT == nvidia ]]; then
+          channel="${WASD_CHANNEL:?}"
+          if [[ $channel != normal && $channel != hardcore ]]; then
+            echo "The image channel is not normal or hardcore." >&2
+            exit 1
+          fi
+          if [[ $channel == hardcore && $VARIANT == nvidia ]]; then
+            name="WASD-nvidia-hardcore-${stamp}-${short_sha}.iso"
+            latest_link="WASD-nvidia-hardcore.iso"
+          elif [[ $channel == hardcore ]]; then
+            name="WASD-hardcore-${stamp}-${short_sha}.iso"
+            latest_link="WASD-hardcore.iso"
+          elif [[ $VARIANT == nvidia ]]; then
             name="WASD-nvidia-${stamp}-${short_sha}.iso"
             latest_link="WASD-nvidia-latest.iso"
           else
@@ -194,6 +225,20 @@ jobs:
           sha256sum "/mnt/wasd/${name}" | tee "/mnt/wasd/${name}.sha256"
           ln -sfn "${name}" "/mnt/wasd/${latest_link}"
           cp "/mnt/wasd/${name}.sha256" "/mnt/wasd/${latest_link}.sha256"
+          if [[ $channel == hardcore ]]; then
+            shopt -s nullglob
+            if [[ $VARIANT == nvidia ]]; then
+              old_hardcore=(/mnt/wasd/WASD-nvidia-hardcore-[0-9]*.iso)
+            else
+              old_hardcore=(/mnt/wasd/WASD-hardcore-[0-9]*.iso)
+            fi
+            if ((${#old_hardcore[@]})); then
+              for old in "${old_hardcore[@]}"; do
+                [[ $(basename "$old") == "$name" ]] && continue
+                rm -f "$old" "${old}.sha256"
+              done
+            fi
+          fi
           # One copy of the five newest discs, AMD and NVIDIA together.
           # The latest links stay in the main folder. The other keepers
           # stay in archive/. Anything older is deleted.
@@ -272,12 +317,14 @@ jobs:
               [[ -f ${iso}.sha256 ]] && mv -f "${iso}.sha256" /mnt/wasd/archive/
             done
           fi
-          printf '%s\n' "${name}" > "/mnt/wasd/LATEST-${VARIANT}.txt"
-          {
-            [[ -f /mnt/wasd/LATEST-amd.txt ]] && cat /mnt/wasd/LATEST-amd.txt
-            [[ -f /mnt/wasd/LATEST-nvidia.txt ]] && cat /mnt/wasd/LATEST-nvidia.txt
-            true
-          } > /mnt/wasd/LATEST.txt
+          if [[ $channel == normal ]]; then
+            printf '%s\n' "${name}" > "/mnt/wasd/LATEST-${VARIANT}.txt"
+            {
+              [[ -f /mnt/wasd/LATEST-amd.txt ]] && cat /mnt/wasd/LATEST-amd.txt
+              [[ -f /mnt/wasd/LATEST-nvidia.txt ]] && cat /mnt/wasd/LATEST-nvidia.txt
+              true
+            } > /mnt/wasd/LATEST.txt
+          fi
           {
             echo "### Live ISO (${VARIANT})"
             echo

@@ -16,6 +16,7 @@ import struct
 import subprocess
 import sys
 import threading
+import urllib.parse
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,6 +27,7 @@ GAMES_DIRS = (
     "ubisoft",
     "rockstar",
     "minecraft",
+    "starcitizen",
     "custom",
     "saves",
 )
@@ -91,7 +93,21 @@ CATALOG = {
         # launcher refuse to create its files, and typing in it stalls.
         user_link=("AppData", "Roaming", ".minecraft"),
     ),
+    "Star Citizen": Launcher(
+        "starcitizen",
+        "https://install.robertsspaceindustries.com/rel/2/RSI%20Launcher-Setup-2.19.1.exe",
+        "RSI-Launcher-Setup.exe",
+        ("drive_c", "Program Files", "Roberts Space Industries", "RSI Launcher", "RSI Launcher.exe"),
+        # The launcher installs the game under this folder. An old setup file
+        # is refused at sign-in, so the download follows their latest.yml.
+        ("drive_c", "Program Files", "Roberts Space Industries", "StarCitizen"),
+    ),
 }
+
+# Roberts Space Industries publishes the current setup here. The catalog URL
+# is the 2026-11-02 file, used when the check does not download.
+RSI_LATEST = "https://install.robertsspaceindustries.com/rel/2/latest.yml"
+_RSI_SETUP = re.compile(r"^RSI Launcher-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$")
 
 
 def names_from(data):
@@ -890,11 +906,33 @@ def umu_env(prefix, launcher):
     env["WASD_GAME"] = "1"
     env.pop("STORE", None)
     env.pop("WINE_SIMULATE_WRITECOPY", None)
+    env.pop("PROTONPATH", None)
     store = _WRITECOPY.get(launcher.launcher_id)
     if store:
         env["STORE"] = store
         env["WINE_SIMULATE_WRITECOPY"] = "1"
+    if launcher.launcher_id == "starcitizen":
+        # umu's Star Citizen fixes, and the Proton build that currently
+        # passes its anti-cheat check. The other launchers stay on the
+        # default Proton.
+        env["GAMEID"] = "umu-starcitizen"
+        env["PROTONPATH"] = "GE-Proton"
+        env["WINEDLLOVERRIDES"] = "dxwebsetup.exe,dotNetFx45_Full_setup.exe=d"
     return env
+
+
+def rsi_setup_url(text):
+    """The setup file named by Roberts Space Industries' latest.yml."""
+    if not isinstance(text, str):
+        raise LauncherError("Could not open that launcher.")
+    name = ""
+    for line in text.splitlines():
+        if line.startswith("path: "):
+            name = line[len("path: "):].strip()
+            break
+    if not _RSI_SETUP.fullmatch(name):
+        raise LauncherError("Could not open that launcher.")
+    return "https://install.robertsspaceindustries.com/rel/2/" + urllib.parse.quote(name)
 
 
 def log_path():
@@ -1033,9 +1071,22 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
             raise LauncherError("Choose the program you downloaded.")
     else:
         setup = _cache(home, launcher)
+        setup_url = launcher.setup_url
+        if launcher.launcher_id == "starcitizen" and os.environ.get("WASD_SELF_CHECK") != "1":
+            listing = setup.with_name("latest.yml")
+            try:
+                fetch(RSI_LATEST, listing)
+                setup_url = rsi_setup_url(listing.read_text(encoding="utf-8"))
+            except LauncherError:
+                listing.unlink(missing_ok=True)
+                raise
+            except OSError as exc:
+                listing.unlink(missing_ok=True)
+                raise LauncherError("Could not open that launcher.") from exc
+            listing.unlink(missing_ok=True)
         if setup.is_symlink() or not setup.is_file() or setup.stat().st_size == 0:
             try:
-                fetch(launcher.setup_url, setup)
+                fetch(setup_url, setup)
             except LauncherError:
                 raise
             except Exception as exc:
@@ -1470,6 +1521,15 @@ def self_check():
         ubi_env = umu_env(prefix, CATALOG["Ubisoft Connect"])
         if ubi_env.get("STORE") != "ubisoft" or ubi_env.get("WINE_SIMULATE_WRITECOPY") != "1":
             raise SystemExit("Ubisoft did not turn on write-copy")
+        if "PROTONPATH" in ubi_env or ubi_env.get("GAMEID") != "umu-default":
+            raise SystemExit("Ubisoft used the Star Citizen Proton")
+        star_env = umu_env(prefix, CATALOG["Star Citizen"])
+        if star_env.get("GAMEID") != "umu-starcitizen" or star_env.get("PROTONPATH") != "GE-Proton":
+            raise SystemExit("Star Citizen did not use its Proton")
+        if star_env.get("WINEDLLOVERRIDES") != "dxwebsetup.exe,dotNetFx45_Full_setup.exe=d":
+            raise SystemExit("Star Citizen would run the launcher's own installers")
+        if "STORE" in star_env:
+            raise SystemExit("Star Citizen turned on the Battle.net workaround")
         opened = calls[-1][0]
         if opened[-1].endswith("Battle.net-Setup.exe") is False or len(opened) != 2:
             raise SystemExit(f"the vendor window was not the only argument: {opened}")
@@ -1873,6 +1933,21 @@ def self_check():
         raise SystemExit("Minecraft is not the official launcher")
     if CATALOG["Minecraft"].user_link != ("AppData", "Roaming", ".minecraft"):
         raise SystemExit("Minecraft games would stay in the launcher")
+    star = CATALOG["Star Citizen"]
+    if star.games_link != ("drive_c", "Program Files", "Roberts Space Industries", "StarCitizen"):
+        raise SystemExit("Star Citizen would install onto the launcher drive")
+    if star.program[-1] != "RSI Launcher.exe":
+        raise SystemExit("Star Citizen would not open the RSI Launcher")
+    sample = "version: 2.19.1\npath: RSI Launcher-Setup-2.19.1.exe\n"
+    if rsi_setup_url(sample) != "https://install.robertsspaceindustries.com/rel/2/RSI%20Launcher-Setup-2.19.1.exe":
+        raise SystemExit("Star Citizen did not use the published setup")
+    for bad in ("path: setup.exe\n", "version: 1\n", ""):
+        try:
+            rsi_setup_url(bad)
+        except LauncherError:
+            pass
+        else:
+            raise SystemExit("Star Citizen accepted a setup that was not theirs")
     if window_args(True, 9) != ["--preview"]:
         raise SystemExit("preview would install a launcher")
     script = here.parent / "system_files/usr/bin/wasd-launchers"

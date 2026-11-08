@@ -40,10 +40,16 @@ if [[ ! $image_digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
     echo "the WASD image has no digest" >&2
     exit 1
 fi
-# Published images use the latest tag. A digest-only load has no tag, so
-# name it latest. The copy and later updates then both use that name.
+# A digest-only load has no tag. Name it for this disc's channel so the
+# install and later updates both follow that channel. normal is the default
+# download. hardcore is the fast download. latest stays an alias of normal.
+channel="${WASD_CHANNEL:-normal}"
+if [[ $channel != normal && $channel != hardcore ]]; then
+    echo "the WASD image channel is not usable: ${channel}" >&2
+    exit 1
+fi
 if [[ -z $image_tag || $image_tag == "<none>" ]]; then
-    image_tag=latest
+    image_tag="$channel"
     podman tag "${image_repo}@${image_digest}" "${image_repo}:${image_tag}"
 elif [[ $image_tag == *[!A-Za-z0-9._-]* || $image_tag == -* || $image_tag == *..* ]]; then
     echo "the WASD image tag is not usable: ${image_tag}" >&2

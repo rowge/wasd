@@ -88,7 +88,7 @@ WASD-latest.iso
 
 Older discs move to `archive/` in that same share. The share keeps one copy of the five newest ISOs, AMD and NVIDIA together. The current disc stays in the main folder next to its latest link. The other keepers are in `archive/`, and anything older is removed.
 
-When the job finishes, Hammerite also replaces `https://downloads.wasd.run/WASD.iso` and `https://downloads.wasd.run/WASD-nvidia.iso`. The public names are only the latest pair.
+When a normal job finishes, Hammerite replaces `https://downloads.wasd.run/WASD.iso` and `https://downloads.wasd.run/WASD-nvidia.iso`. A hardcore job publishes `WASD-hardcore.iso` and `WASD-nvidia-hardcore.iso` and leaves those default names alone. The `latest` image tag moves only with normal.
 
 ## Change the default picture
 
@@ -136,7 +136,7 @@ Recent stable builds landed on 2026-10-12 and 2026-10-23, about eleven days apar
 
 Do both images on the same day so the laptop ISO and Elemental's ISO come from the same Bazzite. On the evening of 2026-10-25 the AMD line still matched `stable`, and the NVIDIA line was behind it. Run the command again before you edit. Those sentences go stale.
 
-A machine that is already running WASD does not track Bazzite. It tracks `ghcr.io/rowge/wasd` (the laptop) or `ghcr.io/rowge/wasd-nvidia` (Elemental). It receives the newer Bazzite only after this build is published, and the update applies on the next reboot.
+A machine that is already running WASD does not track Bazzite. A normal install tracks `ghcr.io/rowge/wasd:normal` (the laptop) or `ghcr.io/rowge/wasd-nvidia:normal` (Elemental). `latest` names that same image. A hardcore install tracks the `hardcore` tag. It receives the newer Bazzite only after the build for that tag is published, and the update applies on the next reboot.
 
 ### Read the current stable digests
 
@@ -212,4 +212,4 @@ If NVIDIA fails in a few seconds with `403` while pulling `bazzite-nvidia-open`,
 - This file lives in `docs/`. A commit that only changes `docs/` does not start a build.
 - Changes to the installer program in `wasd-install/` also do not start a build. Push them, then use **Run workflow**.
 - `docs/artwork.md` is the inventory of pictures. `docs/sketch.md` describes what the image contains.
-- The public download page is https://wasd.run. The files it links are the two names on `downloads.wasd.run`, replaced whenever a job publishes.
+- The public download page is https://wasd.run. The default buttons are `downloads.wasd.run/WASD.iso` and `WASD-nvidia.iso`, replaced when a normal job publishes. The hardcore links under them are `WASD-hardcore.iso` and `WASD-nvidia-hardcore.iso`.

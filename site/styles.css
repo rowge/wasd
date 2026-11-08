@@ -518,6 +518,22 @@ body.home {
   border-color: #ffffff;
 }
 
+.home .channel {
+  margin: 0.85rem auto 0;
+  max-width: 36rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.home .channel a {
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.home .channel a:hover { color: #ffffff; }
+
 .home .usb-link {
   margin: 1rem 0 0;
 }

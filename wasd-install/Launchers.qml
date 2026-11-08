@@ -46,7 +46,8 @@ Window {
             ["Battle.net", "battlenet"],
             ["Ubisoft Connect", "ubisoft"],
             ["Rockstar Launcher", "rockstar"],
-            ["Minecraft", "minecraft"]
+            ["Minecraft", "minecraft"],
+            ["Star Citizen", "starcitizen"]
         ]
         for (let i = 0; i < rows.length; i++) {
             launcherModel.append({
