@@ -16,10 +16,14 @@ fi
 ln -sfn ../usr/share/zoneinfo/America/Los_Angeles /etc/localtime
 
 # The portal is Bazzite's setup window. The live desktop opens Install WASD.
+# Fcitx5 is not installed. Its announcement offers a Flatpak WASD does not use,
+# and that window covers Install WASD on the User page.
 rm -f \
     /etc/skel/.config/autostart/bazzite-portal.desktop \
     /etc/xdg/autostart/bazzite-portal.desktop \
     /etc/xdg/autostart/io.github.ublue_os.yafti_gtk.desktop \
+    /etc/xdg/autostart/bazzite-announcement.desktop \
+    /usr/share/ublue-os/announcements/fcitx5-flatpak.msg.json \
     /etc/skel/Desktop/Welcome.txt \
     /home/player/Desktop/Welcome.txt \
     /var/home/player/Desktop/Welcome.txt
@@ -421,6 +425,8 @@ test ! -e /etc/skel/Desktop/Welcome.txt
 test ! -e /home/player/Desktop/Welcome.txt
 test ! -e /var/home/player/Desktop/Welcome.txt
 test ! -e /etc/skel/.config/autostart/bazzite-portal.desktop
+test ! -e /etc/xdg/autostart/bazzite-announcement.desktop
+test ! -e /usr/share/ublue-os/announcements/fcitx5-flatpak.msg.json
 test -s /usr/share/wasd/icons/wasd-logo.png
 test -s /usr/share/wasd/look/Look.qml
 test -s /usr/share/wasd/look/ApplyHost.qml
