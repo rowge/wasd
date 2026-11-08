@@ -96,6 +96,7 @@ jobs:
             exit 1
           fi
           echo "Building ${VARIANT} as ${IMAGE_NAME} (${WASD_CHANNEL})"
+          echo "### ${WASD_CHANNEL}" >> "$GITHUB_STEP_SUMMARY"
           # normal also receives the latest tag below, so installs already
           # following latest stay on the default download.
           echo "DEFAULT_TAG=${WASD_CHANNEL}" >> "$GITHUB_ENV"
