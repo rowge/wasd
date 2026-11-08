@@ -212,26 +212,18 @@ case "${gpg_kind}" in
         ;;
 esac
 rm -rf "${gpg_home}" "${gpg_wallet}"
-if [[ $had_qml_devel -eq 0 ]] && rpm -q qt6-qtdeclarative-devel >/dev/null 2>&1; then
-    dnf5 -y remove --setopt=clean_requirements_on_remove=True qt6-qtdeclarative-devel
-fi
-if [[ $had_qtbase -eq 0 ]] && rpm -q qt6-qtbase-devel >/dev/null 2>&1; then
-    dnf5 -y remove --setopt=clean_requirements_on_remove=True qt6-qtbase-devel
-fi
-if [[ $had_gpg -eq 0 ]] && rpm -q gpgmepp-devel >/dev/null 2>&1; then
-    dnf5 -y remove --setopt=clean_requirements_on_remove=True gpgmepp-devel
-fi
-if [[ $had_kwallet_devel -eq 0 ]] && rpm -q kf6-kwallet-devel >/dev/null 2>&1; then
-    dnf5 -y remove --setopt=clean_requirements_on_remove=True kf6-kwallet-devel
-fi
-if [[ $had_ssl -eq 0 ]] && rpm -q openssl-devel >/dev/null 2>&1; then
-    dnf5 -y remove --setopt=clean_requirements_on_remove=True openssl-devel
-fi
-if [[ $had_curl -eq 0 ]] && rpm -q curl >/dev/null 2>&1; then
-    dnf5 -y remove --setopt=clean_requirements_on_remove=True curl
-fi
-if [[ $had_cxx -eq 0 ]] && rpm -q gcc-c++ >/dev/null 2>&1; then
-    dnf5 -y remove --setopt=clean_requirements_on_remove=True gcc-c++
+# One transaction. The wallet devel package requires the Qt devel package,
+# so removing Qt while the wallet package is still installed is refused.
+drop_devel=()
+[[ $had_qml_devel -eq 0 ]] && rpm -q qt6-qtdeclarative-devel >/dev/null 2>&1 && drop_devel+=(qt6-qtdeclarative-devel)
+[[ $had_qtbase -eq 0 ]] && rpm -q qt6-qtbase-devel >/dev/null 2>&1 && drop_devel+=(qt6-qtbase-devel)
+[[ $had_gpg -eq 0 ]] && rpm -q gpgmepp-devel >/dev/null 2>&1 && drop_devel+=(gpgmepp-devel)
+[[ $had_kwallet_devel -eq 0 ]] && rpm -q kf6-kwallet-devel >/dev/null 2>&1 && drop_devel+=(kf6-kwallet-devel)
+[[ $had_ssl -eq 0 ]] && rpm -q openssl-devel >/dev/null 2>&1 && drop_devel+=(openssl-devel)
+[[ $had_curl -eq 0 ]] && rpm -q curl >/dev/null 2>&1 && drop_devel+=(curl)
+[[ $had_cxx -eq 0 ]] && rpm -q gcc-c++ >/dev/null 2>&1 && drop_devel+=(gcc-c++)
+if ((${#drop_devel[@]})); then
+    dnf5 -y remove --setopt=clean_requirements_on_remove=True "${drop_devel[@]}"
 fi
 rpm -q qt6-qtdeclarative
 test -x /usr/bin/wasd-qml
