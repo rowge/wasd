@@ -81,7 +81,7 @@ install -d /usr/share/wasd/look
 for qml in Look.qml LookPage.qml PageFooter.qml ApplyHost.qml Lister.qml AvatarProbe.qml ChosenProbe.qml; do
     install -m 0644 "/ctx/wasd-install/${qml}" "/usr/share/wasd/look/${qml}"
 done
-chmod 0755 /usr/bin/wasd-look /usr/bin/wasd-launchers /usr/libexec/wasd-apply-look
+chmod 0755 /usr/bin/wasd-look /usr/bin/wasd-launchers /usr/bin/wasd-updater /usr/libexec/wasd-apply-look
 # Keep every other lock setting. Only the picture is set, to the login picture.
 /usr/libexec/wasd-apply-look --sync-lock throne.jpg
 install -d /usr/share/wasd/install

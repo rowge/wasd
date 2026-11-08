@@ -1,0 +1,14 @@
+{
+    "displayName": "WASD",
+    "shortDescription": "A desktop for playing games",
+    "homepage": "https://wasd.run/",
+    "bugAddress": "https://github.com/rowge/wasd",
+    "version": "@VERSION@",
+    "otherText": "",
+    "authors": [],
+    "credits": [],
+    "translators": [],
+    "licenses": [],
+    "copyrightStatement": "WASD",
+    "programLogo": "/usr/share/icons/hicolor/256x256/apps/wasd-logo.png"
+}

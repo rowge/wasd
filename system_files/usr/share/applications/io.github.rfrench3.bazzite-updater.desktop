@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=WASD Updater
+Comment=Update your system
+Exec=wasd-updater
+Icon=wasd-logo
+Terminal=false
+Type=Application
+Categories=Qt;KDE;System;
+Keywords=update;system;

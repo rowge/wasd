@@ -1,0 +1,4 @@
+#!/bin/bash
+# Open the system updater under the WASD name.
+
+exec /usr/bin/bazzite-updater "$@"
