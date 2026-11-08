@@ -166,12 +166,14 @@ cat > "${kwallet_hdr}/kwalletbackend_export.h" << 'EOF'
 EOF
 # kf6-kwallet-devel ships CMake files, not a KF6Wallet pkg-config file.
 # The backend headers include qwindowdefs.h from Qt6Gui.
+# The devel package has no unversioned libKF6WalletBackend.so. The runtime
+# ships the soname, so the link names that file.
 g++ -O2 -std=c++17 -DHAVE_GPGMEPP -o /usr/libexec/wasd-wallet-file /ctx/wasd-wallet.cpp \
     -I"${kwallet_hdr}" \
     -I/usr/include/KF6/KWallet \
     $(pkg-config --cflags Qt6Core Qt6DBus Qt6Gui gpgmepp) \
     $(pkg-config --libs Qt6Core Qt6DBus gpgmepp) \
-    -lKF6WalletBackend -lcrypto
+    -l:libKF6WalletBackend.so.6 -lcrypto
 rm -rf "${kwallet_hdr}"
 wallet_home=$(mktemp -d)
 chmod 700 "${wallet_home}"
