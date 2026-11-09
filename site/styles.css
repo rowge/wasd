@@ -645,6 +645,12 @@ body.home {
 .home .logos img {
   width: 3.1rem;
   height: 3.1rem;
+  object-fit: contain;
+}
+
+.home .logos img.wide {
+  width: 5.6rem;
+  height: 2.4rem;
 }
 
 .home .logos strong {
