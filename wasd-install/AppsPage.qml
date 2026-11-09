@@ -301,15 +301,14 @@ Item {
 
                 Grid {
                     width: parent.width - 26
-                    columns: 2
-                    columnSpacing: 24
+                    columns: 1
                     rowSpacing: 8
 
                     Repeater {
                         model: host.launcherNames
                         delegate: Item {
                             required property string modelData
-                            width: (parent.width - 24) / 2
+                            width: parent.width
                             height: 26
 
                             Rectangle {

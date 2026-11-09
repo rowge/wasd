@@ -6,7 +6,7 @@ Window {
     id: win
     objectName: "launchersWindow"
     width: 780
-    height: 640
+    height: 760
     visible: true
     title: "WASD Launchers"
     color: bg
@@ -48,7 +48,12 @@ Window {
             ["Battle.net", "battlenet"],
             ["Ubisoft Connect", "ubisoft"],
             ["Rockstar Launcher", "rockstar"],
-            ["Minecraft", "minecraft"],
+            ["Java Minecraft", "minecraft"],
+            ["Minecraft Bedrock", "minecraft-bedrock"],
+            ["Modded Minecraft", "minecraft-modded"],
+            ["MultiMC", "multimc"],
+            ["CurseForge", "curseforge"],
+            ["FTB App", "ftb"],
             ["Star Citizen", "starcitizen"]
         ]
         for (let i = 0; i < rows.length; i++) {
@@ -56,7 +61,7 @@ Window {
                 name: rows[i][0],
                 launcherId: rows[i][1],
                 custom: false,
-                folder: ""
+                folder: "/games/" + rows[i][1]
             })
         }
     }
@@ -324,7 +329,7 @@ Window {
             Text {
                 width: parent.width
                 wrapMode: Text.WordWrap
-                text: "Nuke/Fix rebuilds the launcher only. Saved games stay."
+                text: "Nuke/Fix rebuilds the launcher only. Saved games stay. Browse opens that folder."
                 color: win.muted
                 font.family: win.bodyFont
                 font.pixelSize: 15
@@ -332,7 +337,7 @@ Window {
 
             Flickable {
                 width: parent.width
-                height: 424
+                height: 500
                 contentWidth: width
                 contentHeight: listColumn.height
                 clip: true
@@ -362,7 +367,7 @@ Window {
 
                         Item {
                             width: parent.width
-                            height: 68
+                            height: 96
 
                         Column {
                             anchors.left: parent.left
@@ -385,9 +390,17 @@ Window {
                                 width: parent.width
                                 text: win.pending === name
                                         ? "Working…"
-                                        : (custom && folder.length > 0
-                                            ? folder
-                                            : (win.readyMap[name] ? "Installed" : "Not set up yet"))
+                                        : (win.readyMap[name] ? "Installed" : "Not set up yet")
+                                color: win.muted
+                                font.family: win.bodyFont
+                                font.pixelSize: 13
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                width: parent.width
+                                visible: folder.length > 0
+                                text: folder
                                 color: win.muted
                                 font.family: win.bodyFont
                                 font.pixelSize: 13
@@ -460,6 +473,32 @@ Window {
                                         }
                                         win.startInstall(name)
                                     }
+                                }
+                            }
+
+                            Rectangle {
+                                objectName: "browse" + launcherId
+                                width: browseLabel.implicitWidth + 28
+                                height: 34
+                                radius: 8
+                                color: "transparent"
+                                border.width: 1
+                                border.color: win.line
+
+                                Text {
+                                    id: browseLabel
+                                    anchors.centerIn: parent
+                                    text: "Browse"
+                                    color: win.ink
+                                    font.family: win.bodyFont
+                                    font.pixelSize: 14
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: win.pending.length === 0
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: win.act("/browse", name)
                                 }
                             }
 

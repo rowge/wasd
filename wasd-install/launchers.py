@@ -15,6 +15,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tarfile
 import threading
 import urllib.parse
 import zlib
@@ -27,6 +28,11 @@ GAMES_DIRS = (
     "ubisoft",
     "rockstar",
     "minecraft",
+    "minecraft-bedrock",
+    "minecraft-modded",
+    "multimc",
+    "curseforge",
+    "ftb",
     "starcitizen",
     "custom",
     "saves",
@@ -54,6 +60,13 @@ class Launcher:
         games_dir="",
         mount_games=False,
         channel_dirs=(),
+        native=False,
+        native_args=(),
+        native_env=(),
+        archive_root="",
+        native_program=(),
+        host_link=(),
+        bundle_libs=False,
     ):
         self.launcher_id = launcher_id
         self.setup_url = setup_url
@@ -64,6 +77,19 @@ class Launcher:
         self.games_dir = games_dir
         self.mount_games = bool(mount_games)
         self.channel_dirs = tuple(channel_dirs)
+        # A native launcher is a Linux program. Its game files still sit on
+        # an empty directory that the games folder is mounted onto.
+        self.native = bool(native)
+        self.native_args = tuple(native_args)
+        self.native_env = tuple(native_env)
+        # A packed Linux build is extracted beside the download. The program
+        # that runs is native_program inside that tree, never the archive.
+        self.archive_root = archive_root
+        self.native_program = tuple(native_program)
+        # A host path the program always uses. The games folder is mounted
+        # on it. A symlink at that path is the failure Minecraft hit.
+        self.host_link = tuple(host_link)
+        self.bundle_libs = bool(bundle_libs)
 
 
 # Display names match Install WASD and WASD Launchers. The setup addresses
@@ -88,7 +114,7 @@ CATALOG = {
         "Rockstar-Games-Launcher.exe",
         ("drive_c", "Program Files", "Rockstar Games", "Launcher", "Launcher.exe"),
     ),
-    "Minecraft": Launcher(
+    "Java Minecraft": Launcher(
         "minecraft",
         "https://launcher.mojang.com/download/Minecraft.exe",
         "Minecraft.exe",
@@ -96,6 +122,74 @@ CATALOG = {
         # Mounted over the games folder at launch. A symlink makes this
         # launcher refuse to create its files, and typing in it stalls.
         user_link=("AppData", "Roaming", ".minecraft"),
+    ),
+    "Minecraft Bedrock": Launcher(
+        "minecraft-bedrock",
+        "https://github.com/Wyze3306/BedrockOnLinux/releases/download/v2.3.0/BedrockOnLinux-2.3.0-x86_64.AppImage",
+        "BedrockOnLinux-2.3.0-x86_64.AppImage",
+        (),
+        # BOL_HOME is this empty directory. The games folder is mounted on
+        # it for the launch, so the download, the worlds, and BedrockOnLinux's
+        # own prefix are real files. A symlink is the failure Minecraft hit.
+        ("data",),
+        mount_games=True,
+        native=True,
+        native_env=(("BOL_HOME", "{mount}"),),
+    ),
+    "Modded Minecraft": Launcher(
+        "minecraft-modded",
+        "https://github.com/PolyMC/PolyMC/releases/download/8.1/PolyMC-Linux-amd64-8.1.AppImage",
+        "PolyMC-Linux-amd64-8.1.AppImage",
+        (),
+        # --dir is this empty directory, and the games folder is mounted on
+        # it. Instances and mods are written there. The AppImage stays in
+        # the cache, outside the mount, so the mount does not hide it.
+        ("data",),
+        mount_games=True,
+        native=True,
+        native_args=("--dir", "{mount}"),
+    ),
+    "MultiMC": Launcher(
+        "multimc",
+        "https://files.multimc.org/downloads/mmc-develop-lin64.tar.gz",
+        "mmc-develop-lin64.tar.gz",
+        (),
+        # --dir is this empty directory, and the games folder is mounted on
+        # it. The upstream start script refuses to run as root, and the
+        # mount namespace is root, so WASD starts bin/MultiMC itself.
+        ("data",),
+        mount_games=True,
+        native=True,
+        native_args=("--dir", "{mount}"),
+        archive_root="MultiMC",
+        native_program=("bin", "MultiMC"),
+        bundle_libs=True,
+    ),
+    "CurseForge": Launcher(
+        "curseforge",
+        "https://curseforge.overwolf.com/electron/linux/CurseForge-1.325.0-41594.AppImage",
+        "CurseForge-1.325.0-41594.AppImage",
+        (),
+        # The Linux build's mod folder is Documents/curseforge. That path
+        # is an empty directory, and the games folder is mounted on it.
+        # Electron refuses a root namespace unless --no-sandbox is set.
+        host_link=("Documents", "curseforge"),
+        mount_games=True,
+        native=True,
+        native_args=("--no-sandbox",),
+    ),
+    "FTB App": Launcher(
+        "ftb",
+        "https://piston.feed-the-beast.com/app/ftb-app-linux-1.30.1-x86_64.AppImage",
+        "ftb-app-linux-1.30.1-x86_64.AppImage",
+        (),
+        # getAppHome in the 1.30.1 source puts instances, the runtime, and
+        # settings in ~/.ftba. That path is an empty directory, and the
+        # games folder is mounted on it.
+        host_link=(".ftba",),
+        mount_games=True,
+        native=True,
+        native_args=("--no-sandbox",),
     ),
     "Star Citizen": Launcher(
         "starcitizen",
@@ -117,6 +211,14 @@ CATALOG = {
 # is the 2026-11-02 file, used when the check does not download.
 RSI_LATEST = "https://install.robertsspaceindustries.com/rel/2/latest.yml"
 _RSI_SETUP = re.compile(r"^RSI Launcher-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$")
+# A choice saved before Java Minecraft had that name.
+ALIASES = {"Minecraft": "Java Minecraft"}
+
+
+def canonical_name(name):
+    if isinstance(name, str) and name in ALIASES:
+        return ALIASES[name]
+    return name
 
 
 def names_from(data):
@@ -128,6 +230,7 @@ def names_from(data):
         raise LauncherError("Choose the launchers again.")
     names = []
     for item in raw:
+        item = canonical_name(item)
         if not isinstance(item, str) or item not in CATALOG or item in names:
             raise LauncherError("Choose the launchers again.")
         names.append(item)
@@ -156,7 +259,9 @@ def _custom_name(name):
         raise LauncherError("Name that game in a few words.")
     if '"' in name or "\\" in name:
         raise LauncherError("Name that game in a few words.")
-    if name.casefold() in {item.casefold() for item in CATALOG}:
+    taken = {item.casefold() for item in CATALOG}
+    taken.update(item.casefold() for item in ALIASES)
+    if name.casefold() in taken:
         raise LauncherError("That launcher is already on the list.")
     return name
 
@@ -246,8 +351,10 @@ def custom_launcher(row):
 
 
 def find_launcher(home, name):
-    if isinstance(name, str) and name in CATALOG:
-        return CATALOG[name]
+    if isinstance(name, str):
+        name = canonical_name(name)
+        if name in CATALOG:
+            return CATALOG[name]
     if not isinstance(name, str) or not name:
         return None
     for row in load_custom(home):
@@ -514,8 +621,13 @@ def _channel_dir(games, name):
     _safe_dir(folder)
 
 
-def _launch_argv(user_name, launcher, prefix, games, args):
-    command = umu_argv(list(args))
+def _host_slot(home, launcher):
+    if not launcher.host_link:
+        return None
+    return Path(home).joinpath(*launcher.host_link)
+
+
+def _mounts(user_name, launcher, prefix, games, home=None):
     mounts = []
     if launcher.user_link:
         for name in _account_names(user_name):
@@ -523,15 +635,82 @@ def _launch_argv(user_name, launcher, prefix, games, args):
             for part in launcher.user_link:
                 slot = slot / part
             mounts.append((games, slot))
-    if launcher.mount_games and launcher.games_link:
+    if launcher.mount_games and launcher.host_link:
+        slot = _host_slot(home, launcher)
+        if slot is None:
+            raise LauncherError("The games drive could not be prepared.")
+        mounts.append((games, slot))
+    elif launcher.mount_games and launcher.games_link:
         mounts.append((games, prefix.joinpath(*launcher.games_link)))
+    return mounts
+
+
+def _mount_slot(launcher, prefix, home=None):
+    if launcher.mount_games and launcher.host_link:
+        slot = _host_slot(home, launcher)
+        return "" if slot is None else str(slot)
+    if launcher.mount_games and launcher.games_link:
+        return str(prefix.joinpath(*launcher.games_link))
+    return ""
+
+
+def _mount_text(text, slot):
+    return str(text).replace("{mount}", slot)
+
+
+def _launch_argv(user_name, launcher, prefix, games, args, home=None):
+    mounts = _mounts(user_name, launcher, prefix, games, home)
+    slot = _mount_slot(launcher, prefix, home)
+    if launcher.native:
+        command = [_mount_text(item, slot) for item in args]
+        command.extend(_mount_text(item, slot) for item in launcher.native_args)
+    else:
+        command = umu_argv(list(args))
     if mounts:
         command = _mounted_argv(command, mounts)
     _check_argv(command)
     return command
 
 
-def ensure_links(prefix, games, saves, user_name, launcher):
+def launch_env(prefix, launcher, slot=""):
+    """The environment for one launch. A native program is not a Wine prefix."""
+    if not launcher.native:
+        return umu_env(prefix, launcher)
+    env = os.environ.copy()
+    for key in (
+        "WINEPREFIX",
+        "GAMEID",
+        "PROTONPATH",
+        "STORE",
+        "WINE_SIMULATE_WRITECOPY",
+        "WINEDLLOVERRIDES",
+    ):
+        env.pop(key, None)
+    # The performance profile watches this on the running program.
+    env["WASD_GAME"] = "1"
+    # ostree has no FUSE for an AppImage to mount itself.
+    env["APPIMAGE_EXTRACT_AND_RUN"] = "1"
+    for key, value in launcher.native_env:
+        env[str(key)] = _mount_text(value, slot)
+    return env
+
+
+def _executable(path):
+    """Make a cached native program executable. A link is refused."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
+        raise LauncherError("Could not open that launcher.")
+    if not os.access(path, os.X_OK):
+        try:
+            path.chmod(0o755)
+        except OSError as exc:
+            raise LauncherError("Could not open that launcher.") from exc
+    if not os.access(path, os.X_OK):
+        raise LauncherError("Could not open that launcher.")
+    return path
+
+
+def ensure_links(prefix, games, saves, user_name, launcher, home=None):
     prefix = _safe_dir(prefix)
     dos = _safe_dir(prefix / "dosdevices")
     _replace_link(dos / "d:", games)
@@ -543,6 +722,10 @@ def ensure_links(prefix, games, saves, user_name, launcher):
             _replace_link(my_docs, saves)
         if launcher.user_link:
             _prepare_game_mount(folder, launcher.user_link, games)
+    if launcher.host_link:
+        if home is None:
+            raise LauncherError("The games drive could not be prepared.")
+        _prepare_game_mount(Path(home), launcher.host_link, games)
     if launcher.games_link:
         moved = prefix.joinpath(*launcher.games_link)
         parent = _safe_dir(moved.parent)
@@ -584,7 +767,7 @@ def layout(home, name, root=None):
         prefix.mkdir()
     if prefix.is_symlink():
         raise LauncherError("The launcher folder is a link.")
-    ensure_links(prefix, games, saves, home.name, launcher)
+    ensure_links(prefix, games, saves, home.name, launcher, home)
     return prefix
 
 
@@ -854,6 +1037,7 @@ def _desktop_text(home, name, root):
 
 
 def write_menu(home, name, root=None):
+    name = canonical_name(name)
     launcher = require_launcher(home, name)
     home = Path(home)
     root = Path(root) if root is not None else games_root(home)
@@ -876,6 +1060,8 @@ def program_path(home, name, root=None):
     launcher = require_launcher(home, name)
     home = Path(home)
     if not launcher.program:
+        if launcher.archive_root:
+            return _archived_program(home, launcher)
         return _cache(home, launcher)
     root = Path(root) if root is not None else games_root(home)
     installed = _prefix(root, launcher).joinpath(*launcher.program)
@@ -895,6 +1081,69 @@ def needs_setup(home, name, root=None):
 
 def _cache(home, launcher):
     return Path(home) / ".cache/wasd/launchers" / launcher.launcher_id / launcher.setup_name
+
+
+def _archive_root(home, launcher):
+    return _cache(home, launcher).parent / "app" / launcher.archive_root
+
+
+def _archived_program(home, launcher):
+    return _archive_root(home, launcher).joinpath(*launcher.native_program)
+
+
+def _safe_extract(archive, dest):
+    """Extract a launcher archive without following a link out of dest."""
+    dest = _safe_dir(dest)
+    try:
+        with tarfile.open(archive, "r:gz") as tar:
+            for member in tar.getmembers():
+                name = member.name
+                if not name or name.startswith("/") or ".." in Path(name).parts:
+                    raise LauncherError("Could not open that launcher.")
+                if member.issym() or member.islnk():
+                    raise LauncherError("Could not open that launcher.")
+            tar.extractall(dest, filter="data")
+    except LauncherError:
+        raise
+    except (tarfile.TarError, OSError) as exc:
+        raise LauncherError("Could not open that launcher.") from exc
+    return dest
+
+
+def _unpack_archive(home, launcher):
+    """Leave the unpacked program beside the download, outside the mount."""
+    program = _archived_program(home, launcher)
+    if program.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    if program.is_file():
+        return _executable(program)
+    archive = _cache(home, launcher)
+    if archive.is_symlink() or not archive.is_file() or archive.stat().st_size == 0:
+        raise LauncherError("Could not open that launcher.")
+    root_parent = _archive_root(home, launcher).parent
+    if root_parent.exists():
+        if root_parent.is_symlink():
+            raise LauncherError("Could not open that launcher.")
+        _unlink_tree(root_parent)
+    _safe_extract(archive, root_parent)
+    if program.is_symlink() or not program.is_file():
+        raise LauncherError("Could not open that launcher.")
+    return _executable(program)
+
+
+def _bundle_env(env, root):
+    """Point the launcher at its own libraries, and keep those off the game.
+
+    MultiMC's start script does this, then refuses to run as root. The mount
+    namespace is root, so the same variables are set around bin/MultiMC.
+    """
+    previous = env.get("LD_LIBRARY_PATH", "")
+    if "GAME_LIBRARY_PATH" not in env:
+        env["GAME_LIBRARY_PATH"] = previous
+    if "GAME_PRELOAD" not in env:
+        env["GAME_PRELOAD"] = env.get("LD_PRELOAD", "")
+    env["LD_LIBRARY_PATH"] = str(Path(root) / "bin")
+    return env
 
 
 def _check_argv(argv):
@@ -1073,6 +1322,7 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
 
     force_setup opens the vendor setup even when the program is already there.
     """
+    name = canonical_name(name)
     launcher = require_launcher(home, name)
     home = Path(home)
     feed_log(name + "\n")
@@ -1083,14 +1333,29 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
     write_menu(home, name, root)
     if not launcher.setup_url and not launcher.setup_name:
         return prefix
-    env = umu_env(prefix, launcher)
-    if not (prefix / "system.reg").is_file():
-        boot = _launch_argv(home.name, launcher, prefix, games, ["wineboot", "-u"])
+    env = launch_env(prefix, launcher, _mount_slot(launcher, prefix, home))
+    if not launcher.native and not (prefix / "system.reg").is_file():
+        boot = _launch_argv(home.name, launcher, prefix, games, ["wineboot", "-u"], home)
         if runner(boot, env) != 0:
             raise LauncherError("Could not open that launcher.")
-        ensure_links(prefix, games, saves, home.name, launcher)
+        ensure_links(prefix, games, saves, home.name, launcher, home)
     program = program_path(home, name, root)
-    if not force_setup and program.is_file() and not program.is_symlink():
+    if launcher.archive_root:
+        setup = _cache(home, launcher)
+        ready = program.is_file() and not program.is_symlink()
+        if (force_setup or not ready) and (
+            setup.is_symlink() or not setup.is_file() or setup.stat().st_size == 0
+        ):
+            if not launcher.setup_url:
+                raise LauncherError("Choose the program you downloaded.")
+            try:
+                fetch(launcher.setup_url, setup)
+            except LauncherError:
+                raise
+            except Exception as exc:
+                raise LauncherError("Could not open that launcher.") from exc
+        target = _unpack_archive(home, launcher)
+    elif not force_setup and program.is_file() and not program.is_symlink():
         target = program
     elif not launcher.setup_url:
         target = _cache(home, launcher)
@@ -1123,12 +1388,16 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
         target = setup
     # A later open can turn the slot back into a link. Mounting needs a real directory.
     if launcher.user_link or launcher.mount_games:
-        ensure_links(prefix, games, saves, home.name, launcher)
+        ensure_links(prefix, games, saves, home.name, launcher, home)
     if launcher.launcher_id == "minecraft":
         _prefer_minecraft_vulkan(games)
-    command = _launch_argv(home.name, launcher, prefix, games, [str(target)])
+    if launcher.native and not launcher.archive_root:
+        target = _executable(target)
+    if launcher.bundle_libs:
+        _bundle_env(env, _archive_root(home, launcher))
+    command = _launch_argv(home.name, launcher, prefix, games, [str(target)], home)
     code = runner(command, env)
-    ensure_links(prefix, games, saves, home.name, launcher)
+    ensure_links(prefix, games, saves, home.name, launcher, home)
     write_menu(home, name, root)
     if code != 0:
         raise LauncherError("Could not open that launcher.")
@@ -1137,6 +1406,7 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
 
 def launch_installed(home, name, runner, root=None):
     """Open the installed program. Do not download or run its setup."""
+    name = canonical_name(name)
     launcher = require_launcher(home, name)
     home = Path(home)
     root = Path(root) if root is not None else games_root(home)
@@ -1149,16 +1419,38 @@ def launch_installed(home, name, runner, root=None):
     games = _games(root, launcher)
     saves = _saves(root, launcher)
     if launcher.user_link or launcher.mount_games:
-        ensure_links(prefix, games, saves, home.name, launcher)
+        ensure_links(prefix, games, saves, home.name, launcher, home)
     if launcher.launcher_id == "minecraft":
         _prefer_minecraft_vulkan(games)
+    if launcher.archive_root:
+        program = _unpack_archive(home, launcher)
+    elif launcher.native:
+        program = _executable(program)
     feed_log(name + "\n")
-    command = _launch_argv(home.name, launcher, prefix, games, [str(program)])
-    code = runner(command, umu_env(prefix, launcher))
+    env = launch_env(prefix, launcher, _mount_slot(launcher, prefix, home))
+    if launcher.bundle_libs:
+        _bundle_env(env, _archive_root(home, launcher))
+    command = _launch_argv(home.name, launcher, prefix, games, [str(program)], home)
+    code = runner(command, env)
     write_menu(home, name, root)
     if code != 0:
         raise LauncherError("Could not open that launcher.")
     return prefix
+
+
+def browse_launcher(home, name, root=None):
+    """Open this launcher's games folder. The mount slot stays empty."""
+    name = canonical_name(name)
+    launcher = require_launcher(home, name)
+    home = Path(home)
+    root = Path(root) if root is not None else games_root(home)
+    games = _games(root, launcher)
+    if games.is_symlink():
+        raise LauncherError("Could not open that folder.")
+    games = _safe_dir(games)
+    if OPENER(str(games)) != 0:
+        raise LauncherError("Could not open that folder.")
+    return games
 
 
 def remake(home, name, runner, fetch, root=None):
@@ -1289,6 +1581,16 @@ RUNNER = real_runner
 FETCH = real_fetch
 
 
+def real_open(path):
+    """Open a games folder in the file manager. The self-check never does."""
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        raise SystemExit("self-check tried to open a folder")
+    return subprocess.run(["xdg-open", str(path)]).returncode
+
+
+OPENER = real_open
+
+
 def _home():
     override = os.environ.get("WASD_LAUNCHER_HOME")
     if override:
@@ -1364,6 +1666,8 @@ class WindowHandler(BaseHTTPRequestHandler):
                 install_launcher(_home(), text, RUNNER, FETCH)
             elif self.path == "/remake":
                 remake(_home(), text, RUNNER, FETCH)
+            elif self.path == "/browse":
+                browse_launcher(_home(), text)
             else:
                 self._reply(404, "This request was refused.")
                 return
@@ -1422,7 +1726,17 @@ def self_check():
         fetches.append(url)
         dest = Path(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(b"MZ")
+        if dest.name.endswith(".tar.gz"):
+            payload = b"#!/bin/sh\nexit 0\n"
+            info = tarfile.TarInfo("MultiMC/bin/MultiMC")
+            info.size = len(payload)
+            info.mode = 0o755
+            buf = __import__("io").BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+                tar.addfile(info, __import__("io").BytesIO(payload))
+            dest.write_bytes(buf.getvalue())
+        else:
+            dest.write_bytes(b"MZ")
 
     try:
         real_runner(["/usr/bin/umu-run", "wineboot", "-u"], {})
@@ -1438,11 +1752,26 @@ def self_check():
             raise
     else:
         raise SystemExit("self-check downloaded a launcher")
+    try:
+        real_open("/tmp")
+    except SystemExit as exc:
+        if "self-check tried to open a folder" not in str(exc):
+            raise
+    else:
+        raise SystemExit("self-check opened a folder")
 
     if names_from({"password": False}) is not None:
         raise SystemExit("a missing launcher list was treated as a choice")
     if names_from({"launchers": []}) != []:
         raise SystemExit("an empty launcher list was refused")
+    if names_from({"launchers": ["Minecraft"]}) != ["Java Minecraft"]:
+        raise SystemExit("a saved Minecraft choice was refused")
+    try:
+        names_from({"launchers": ["Minecraft", "Java Minecraft"]})
+    except LauncherError:
+        pass
+    else:
+        raise SystemExit("Minecraft was listed twice")
     for bad in ({"launchers": "Battle.net"}, {"launchers": ["Nope"]}, {"launchers": ["Battle.net", "Battle.net"]}):
         try:
             names_from(bad)
@@ -1631,7 +1960,7 @@ def self_check():
         (minecraft_games / "saves").mkdir()
         (minecraft_games / "saves" / "world.txt").write_text("keep\n", encoding="utf-8")
         (world_slot / "extra.txt").write_text("moved\n", encoding="utf-8")
-        ensure_links(mine, minecraft_games, root / "saves" / "minecraft", home.name, CATALOG["Minecraft"])
+        ensure_links(mine, minecraft_games, root / "saves" / "minecraft", home.name, CATALOG["Java Minecraft"])
         if (minecraft_games / "extra.txt").read_text(encoding="utf-8") != "moved\n":
             raise SystemExit("a Minecraft file stayed in the launcher")
         if any(world_slot.iterdir()):
@@ -1646,7 +1975,7 @@ def self_check():
         calls.clear()
         before_fetches = len(fetches)
         install_launcher(home, "Minecraft", runner, fetch, root)
-        if fetches[before_fetches:] != [CATALOG["Minecraft"].setup_url]:
+        if fetches[before_fetches:] != [CATALOG["Java Minecraft"].setup_url]:
             raise SystemExit(f"Minecraft did not use the official launcher: {fetches[before_fetches:]}")
         if not calls or calls[0][0][0] != "unshare" or "wineboot" not in calls[0][0]:
             raise SystemExit(f"Minecraft was not opened on its games folder: {calls}")
@@ -1683,7 +2012,7 @@ def self_check():
         options.write_text('preferredGraphicsBackend:"opengl"\n', encoding="utf-8")
         pixel = struct.pack("<IiiHHIIiiII", 40, 1, 2, 1, 32, 0, 4, 0, 0, 0, 0)
         pixel += bytes((0x10, 0x20, 0x30, 0xFF)) + b"\x00\x00\x00\x00"
-        _cache(home, CATALOG["Minecraft"]).write_bytes(_pe_containing_dib(pixel))
+        _cache(home, CATALOG["Java Minecraft"]).write_bytes(_pe_containing_dib(pixel))
         write_menu(home, "Minecraft", root)
         mine_icon = ""
         mine_entry = (home / ".local/share/applications/wasd-launcher-minecraft.desktop").read_text(encoding="utf-8")
@@ -1695,7 +2024,7 @@ def self_check():
         if not Path(mine_icon).read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
             raise SystemExit("Minecraft's icon was not its own")
         mine_rows = {row["name"]: row for row in status_rows(home, root)}
-        if not mine_rows["Minecraft"]["ready"]:
+        if not mine_rows["Java Minecraft"]["ready"]:
             raise SystemExit("Minecraft's launcher was not counted as installed")
         calls.clear()
         launch_installed(home, "Minecraft", runner, root)
@@ -1704,7 +2033,7 @@ def self_check():
         if options.read_text(encoding="utf-8") != 'preferredGraphicsBackend:"opengl"\n':
             raise SystemExit("Minecraft overwrote an explicit graphics choice")
         installed_mine = (
-            _prefix(root, CATALOG["Minecraft"])
+            _prefix(root, CATALOG["Java Minecraft"])
             / "drive_c"
             / "Program Files (x86)"
             / "Minecraft Launcher"
@@ -1716,6 +2045,105 @@ def self_check():
         launch_installed(home, "Minecraft", runner, root)
         if not str(calls[-1][0][-1]).endswith("MinecraftLauncher.exe"):
             raise SystemExit(f"Launch ignored the installed Minecraft launcher: {calls}")
+        if "Name=Java Minecraft" not in mine_entry or '--open "Java Minecraft"' not in mine_entry:
+            raise SystemExit("Minecraft's menu entry kept the old name")
+
+        def check_native(name, folder, marker):
+            launcher = CATALOG[name]
+            calls.clear()
+            before = len(fetches)
+            install_launcher(home, name, runner, fetch, root)
+            if fetches[before:] != [launcher.setup_url]:
+                raise SystemExit(f"{name} did not use its published program: {fetches[before:]}")
+            if any(
+                "umu-run" in str(part) or str(part) == "wineboot" or str(part).endswith("/wineboot")
+                for argv, _env in calls
+                for part in argv
+            ):
+                raise SystemExit(f"{name} was opened with Wine: {calls}")
+            native_prefix = _prefix(root, launcher)
+            if launcher.host_link:
+                slot = home.joinpath(*launcher.host_link)
+            else:
+                slot = native_prefix / "data"
+            games = root / folder
+            app = _archived_program(home, launcher) if launcher.archive_root else _cache(home, launcher)
+            if slot.is_symlink() or not slot.is_dir() or any(slot.iterdir()):
+                raise SystemExit(f"{name} left its games folder as a link")
+            if games.is_symlink() or not games.is_dir():
+                raise SystemExit(f"{name} games folder is a link")
+            argv, env = calls[-1]
+            mounted = "\n".join(str(part) for part in argv)
+            if (
+                argv[0] != "unshare"
+                or "mount --bind" not in mounted
+                or str(games) not in mounted
+                or str(slot) not in mounted
+                or str(app) not in argv
+            ):
+                raise SystemExit(f"{name} was not mounted on its games folder: {argv}")
+            try:
+                app.resolve().relative_to(games.resolve())
+            except ValueError:
+                pass
+            else:
+                raise SystemExit(f"{name} was launched from its games folder")
+            try:
+                app.resolve().relative_to(slot.resolve())
+            except ValueError:
+                pass
+            else:
+                raise SystemExit(f"{name} was launched from the mount")
+            if env.get("APPIMAGE_EXTRACT_AND_RUN") != "1" or env.get("WASD_GAME") != "1":
+                raise SystemExit(f"{name} would not run its own program")
+            if any(key in env for key in ("GAMEID", "WINEPREFIX", "PROTONPATH")):
+                raise SystemExit(f"{name} was given a Wine prefix")
+            if marker == "BOL_HOME":
+                if env.get("BOL_HOME") != str(slot):
+                    raise SystemExit(f"{name} would write outside its games folder: {env.get('BOL_HOME')}")
+            elif marker == "--dir":
+                if "--dir" not in argv or argv[argv.index("--dir") + 1] != str(slot):
+                    raise SystemExit(f"{name} would write outside its games folder: {argv}")
+            elif marker == "--no-sandbox":
+                if "--no-sandbox" not in argv:
+                    raise SystemExit(f"{name} would not open in the mount namespace: {argv}")
+            else:
+                raise SystemExit(f"{name} has no mount check")
+            if marker != "--no-sandbox" and "--no-sandbox" in argv:
+                raise SystemExit(f"{name} was given a sandbox flag it does not need")
+            if launcher.bundle_libs:
+                if not str(app).endswith("/bin/MultiMC"):
+                    raise SystemExit(f"{name} was not its own program: {app}")
+                if env.get("LD_LIBRARY_PATH") != str(Path(app).parent):
+                    raise SystemExit(f"{name} did not use its libraries: {env.get('LD_LIBRARY_PATH')}")
+                if "GAME_LIBRARY_PATH" not in env or "GAME_PRELOAD" not in env:
+                    raise SystemExit(f"{name} would hand its libraries to the game")
+            if not app.is_file() or app.is_symlink() or not os.access(app, os.X_OK):
+                raise SystemExit(f"{name} was not executable")
+            (games / "keep.txt").write_text("world\n", encoding="utf-8")
+            nuke(home, name, root)
+            if (games / "keep.txt").read_text(encoding="utf-8") != "world\n":
+                raise SystemExit(f"nuking {name} deleted its games")
+            if slot.is_symlink() or not slot.is_dir() or any(slot.iterdir()):
+                raise SystemExit(f"nuking {name} put the games link back")
+            slot.rmdir()
+            slot.symlink_to(games)
+            calls.clear()
+            before = len(fetches)
+            install_launcher(home, name, runner, fetch, root)
+            if len(fetches) != before:
+                raise SystemExit(f"{name} downloaded again after it was installed")
+            if slot.is_symlink() or not slot.is_dir() or any(slot.iterdir()):
+                raise SystemExit(f"{name} left the games folder as a link")
+            mounted = "\n".join(str(part) for part in calls[-1][0])
+            if "mount --bind" not in mounted or "umu-run" in mounted:
+                raise SystemExit(f"{name} did not mount after the link came back: {calls[-1][0]}")
+
+        check_native("Minecraft Bedrock", "minecraft-bedrock", "BOL_HOME")
+        check_native("Modded Minecraft", "minecraft-modded", "--dir")
+        check_native("MultiMC", "multimc", "--dir")
+        check_native("CurseForge", "curseforge", "--no-sandbox")
+        check_native("FTB App", "ftb", "--no-sandbox")
         star_prefix = layout(home, "Star Citizen", root)
         star = CATALOG["Star Citizen"]
         star_slot = star_prefix.joinpath(*star.games_link)
@@ -1777,6 +2205,10 @@ def self_check():
         linked.symlink_to(chosen)
         for bad_name, bad_program in (
             ("Battle.net", str(chosen)),
+            ("Minecraft", str(chosen)),
+            ("MultiMC", str(chosen)),
+            ("CurseForge", str(chosen)),
+            ("FTB App", str(chosen)),
             ("My Game", str(chosen)),
             ("", str(chosen)),
             ('Say "hi"', str(chosen)),
@@ -1791,9 +2223,16 @@ def self_check():
             else:
                 raise SystemExit(f"a bad game was accepted: {bad_name}")
 
-        global RUNNER, FETCH
+        opened_folders = []
+
+        def record_open(path):
+            opened_folders.append(str(path))
+            return 0
+
+        global RUNNER, FETCH, OPENER
         RUNNER = runner
         FETCH = fetch
+        OPENER = record_open
         server = ThreadingHTTPServer(("127.0.0.1", 0), WindowHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -1806,7 +2245,7 @@ def self_check():
                 body = json.loads(response.read().decode())
             if [row["name"] for row in body["rows"]] != [*CATALOG.keys(), "My Game"]:
                 raise SystemExit(f"the window listed {body}")
-            minecraft_row = body["rows"][list(CATALOG).index("Minecraft")]
+            minecraft_row = body["rows"][list(CATALOG).index("Java Minecraft")]
             if minecraft_row["folder"] != str(root / "minecraft") or minecraft_row["custom"]:
                 raise SystemExit(f"Minecraft was not on the list: {minecraft_row}")
             custom_row = body["rows"][-1]
@@ -1947,10 +2386,39 @@ def self_check():
                 raise SystemExit("the named folder was not in the menu")
             if (home / ".local/share/applications/wasd-launcher-custom.desktop").exists():
                 raise SystemExit("the folder used the reserved name")
+            linked_games = root / "ftb"
+            if linked_games.is_symlink():
+                linked_games.unlink()
+            elif linked_games.exists():
+                shutil.rmtree(linked_games)
+            linked_games.symlink_to(root / "minecraft")
+            refused_folder = urllib.request.Request(
+                f"http://127.0.0.1:{port}/browse", data=b"FTB App", method="POST"
+            )
+            try:
+                urllib.request.urlopen(refused_folder, timeout=2)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 500:
+                    raise SystemExit(f"a linked games folder returned {exc.code}") from exc
+            else:
+                raise SystemExit("a linked games folder was opened")
+            linked_games.unlink()
+            opened_folders.clear()
+            for label, folder in (("Java Minecraft", "minecraft"), ("FTB App", "ftb")):
+                opened_folders.clear()
+                browsed = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/browse", data=label.encode(), method="POST"
+                )
+                with urllib.request.urlopen(browsed, timeout=2) as response:
+                    if response.read().decode() != "ok" or opened_folders != [str(root / folder)]:
+                        raise SystemExit(f"Browse did not open {label}: {opened_folders}")
+                if (root / folder).is_symlink() or not (root / folder).is_dir():
+                    raise SystemExit(f"Browse left {label} as a link")
         finally:
             server.shutdown()
             RUNNER = real_runner
             FETCH = real_fetch
+            OPENER = real_open
 
     here = Path(__file__).resolve().parent
     page = (here / "AppsPage.qml").read_text(encoding="utf-8")
@@ -1983,20 +2451,84 @@ def self_check():
     for name in CATALOG:
         if name not in launch:
             raise SystemExit(f"{name} is missing from WASD Launchers")
+        if name not in main:
+            raise SystemExit(f"{name} is missing from Install WASD")
     if "EA App" in launch or "EA App" in main:
         raise SystemExit("EA App is still in the installer")
     if "preview" not in launch or "/remake" not in launch or "/launch" not in launch:
         raise SystemExit("WASD Launchers cannot preview, launch, or remake")
     if "Nuke/Fix" not in launch or "Reinstall" not in launch or "Saved games stay." not in launch:
         raise SystemExit("WASD Launchers is missing Nuke/Fix, Reinstall, or the saved-games note")
+    if "Browse" not in launch or '"/browse"' not in launch:
+        raise SystemExit("WASD Launchers cannot open a games folder")
     if "customNameField" not in launch or "addCustomGame" not in launch or '"/custom"' not in launch:
         raise SystemExit("WASD Launchers cannot add a downloaded game")
     if "Name a game" not in launch:
         raise SystemExit("WASD Launchers has no name box")
-    if CATALOG["Minecraft"].setup_url != "https://launcher.mojang.com/download/Minecraft.exe":
+    if CATALOG["Java Minecraft"].setup_url != "https://launcher.mojang.com/download/Minecraft.exe":
         raise SystemExit("Minecraft is not the official launcher")
-    if CATALOG["Minecraft"].user_link != ("AppData", "Roaming", ".minecraft"):
+    if CATALOG["Java Minecraft"].user_link != ("AppData", "Roaming", ".minecraft"):
         raise SystemExit("Minecraft games would stay in the launcher")
+    if CATALOG["Java Minecraft"].native:
+        raise SystemExit("Java Minecraft would skip the official launcher")
+    bedrock = CATALOG["Minecraft Bedrock"]
+    modded = CATALOG["Modded Minecraft"]
+    if (
+        not bedrock.native
+        or bedrock.native_env != (("BOL_HOME", "{mount}"),)
+        or bedrock.games_link != ("data",)
+        or not bedrock.mount_games
+        or bedrock.user_link
+        or "BedrockOnLinux-2.3.0-x86_64.AppImage" not in bedrock.setup_url
+    ):
+        raise SystemExit("Bedrock would write through a link")
+    if (
+        not modded.native
+        or modded.native_args != ("--dir", "{mount}")
+        or modded.games_link != ("data",)
+        or not modded.mount_games
+        or "PolyMC-Linux-amd64-8.1.AppImage" not in modded.setup_url
+    ):
+        raise SystemExit("Modded Minecraft would write through a link")
+    multimc = CATALOG["MultiMC"]
+    curse = CATALOG["CurseForge"]
+    ftb = CATALOG["FTB App"]
+    if (
+        not multimc.native
+        or multimc.native_args != ("--dir", "{mount}")
+        or multimc.games_link != ("data",)
+        or not multimc.mount_games
+        or multimc.host_link
+        or multimc.archive_root != "MultiMC"
+        or multimc.native_program != ("bin", "MultiMC")
+        or not multimc.bundle_libs
+        or "mmc-develop-lin64.tar.gz" not in multimc.setup_url
+    ):
+        raise SystemExit("MultiMC would write through a link")
+    if (
+        not curse.native
+        or curse.native_args != ("--no-sandbox",)
+        or curse.host_link != ("Documents", "curseforge")
+        or not curse.mount_games
+        or curse.games_link
+        or "CurseForge-1.325.0-41594.AppImage" not in curse.setup_url
+    ):
+        raise SystemExit("CurseForge would write through a link")
+    if (
+        not ftb.native
+        or ftb.native_args != ("--no-sandbox",)
+        or ftb.host_link != (".ftba",)
+        or not ftb.mount_games
+        or "ftb-app-linux-1.30.1-x86_64.AppImage" not in ftb.setup_url
+    ):
+        raise SystemExit("the FTB App would write through a link")
+    for folder in ("minecraft-bedrock", "minecraft-modded", "multimc", "curseforge", "ftb"):
+        if folder not in GAMES_DIRS:
+            raise SystemExit("a new install would not make the Minecraft folders")
+        if folder in _READY_DIRS:
+            raise SystemExit("an older games drive would be refused")
+    if "minecraft" in _READY_DIRS:
+        raise SystemExit("an older games drive would be refused")
     star = CATALOG["Star Citizen"]
     if star.games_link != ("drive_c", "Program Files", "Roberts Space Industries", "StarCitizen"):
         raise SystemExit("Star Citizen would install onto the launcher drive")
@@ -2028,6 +2560,8 @@ def self_check():
         raise SystemExit("the image build does not check for WASD Launchers")
     if "install -m 0755 /ctx/wasd-install/launchers.py /usr/libexec/launchers.py" not in build:
         raise SystemExit("the image build does not install the helper")
+    if "qt5-qtbase" not in build or "qt5-qtbase-gui" not in build or "qt5-qtsvg" not in build:
+        raise SystemExit("MultiMC would start without Qt 5")
     print("launchers self-check ok")
 
 

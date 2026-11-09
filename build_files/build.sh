@@ -357,6 +357,22 @@ dnf5 -y install --setopt=install_weak_deps=False kvantum
 rpm -q kvantum
 # Same SIGPIPE rule as the initramfs check below.
 rpm -ql kvantum | grep 'kvantum.so' >/dev/null
+
+# MultiMC's Linux build needs Qt 5. The image is Qt 6, and that build
+# does not ship its own Qt. The xcb plugin is how it opens on Wayland.
+dnf5 -y install --setopt=install_weak_deps=False \
+    qt5-qtbase \
+    qt5-qtbase-gui \
+    qt5-qtsvg
+rpm -q qt5-qtbase qt5-qtbase-gui qt5-qtsvg
+test -e /usr/lib64/libQt5Core.so.5
+test -e /usr/lib64/libQt5Gui.so.5
+test -e /usr/lib64/libQt5Widgets.so.5
+test -e /usr/lib64/libQt5Network.so.5
+test -e /usr/lib64/libQt5DBus.so.5
+test -e /usr/lib64/libQt5Xml.so.5
+test -e /usr/lib64/libQt5Svg.so.5
+test -e /usr/lib64/qt5/plugins/platforms/libqxcb.so
 python3 /ctx/install-themes.py
 test -d /usr/share/icons/oxygen
 
