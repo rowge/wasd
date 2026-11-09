@@ -52,6 +52,8 @@ class Launcher:
         games_link=(),
         user_link=(),
         games_dir="",
+        mount_games=False,
+        channel_dirs=(),
     ):
         self.launcher_id = launcher_id
         self.setup_url = setup_url
@@ -60,6 +62,8 @@ class Launcher:
         self.games_link = tuple(games_link)
         self.user_link = tuple(user_link)
         self.games_dir = games_dir
+        self.mount_games = bool(mount_games)
+        self.channel_dirs = tuple(channel_dirs)
 
 
 # Display names match Install WASD and WASD Launchers. The setup addresses
@@ -100,7 +104,12 @@ CATALOG = {
         ("drive_c", "Program Files", "Roberts Space Industries", "RSI Launcher", "RSI Launcher.exe"),
         # The launcher installs the game under this folder. An old setup file
         # is refused at sign-in, so the download follows their latest.yml.
+        # LIVE is created here. The folder is mounted as a real directory,
+        # because the launcher cannot create it through a link and then
+        # shows error 8004.
         ("drive_c", "Program Files", "Roberts Space Industries", "StarCitizen"),
+        mount_games=True,
+        channel_dirs=("LIVE",),
     ),
 }
 
@@ -495,15 +504,28 @@ def _prefer_minecraft_vulkan(games):
         return
 
 
+def _channel_dir(games, name):
+    """Create one game channel folder, such as Star Citizen's LIVE folder."""
+    if not isinstance(name, str) or name in ("", ".", "..") or any(ch in name for ch in "/\\"):
+        raise LauncherError("The games drive could not be prepared.")
+    folder = Path(games) / name
+    if folder.is_symlink():
+        raise LauncherError("The launcher folder is a link.")
+    _safe_dir(folder)
+
+
 def _launch_argv(user_name, launcher, prefix, games, args):
     command = umu_argv(list(args))
+    mounts = []
     if launcher.user_link:
-        mounts = []
         for name in _account_names(user_name):
             slot = prefix / "drive_c" / "users" / name
             for part in launcher.user_link:
                 slot = slot / part
             mounts.append((games, slot))
+    if launcher.mount_games and launcher.games_link:
+        mounts.append((games, prefix.joinpath(*launcher.games_link)))
+    if mounts:
         command = _mounted_argv(command, mounts)
     _check_argv(command)
     return command
@@ -526,7 +548,12 @@ def ensure_links(prefix, games, saves, user_name, launcher):
         parent = _safe_dir(moved.parent)
         if parent != moved.parent and moved.parent.is_symlink():
             raise LauncherError("The launcher folder is a link.")
-        _replace_link(moved, games)
+        if launcher.mount_games:
+            _prepare_game_mount(parent, (moved.name,), games)
+            for name in launcher.channel_dirs:
+                _channel_dir(games, name)
+        else:
+            _replace_link(moved, games)
 
 
 def _guard(prefix, games, saves):
@@ -1095,7 +1122,7 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
             raise LauncherError("Could not open that launcher.")
         target = setup
     # A later open can turn the slot back into a link. Mounting needs a real directory.
-    if launcher.user_link:
+    if launcher.user_link or launcher.mount_games:
         ensure_links(prefix, games, saves, home.name, launcher)
     if launcher.launcher_id == "minecraft":
         _prefer_minecraft_vulkan(games)
@@ -1121,7 +1148,7 @@ def launch_installed(home, name, runner, root=None):
         raise LauncherError("Could not open that launcher.")
     games = _games(root, launcher)
     saves = _saves(root, launcher)
-    if launcher.user_link:
+    if launcher.user_link or launcher.mount_games:
         ensure_links(prefix, games, saves, home.name, launcher)
     if launcher.launcher_id == "minecraft":
         _prefer_minecraft_vulkan(games)
@@ -1689,6 +1716,38 @@ def self_check():
         launch_installed(home, "Minecraft", runner, root)
         if not str(calls[-1][0][-1]).endswith("MinecraftLauncher.exe"):
             raise SystemExit(f"Launch ignored the installed Minecraft launcher: {calls}")
+        star_prefix = layout(home, "Star Citizen", root)
+        star = CATALOG["Star Citizen"]
+        star_slot = star_prefix.joinpath(*star.games_link)
+        star_games = root / "starcitizen"
+        live = star_games / "LIVE"
+        if star_slot.is_symlink() or not star_slot.is_dir() or any(star_slot.iterdir()):
+            raise SystemExit("Star Citizen games are behind a link")
+        if live.is_symlink() or not live.is_dir():
+            raise SystemExit("Star Citizen did not create the LIVE folder")
+        (live / "keep.txt").write_text("game\n", encoding="utf-8")
+        star_slot.rmdir()
+        star_slot.symlink_to(star_games)
+        (star_prefix / "system.reg").write_text("WINE REGISTRY Version 2\n", encoding="utf-8")
+        calls.clear()
+        before_fetches = len(fetches)
+        install_launcher(home, "Star Citizen", runner, fetch, root)
+        if fetches[before_fetches:] != [star.setup_url]:
+            raise SystemExit(f"Star Citizen did not use the published setup: {fetches[before_fetches:]}")
+        if star_slot.is_symlink() or not star_slot.is_dir() or any(star_slot.iterdir()):
+            raise SystemExit("Star Citizen left the games folder as a link")
+        if (live / "keep.txt").read_text(encoding="utf-8") != "game\n":
+            raise SystemExit("Star Citizen setup disturbed the LIVE folder")
+        mounted = "\n".join(str(part) for part in calls[-1][0])
+        if "mount --bind" not in mounted or str(star_games) not in mounted or str(star_slot) not in mounted:
+            raise SystemExit(f"Star Citizen was not mounted on its games folder: {calls[-1][0]}")
+        if "wineboot" in calls[-1][0] or not calls[-1][0][-1].endswith("RSI-Launcher-Setup.exe"):
+            raise SystemExit(f"Star Citizen did not open its setup: {calls[-1][0]}")
+        nuke(home, "Star Citizen", root)
+        if (live / "keep.txt").read_text(encoding="utf-8") != "game\n":
+            raise SystemExit("nuking Star Citizen deleted the LIVE folder")
+        if star_slot.is_symlink() or any(star_slot.iterdir()):
+            raise SystemExit("Star Citizen remake put the games link back")
         download = home / "Downloads"
         download.mkdir()
         chosen = download / "MyGame.exe"
@@ -1916,6 +1975,11 @@ def self_check():
         raise SystemExit("Rockstar has no installer warning")
     if rockstar_warn not in launch or "rockstarInstallWarn" not in launch:
         raise SystemExit("WASD Launchers has no Rockstar warning")
+    star_warn = "Click No on the two errors that ask if you want to see more information. The launcher still works."
+    if star_warn not in main or "dismissStarCitizenWarn" not in main:
+        raise SystemExit("Star Citizen has no installer warning")
+    if star_warn not in launch or "starCitizenInstallWarn" not in launch:
+        raise SystemExit("WASD Launchers has no Star Citizen warning")
     for name in CATALOG:
         if name not in launch:
             raise SystemExit(f"{name} is missing from WASD Launchers")
@@ -1936,6 +2000,8 @@ def self_check():
     star = CATALOG["Star Citizen"]
     if star.games_link != ("drive_c", "Program Files", "Roberts Space Industries", "StarCitizen"):
         raise SystemExit("Star Citizen would install onto the launcher drive")
+    if not star.mount_games or star.channel_dirs != ("LIVE",):
+        raise SystemExit("Star Citizen would not create the LIVE folder")
     if star.program[-1] != "RSI Launcher.exe":
         raise SystemExit("Star Citizen would not open the RSI Launcher")
     sample = "version: 2.19.1\npath: RSI Launcher-Setup-2.19.1.exe\n"

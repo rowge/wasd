@@ -23,7 +23,9 @@ Window {
     property string rowError: ""
     property string programFor: ""
     property bool rockstarWarn: false
+    property bool starCitizenWarn: false
     readonly property string rockstarWarnBody: "Click OK on the final error in the Rockstar installation. It still works."
+    readonly property string starCitizenWarnBody: "Click No on the two errors that ask if you want to see more information. The launcher still works."
 
     readonly property color bg: "#14161a"
     readonly property color titlebar: "#101114"
@@ -158,12 +160,21 @@ Window {
             rockstarWarn = true
             return
         }
+        if (name === "Star Citizen") {
+            starCitizenWarn = true
+            return
+        }
         act("/install", name)
     }
 
     function dismissRockstarWarn() {
         rockstarWarn = false
         act("/install", "Rockstar Launcher")
+    }
+
+    function dismissStarCitizenWarn() {
+        starCitizenWarn = false
+        act("/install", "Star Citizen")
     }
 
     function act(path, name) {
@@ -770,6 +781,84 @@ Window {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: win.dismissRockstarWarn()
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: win.starCitizenWarn
+        z: 21
+        color: Qt.rgba(0, 0, 0, 0.62)
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        Rectangle {
+            objectName: "starCitizenInstallWarn"
+            anchors.centerIn: parent
+            width: Math.min(520, parent.width - 80)
+            height: starCitizenInstallColumn.height + 36
+            radius: 14
+            color: win.card
+            border.width: 1
+            border.color: win.line
+
+            MouseArea {
+                anchors.fill: parent
+            }
+
+            Column {
+                id: starCitizenInstallColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 18
+                spacing: 12
+
+                Text {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: "Star Citizen"
+                    color: win.ink
+                    font.family: win.titleFont
+                    font.pixelSize: 26
+                }
+
+                Text {
+                    objectName: "starCitizenInstallWarnBody"
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: win.starCitizenWarnBody
+                    color: win.ink
+                    font.family: win.bodyFont
+                    font.pixelSize: 16
+                }
+
+                Rectangle {
+                    objectName: "starCitizenInstallWarnOk"
+                    width: starCitizenInstallOkLabel.implicitWidth + 28
+                    height: 36
+                    radius: 9
+                    color: win.button
+
+                    Text {
+                        id: starCitizenInstallOkLabel
+                        anchors.centerIn: parent
+                        text: "OK"
+                        color: win.buttonInk
+                        font.family: win.bodyFont
+                        font.pixelSize: 16
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: win.dismissStarCitizenWarn()
                     }
                 }
             }

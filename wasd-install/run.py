@@ -586,7 +586,7 @@ def qml_app(save_path, shot_dir, live):
         if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Ubisoft Connect")):
             raise SystemExit("toggleLauncher did not run for Ubisoft Connect")
         pump(50)
-        if window.property("battleNetWarn") is not False or window.property("rockstarWarn") is not False:
+        if window.property("battleNetWarn") is not False or window.property("rockstarWarn") is not False or window.property("starCitizenWarn") is not False:
             raise SystemExit("Ubisoft Connect opened a launcher warning")
         if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Rockstar Launcher")):
             raise SystemExit("toggleLauncher did not run for Rockstar Launcher")
@@ -613,23 +613,53 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if window.property("rockstarWarn") is not False:
             raise SystemExit("turning Rockstar off opened the warning")
+        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Star Citizen")):
+            raise SystemExit("toggleLauncher did not run for Star Citizen")
+        pump(50)
+        if window.property("starCitizenWarn") is not True:
+            raise SystemExit("Star Citizen did not open the warning")
+        star_body = quick.findChild(QQuickItem, "starCitizenWarnBody")
+        expected_star = "Click No on the two errors that ask if you want to see more information. The launcher still works."
+        if star_body is None or star_body.property("text") != expected_star:
+            raise SystemExit(f"Star Citizen warning was {None if star_body is None else star_body.property('text')}")
+        if quick.findChild(QQuickItem, "starCitizenWarnOk") is None:
+            raise SystemExit("the Star Citizen warning has no OK")
+        if not QMetaObject.invokeMethod(window, "dismissStarCitizenWarn"):
+            raise SystemExit("the Star Citizen warning did not close")
+        pump(50)
+        if window.property("starCitizenWarn") is not False:
+            raise SystemExit("the Star Citizen warning stayed open")
+        if "Star Citizen" not in (window.property("launcherSummary") or ""):
+            raise SystemExit("closing the warning unchecked Star Citizen")
+        if not QMetaObject.invokeMethod(window, "toggleLauncher", Q_ARG("QVariant", "Star Citizen")):
+            raise SystemExit("toggleLauncher did not turn Star Citizen off")
+        pump(50)
+        if window.property("starCitizenWarn") is not False:
+            raise SystemExit("turning Star Citizen off opened the warning")
         if not QMetaObject.invokeMethod(window, "selectAllLaunchers"):
             raise SystemExit("selectAllLaunchers did not run")
         pump(50)
         if window.property("battleNetWarn") is not True:
             raise SystemExit("Select All did not warn about Battle.net")
-        if window.property("rockstarWarn") is not False:
-            raise SystemExit("Select All showed Rockstar before Battle.net")
+        if window.property("rockstarWarn") is not False or window.property("starCitizenWarn") is not False:
+            raise SystemExit("Select All showed another warning before Battle.net")
         if not QMetaObject.invokeMethod(window, "dismissBattleNetWarn"):
             raise SystemExit("the Battle.net warning did not close")
         pump(50)
         if window.property("rockstarWarn") is not True:
             raise SystemExit("Select All did not warn about Rockstar after Battle.net")
+        if window.property("starCitizenWarn") is not False:
+            raise SystemExit("Select All showed Star Citizen before Rockstar")
         if not QMetaObject.invokeMethod(window, "dismissRockstarWarn"):
             raise SystemExit("the Rockstar warning did not close")
         pump(50)
+        if window.property("starCitizenWarn") is not True:
+            raise SystemExit("Select All did not warn about Star Citizen after Rockstar")
+        if not QMetaObject.invokeMethod(window, "dismissStarCitizenWarn"):
+            raise SystemExit("the Star Citizen warning did not close")
+        pump(50)
         launcher_summary = window.property("launcherSummary") or ""
-        if "Battle.net" not in launcher_summary or "Rockstar Launcher" not in launcher_summary:
+        if "Battle.net" not in launcher_summary or "Rockstar Launcher" not in launcher_summary or "Star Citizen" not in launcher_summary:
             raise SystemExit(f"launchers were not all selected: {launcher_summary}")
         if window.property("appSummary") != "23 selected":
             raise SystemExit("selecting launchers changed the apps")

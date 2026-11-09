@@ -531,6 +531,7 @@ if [[ "$wallet_ldd" != *libKF6WalletBackend.so.6* ]]; then
 fi
 grep -q '/var/mnt:ro' /etc/flatpak/overrides/com.brave.Browser
 grep -q 'xdg-pictures:ro' /etc/flatpak/overrides/com.brave.Browser
+grep -q '^org.kde.kwalletd6=talk$' /etc/flatpak/overrides/im.riot.Riot
 grep -q '^First Use=false$' /etc/xdg/kwalletrc
 test ! -e /etc/skel/.ssh/authorized_keys
 test ! -e /etc/ssh/sshd_config.d/50-wasd-test.conf

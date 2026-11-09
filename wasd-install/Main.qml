@@ -76,8 +76,11 @@ Window {
     property bool battleNetWarn: false
     property bool rockstarWarn: false
     property bool rockstarWarnNext: false
+    property bool starCitizenWarn: false
+    property bool starCitizenWarnNext: false
     readonly property string battleNetWarnBody: "Do not log in at the end of the Battle.net installation. Just close the window."
     readonly property string rockstarWarnBody: "Click OK on the final error in the Rockstar installation. It still works."
+    readonly property string starCitizenWarnBody: "Click No on the two errors that ask if you want to see more information. The launcher still works."
     property var searchHits: []
     property int searchSerial: 0
     property string searchShownIds: ""
@@ -1120,6 +1123,7 @@ Window {
     function toggleLauncher(name) {
         const battleOn = name === "Battle.net" && !launcherOn[name]
         const rockstarOn = name === "Rockstar Launcher" && !launcherOn[name]
+        const starOn = name === "Star Citizen" && !launcherOn[name]
         const copy = Object.assign({}, launcherOn)
         copy[name] = !copy[name]
         launcherOn = copy
@@ -1127,20 +1131,26 @@ Window {
             battleNetWarn = true
         else if (rockstarOn)
             rockstarWarn = true
+        else if (starOn)
+            starCitizenWarn = true
     }
 
     function selectAllLaunchers() {
         const battle = !launcherOn["Battle.net"]
         const rockstar = !launcherOn["Rockstar Launcher"]
+        const star = !launcherOn["Star Citizen"]
         const copy = {}
         for (let i = 0; i < launcherNames.length; i++)
             copy[launcherNames[i]] = true
         launcherOn = copy
         rockstarWarnNext = battle && rockstar
+        starCitizenWarnNext = star && (battle || rockstar)
         if (battle)
             battleNetWarn = true
         else if (rockstar)
             rockstarWarn = true
+        else if (star)
+            starCitizenWarn = true
     }
 
     function dismissBattleNetWarn() {
@@ -1148,12 +1158,24 @@ Window {
         if (rockstarWarnNext) {
             rockstarWarnNext = false
             rockstarWarn = true
+        } else if (starCitizenWarnNext) {
+            starCitizenWarnNext = false
+            starCitizenWarn = true
         }
     }
 
     function dismissRockstarWarn() {
         rockstarWarn = false
         rockstarWarnNext = false
+        if (starCitizenWarnNext) {
+            starCitizenWarnNext = false
+            starCitizenWarn = true
+        }
+    }
+
+    function dismissStarCitizenWarn() {
+        starCitizenWarn = false
+        starCitizenWarnNext = false
     }
 
     function selectNoneLaunchers() {
@@ -1743,6 +1765,87 @@ Window {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: win.dismissRockstarWarn()
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: win.starCitizenWarn
+        z: 22
+        color: Qt.rgba(0, 0, 0, 0.62)
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        Rectangle {
+            objectName: "starCitizenWarn"
+            z: 1
+            anchors.centerIn: parent
+            width: Math.min(520, parent.width - 80)
+            height: starCitizenColumn.height + 36
+            radius: 14
+            color: win.card
+            border.width: 1
+            border.color: win.line
+            antialiasing: true
+
+            MouseArea {
+                anchors.fill: parent
+            }
+
+            Column {
+                id: starCitizenColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 18
+                spacing: 12
+
+                Text {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: "Star Citizen"
+                    color: win.ink
+                    font.family: win.titleFont
+                    font.pixelSize: 26
+                }
+
+                Text {
+                    objectName: "starCitizenWarnBody"
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: win.starCitizenWarnBody
+                    color: win.ink
+                    font.family: win.bodyFont
+                    font.pixelSize: 16
+                }
+
+                Rectangle {
+                    objectName: "starCitizenWarnOk"
+                    width: starCitizenOkLabel.implicitWidth + 28
+                    height: 36
+                    radius: 9
+                    color: win.button
+                    antialiasing: true
+
+                    Text {
+                        id: starCitizenOkLabel
+                        anchors.centerIn: parent
+                        text: "OK"
+                        color: win.buttonInk
+                        font.family: win.bodyFont
+                        font.pixelSize: 16
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: win.dismissStarCitizenWarn()
                     }
                 }
             }
