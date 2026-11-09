@@ -144,6 +144,7 @@ jobs:
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Sign the image
+        continue-on-error: true
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
           # An empty password is a set variable. Unset makes cosign prompt and fail the job.
@@ -155,7 +156,12 @@ jobs:
             echo "SIGNING_SECRET is not set. The image was pushed unsigned."
             exit 0
           fi
-          curl -fsSL -o "$RUNNER_TEMP/cosign" -L https://github.com/sigstore/cosign/releases/download/v3.1.2/cosign-linux-amd64
+          # A failed download used to stop the job before the ISO. curl -f
+          # exits 22, and that happened before cosign ran.
+          if ! curl -fsSL -o "$RUNNER_TEMP/cosign" -L https://github.com/sigstore/cosign/releases/download/v3.1.2/cosign-linux-amd64; then
+            echo "Could not download cosign. Continuing with the ISO."
+            exit 0
+          fi
           chmod +x "$RUNNER_TEMP/cosign"
           # Old bundle format, so rpm-ostree can verify a cosign 3 signature.
           # Signing must not block the ISO. The image is already on GHCR.
