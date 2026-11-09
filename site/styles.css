@@ -518,6 +518,16 @@ body.home {
   border-color: #ffffff;
 }
 
+.home .get.hc { margin-top: 0.6rem; }
+
+.home .get.hc a {
+  min-width: 8.25rem;
+  padding: 0.64rem 0.94rem;
+  font-size: 0.79rem;
+}
+
+.home .get.hc a span { color: #e31c1c; }
+
 .home .channel {
   margin: 0.85rem auto 0;
   max-width: 36rem;
@@ -718,5 +728,6 @@ body.guide pre.letter { white-space: pre-wrap; }
 @media (max-width: 520px) {
   .home .bar { align-items: flex-start; }
   .home .logos { grid-template-columns: 1fr; }
-  .home .get a { width: 100%; }
+  .home .get a,
+  .home .get.hc a { width: 100%; }
 }
