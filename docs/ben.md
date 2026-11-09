@@ -61,7 +61,10 @@ git status
 git add wasd-wallpapers/my-picture.jpg
 git commit -m "Add the my-picture wallpaper."
 git push origin main
+git push origin HEAD:hardcore
 ```
+
+The hardcore push is the one that starts the build. Pushing `main` alone does not. That build publishes the hardcore download. The default download and `WASD-latest.iso` change only when the normal branch is pushed, and that waits until it is asked for by name.
 
 Add a whole folder the same way, for example `git add wasd-loading-screens`. Commit only the pictures you mean to ship. Do not commit an ISO. ISO files are already ignored.
 
@@ -71,7 +74,8 @@ Add a whole folder the same way, for example `git add wasd-loading-screens`. Com
 
 - Open https://github.com/rowge/wasd/actions/workflows/build.yml
 - Click **Run workflow**
-- Branch: `main`
+- Branch: `hardcore`
+- Channel: `hardcore`
 - Squashfs compression: `fast`
 - Click the green **Run workflow** button
 
@@ -184,7 +188,10 @@ git diff images.env
 git add images.env
 git commit -m "Point both images at the current Bazzite stable."
 git push origin main
+git push origin HEAD:hardcore
 ```
+
+The hardcore push is the build. It publishes the hardcore download. Pushing `main` alone does not start it, and it does not move the default download.
 
 If a build is already running, this one waits. Cancel the older run first when you do not want to wait for it. The cancel steps are in the next section.
 
