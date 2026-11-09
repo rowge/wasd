@@ -13,7 +13,9 @@ Item {
     function start(wallpaper, login, loading, avatar, writeSystem) {
         wallpaperDone = false
         host.writeSystem = writeSystem === true
-        wallpaperCommand = "/usr/bin/plasma-apply-wallpaperimage /usr/share/wallpapers/wasd/" + wallpaper
+        // The Plasma wallpaper tool walks a desktop list that Plasma 6.8
+        // leaves empty, and then exits 0. This sets each screen.
+        wallpaperCommand = "/usr/libexec/wasd-apply-wallpaper /usr/share/wallpapers/wasd/" + wallpaper
         let picture = ""
         if (avatar === null || avatar === undefined)
             picture = ""

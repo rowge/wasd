@@ -11,10 +11,16 @@ try {
 } catch (e) {
 }
 
-var allDesktops = desktops();
-for (var i = 0; i < allDesktops.length; i++) {
-    var desktop = allDesktops[i];
+// Plasma 6.8 leaves a desktop's activity id blank after an update. The old
+// desktop list is empty then, and a script that walks it changes nothing.
+// desktopForScreen still finds the desktop on each screen.
+for (var i = 0; i < screenCount; i++) {
+    var desktop = desktopForScreen(i);
+    if (!desktop) {
+        continue;
+    }
     desktop.wallpaperPlugin = "org.kde.image";
     desktop.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
     desktop.writeConfig("Image", image);
+    desktop.reloadConfig();
 }

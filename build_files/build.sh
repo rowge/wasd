@@ -109,6 +109,8 @@ install -m 0755 /ctx/wasd-install/apps.py /usr/libexec/wasd-install-apps
 install -m 0644 /ctx/wasd-install/apps.py /usr/libexec/apps.py
 install -m 0755 /ctx/wasd-install/lookapply.py /usr/libexec/lookapply.py
 install -m 0755 /ctx/wasd-install/lookapply.py /usr/libexec/wasd-apply-choices
+install -m 0755 /ctx/wasd-install/wallpaper.py /usr/libexec/wasd-apply-wallpaper
+/usr/libexec/wasd-apply-wallpaper --self-check
 install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/agents.py
 install -m 0755 /ctx/wasd-install/agents.py /usr/libexec/wasd-install-agents
 install -m 0755 /ctx/wasd-install/launchers.py /usr/libexec/launchers.py
@@ -434,6 +436,8 @@ test -s /usr/share/wasd/look/AvatarProbe.qml
 test -s /usr/share/wasd/look/ChosenProbe.qml
 test -x /usr/bin/wasd-look
 test -x /usr/libexec/wasd-apply-look
+test -x /usr/libexec/wasd-apply-wallpaper
+grep -q desktopForScreen /usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-wallpaper-screen.js
 test -s /usr/share/applications/wasd-look.desktop
 test -s /usr/share/wasd/launchers/Launchers.qml
 test -x /usr/bin/wasd-launchers

@@ -568,7 +568,7 @@ def run_session(user, look):
     wall_cmd = session_command(
         user,
         env,
-        ["plasma-apply-wallpaperimage", f"/usr/share/wallpapers/wasd/{look['wallpaper']}"],
+        ["/usr/libexec/wasd-apply-wallpaper", f"/usr/share/wallpapers/wasd/{look['wallpaper']}"],
     )
     theme_proc = subprocess.run(theme, capture_output=True)
     if theme_proc.returncode != 0:
@@ -910,12 +910,14 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
             raise SystemExit("a desktop shell was written for new accounts")
         desktop_script = (
             Path(__file__).resolve().parents[1]
-            / "system_files/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-wallpaper.js"
+            / "system_files/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-wallpaper-screen.js"
         ).read_text(encoding="utf-8")
         if "wasd-wallpaperrc" not in desktop_script or "ConfigFile" not in desktop_script:
             raise SystemExit("the desktop script does not read the wallpaper choice")
         if "stained-glass.jpg" not in desktop_script:
             raise SystemExit("the desktop script lost the default picture")
+        if "desktopForScreen" not in desktop_script or "desktops()" in desktop_script:
+            raise SystemExit("the desktop script still walks the empty desktop list")
         if "shells/org.kde.plasma.desktop" in inspect.getsource(apply_wallpaper_script):
             raise SystemExit("the wallpaper choice is written as a desktop shell")
         png = root / "etc/wasd/loading-background.png"
@@ -970,7 +972,7 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
             "SECRET": "nope",
         },
     )
-    wall = session_command("alex", env, ["plasma-apply-wallpaperimage", "/usr/share/wallpapers/wasd/camp.png"])
+    wall = session_command("alex", env, ["/usr/libexec/wasd-apply-wallpaper", "/usr/share/wallpapers/wasd/camp.png"])
     if wall[:5] != ["runuser", "-u", "alex", "--", "env"]:
         raise SystemExit(f"the session command was {wall[:5]}")
     if "XDG_RUNTIME_DIR=/run/user/1000" not in wall:
@@ -983,7 +985,7 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
         raise SystemExit("the wallpaper command dropped the session")
     if any("SECRET" in item or "nope" in item for item in wall):
         raise SystemExit("the session command kept another variable")
-    if wall[-2:] != ["plasma-apply-wallpaperimage", "/usr/share/wallpapers/wasd/camp.png"]:
+    if wall[-2:] != ["/usr/libexec/wasd-apply-wallpaper", "/usr/share/wallpapers/wasd/camp.png"]:
         raise SystemExit("the wallpaper tool was not the command")
     theme = session_command("alex", env, ["lookandfeeltool", "--apply", "com.github.yeyushengfan258.We10XOS-dark"])
     if theme[-2:] != ["--apply", "com.github.yeyushengfan258.We10XOS-dark"]:
@@ -998,7 +1000,7 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
     else:
         raise SystemExit(f"a missing session bus was accepted: {bare}")
     try:
-        session_command("root", env, ["plasma-apply-wallpaperimage", "x"])
+        session_command("root", env, ["/usr/libexec/wasd-apply-wallpaper", "x"])
     except LookError:
         pass
     else:
@@ -1100,10 +1102,16 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
     host_qml = (Path(__file__).resolve().parent / "ApplyHost.qml").read_text(encoding="utf-8")
     if "writeSystem" not in host_qml or 'host.finished("The wallpaper is changed.", true)' not in host_qml:
         raise SystemExit("a wallpaper change still waits on the login helper")
+    if "/usr/libexec/wasd-apply-wallpaper" not in host_qml or "plasma-apply-wallpaperimage" in host_qml:
+        raise SystemExit("WASD Look still uses the Plasma wallpaper tool")
     if "needsSystem" not in window:
         raise SystemExit("WASD Look does not skip the login helper for a wallpaper")
     if "host.loadingDirty = true" not in page or "host.loginDirty = true" not in page:
         raise SystemExit("a login or loading change is not sent to the helper")
+    helper = Path(__file__).resolve().parent / "wallpaper.py"
+    checked = subprocess.run([sys.executable, str(helper), "--self-check"])
+    if checked.returncode != 0:
+        raise SystemExit("the wallpaper tool failed its check")
     print("look self-check ok")
 
 

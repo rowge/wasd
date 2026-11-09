@@ -110,7 +110,7 @@ ffmpeg -y -loglevel error \
 
 Desktop wallpaper:
 
-- `system_files/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-wallpaper.js`
+- `system_files/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-wallpaper-screen.js`
 - `wasd-install/Main.qml` and `wasd-install/Look.qml`, the line `wallpaperChoice`
 - `wasd-install/Lister.qml`, the wallpaper name inside `prefer`
 - `wasd-install/run.py`, `WALL_ORDER` and the wallpaper check
