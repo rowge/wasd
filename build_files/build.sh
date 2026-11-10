@@ -3,6 +3,7 @@
 set -ouex pipefail
 
 cp -avf /ctx/system_files/. /
+bash /usr/lib/dracut/modules.d/90wasd-plymouth/module-setup.sh --self-check
 
 # /games is the mount point for a games drive. The directory has to exist
 # in the image or the installed system cannot mount over it.
@@ -570,10 +571,11 @@ grep -q '^LC_TIME="en_US.UTF-8"$' /etc/locale.conf
 grep -q '^LC_TIME=en_US.UTF-8$' /etc/xdg/plasma-localerc
 grep -q '^LANG=C.UTF-8$' /etc/skel/.config/plasma-localerc
 grep -q '^LC_TIME=en_US.UTF-8$' /etc/skel/.config/plasma-localerc
-# Plugged in: the screen turns off after 5 minutes and the machine stays awake.
+# Plugged in: dim stays at 5 minutes and the screen turns off after 30.
+# The same number for both skips the dim. The locked timeout stays Plasma's.
 # AutoSuspendAction 0 is PowerDevil's NoAction. Battery profiles are untouched.
 grep -q '^TurnOffDisplayWhenIdle=true$' /etc/xdg/powerdevilrc
-grep -q '^TurnOffDisplayIdleTimeoutSec=300$' /etc/xdg/powerdevilrc
+grep -q '^TurnOffDisplayIdleTimeoutSec=1800$' /etc/xdg/powerdevilrc
 grep -q '^AutoSuspendAction=0$' /etc/xdg/powerdevilrc
 if ! locale -a | grep -Eiq '^en_US\.(utf8|utf-8)$'; then
     echo "en_US.UTF-8 locale is not installed" >&2
