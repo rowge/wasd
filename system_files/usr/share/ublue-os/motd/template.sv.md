@@ -1,7 +1,7 @@
 # Välkommen till WASD
 Baserat på Bazzite.
 
-󱋩 `${MOTD_IMAGE_NAME}:${MOTD_IMAGE_BRANCH}`
+󱋩 `${MOTD_IMAGE_NAME}`
 󰟀 `${MOTD_GREENBOOT}`
 
 |  Kommando | Beskrivning |
@@ -12,7 +12,8 @@ Baserat på Bazzite.
 | `brew help` | Hantera paket på kommandoraden |
 
 ${MOTD_TIP}
-- **** [Rapportera ett problem](https://issues.bazzite.gg/)
+- **** [Rapportera ett WASD-problem](https://github.com/rowge/wasd/issues)
+- **** [Rapportera ett Bazzite-problem](https://issues.bazzite.gg/)
 - **󰈙** [Dokumentation](https://docs.bazzite.gg/)
 - **󰙯** [Discord](https://discord.bazzite.gg/)
 - **** [Bluesky](https://bluesky.bazzite.gg/)

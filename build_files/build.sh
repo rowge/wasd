@@ -293,6 +293,16 @@ grep -q '^# Welcome to WASD$' /usr/share/ublue-os/motd/template.md
 grep -q '^Based on Bazzite\.$' /usr/share/ublue-os/motd/template.md
 grep -q '^# Välkommen till WASD$' /usr/share/ublue-os/motd/template.sv.md
 grep -q '^Baserat på Bazzite\.$' /usr/share/ublue-os/motd/template.sv.md
+for motd in /usr/share/ublue-os/motd/template.md /usr/share/ublue-os/motd/template.sv.md; do
+    grep -q 'https://github.com/rowge/wasd/issues' "$motd"
+    grep -q 'https://issues.bazzite.gg/' "$motd"
+done
+grep -q 'container-image-reference' /usr/share/ublue-os/motd/env.sh
+if grep -q 'MOTD_IMAGE_NAME}:${MOTD_IMAGE_BRANCH}' \
+    /usr/share/ublue-os/motd/template.md /usr/share/ublue-os/motd/template.sv.md; then
+    echo "the login banner still appends a baked image branch" >&2
+    exit 1
+fi
 if grep -q -e 'Welcome to Bazzite' -e 'Välkommen till Bazzite' \
     /usr/share/ublue-os/motd/template.md /usr/share/ublue-os/motd/template.sv.md; then
     echo "the login banner still welcomes them to Bazzite" >&2
@@ -642,3 +652,310 @@ if grep -q 'org.mozilla.firefox' /usr/share/wasd/flatpaks /usr/share/ublue-os/ba
     echo "Firefox is still in a flatpak list" >&2
     exit 1
 fi
+
+# The rechunk reads user.component and puts each name in its own layer,
+# ahead of the package groups. The names stay fixed across builds.
+python3 - << 'PY'
+import errno
+import glob
+import os
+import sys
+
+if len(sys.argv) > 2:
+    raise SystemExit("usage: mark-update-layers [root]")
+root = sys.argv[1] if len(sys.argv) == 2 else ""
+if root and not os.path.isdir(root):
+    raise SystemExit(f"missing root: {root}")
+
+XATTR = b"user.component"
+LAYERS = {"initramfs", "wasd-pictures", "wasd-apps"}
+
+# Picture folders only. The parent /usr/share/wasd also holds the apps,
+# the icons, and the flatpak list, and those stay out of this layer.
+PICTURE_DIRS = (
+    "/usr/share/wallpapers/wasd",
+    "/usr/share/wasd/loading",
+    "/usr/share/wasd/login",
+)
+APPS_DIRS = (
+    "/usr/share/wasd/install",
+    "/usr/share/wasd/look",
+    "/usr/share/wasd/launchers",
+)
+# Install WASD, WASD Look, and WASD Launchers, plus the helpers they ship.
+APPS_FILES = (
+    "/usr/bin/wasd-install",
+    "/usr/bin/wasd-look",
+    "/usr/bin/wasd-launchers",
+    "/usr/bin/wasd-qml",
+    "/usr/bin/wasd-complete",
+    "/usr/libexec/wasd-apply-look",
+    "/usr/libexec/disks.py",
+    "/usr/libexec/wasd-live-info",
+    "/usr/libexec/wasd-erase",
+    "/usr/libexec/wasd-awake",
+    "/usr/libexec/wasd-game-power",
+    "/usr/libexec/wasd-set-password",
+    "/usr/libexec/set_password.py",
+    "/usr/libexec/wasd-wallet",
+    "/usr/libexec/wallet.py",
+    "/usr/libexec/wasd-wallet-file",
+    "/usr/libexec/wasd-network",
+    "/usr/libexec/wasd-connect-wifi",
+    "/usr/libexec/network.py",
+    "/usr/libexec/wasd-install-apps",
+    "/usr/libexec/apps.py",
+    "/usr/libexec/lookapply.py",
+    "/usr/libexec/wasd-apply-choices",
+    "/usr/libexec/wasd-apply-wallpaper",
+    "/usr/libexec/agents.py",
+    "/usr/libexec/wasd-install-agents",
+    "/usr/libexec/launchers.py",
+    "/usr/libexec/wasd-install-launchers",
+    "/usr/libexec/wasd-noroot.so",
+    "/usr/share/applications/wasd-look.desktop",
+    "/usr/share/applications/wasd-launchers.desktop",
+    "/usr/share/polkit-1/actions/org.wasd.agents.policy",
+    "/usr/share/polkit-1/actions/org.wasd.apps.policy",
+    "/usr/share/polkit-1/actions/org.wasd.choices.policy",
+    "/usr/share/polkit-1/actions/org.wasd.erase.policy",
+    "/usr/share/polkit-1/actions/org.wasd.look.policy",
+    "/usr/share/polkit-1/actions/org.wasd.password.policy",
+    "/usr/share/polkit-1/actions/org.wasd.wifi.policy",
+    "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-wallpaper.js",
+    "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-wallpaper-screen.js",
+    "/etc/xdg/autostart/wasd-game-power.desktop",
+)
+# These stay in the package groups. A new wasd file fails the build until it
+# is added here or to the apps layer.
+CLEAR_FILES = (
+    "/usr/bin/wasd-updater",
+    "/usr/share/applications/io.github.rfrench3.bazzite-updater.desktop",
+    "/usr/libexec/wasd-webapp",
+    "/usr/libexec/wasd-windows-boot",
+    "/usr/libexec/windowsboot.py",
+    "/usr/lib/systemd/system/wasd-windows-boot.service",
+    "/usr/lib/systemd/system/multi-user.target.wants/wasd-windows-boot.service",
+    "/usr/libexec/wasd-boot-title",
+    "/usr/libexec/boottitle.py",
+    "/usr/lib/systemd/system/wasd-boot-title.service",
+    "/usr/lib/systemd/system/wasd-boot-title-finalize.service",
+    "/usr/lib/systemd/system/multi-user.target.wants/wasd-boot-title.service",
+    "/usr/lib/systemd/system/ostree-finalize-staged.service.wants/wasd-boot-title-finalize.service",
+    "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-menu.js",
+    "/usr/share/wasd/wasd-logo.png",
+    "/usr/share/wasd/flatpaks",
+    "/usr/share/plasma/look-and-feel/com.valve.vapor.desktop/contents/splash/images/wasd_logo.png",
+)
+CLEAR_TREES = (
+    "/usr/share/wasd/icons",
+    "/usr/share/plymouth/themes/wasd",
+)
+# The directory itself. Its children are assigned on their own.
+CLEAR_INODES = ("/usr/share/wasd",)
+OWNED_GLOBS = (
+    "/usr/bin/wasd-*",
+    "/usr/libexec/wasd-*",
+    "/usr/libexec/disks.py",
+    "/usr/libexec/set_password.py",
+    "/usr/libexec/wallet.py",
+    "/usr/libexec/network.py",
+    "/usr/libexec/apps.py",
+    "/usr/libexec/lookapply.py",
+    "/usr/libexec/agents.py",
+    "/usr/libexec/launchers.py",
+    "/usr/libexec/windowsboot.py",
+    "/usr/libexec/boottitle.py",
+    "/usr/share/applications/wasd-*",
+    "/usr/share/applications/io.github.rfrench3.bazzite-updater.desktop",
+    "/usr/share/polkit-1/actions/org.wasd.*.policy",
+    "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-*.js",
+    "/usr/lib/systemd/system/wasd-*.service",
+    "/usr/lib/systemd/system/*.wants/wasd-*",
+    "/etc/xdg/autostart/wasd-*",
+    "/usr/lib/modules/*/initramfs.img",
+    "/usr/lib/modules/*/vmlinuz",
+    "/usr/share/icons/hicolor/*/apps/wasd-logo.png",
+)
+
+listed = set(APPS_FILES) | set(APPS_DIRS) | set(PICTURE_DIRS)
+kept = set(CLEAR_FILES) | set(CLEAR_TREES) | set(CLEAR_INODES)
+overlap = listed & kept
+if overlap:
+    raise SystemExit("listed in two update layers: " + " ".join(sorted(overlap)))
+
+assigned = {}
+
+
+def under(path):
+    if not path.startswith("/"):
+        raise SystemExit(f"expected an absolute path: {path}")
+    if root == "":
+        return path
+    return root.rstrip("/") + path
+
+
+def read_component(path):
+    try:
+        raw = os.getxattr(path, XATTR, follow_symlinks=False)
+    except OSError as err:
+        if err.errno == errno.ENODATA:
+            return None
+        raise SystemExit(f"could not read the update layer on {path}: {err}") from err
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError as err:
+        raise SystemExit(f"update layer name on {path} is not text") from err
+    if text not in LAYERS:
+        raise SystemExit(f"unexpected update layer {text!r} on {path}")
+    return text
+
+
+def mark_fs(path, name):
+    if name not in LAYERS:
+        raise SystemExit(f"unknown update layer {name}")
+    if not os.path.lexists(path):
+        raise SystemExit(f"missing update-layer path: {path}")
+    if os.path.islink(path):
+        raise SystemExit(f"refusing to mark a symlink: {path}")
+    if not os.path.isfile(path) and not os.path.isdir(path):
+        raise SystemExit(f"update-layer path is not a file: {path}")
+    try:
+        os.setxattr(path, XATTR, name.encode("ascii"), follow_symlinks=False)
+    except OSError as err:
+        raise SystemExit(f"could not mark {path} as {name}: {err}") from err
+    got = read_component(path)
+    if got != name:
+        raise SystemExit(f"{path} kept {got!r} instead of {name}")
+    if path in assigned and assigned[path] != name:
+        raise SystemExit(f"{path} is already assigned to {assigned[path]}")
+    assigned[path] = name
+
+
+def mark_tree(logical_path, name):
+    top = under(logical_path)
+    if not os.path.isdir(top) or os.path.islink(top):
+        raise SystemExit(f"update layer directory missing: {top}")
+    files = 0
+    for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
+        for entry in dirnames:
+            path = os.path.join(dirpath, entry)
+            if os.path.islink(path):
+                raise SystemExit(f"refusing to mark a symlink: {path}")
+        for filename in filenames:
+            path = os.path.join(dirpath, filename)
+            if os.path.islink(path):
+                raise SystemExit(f"refusing to mark a symlink: {path}")
+            mark_fs(path, name)
+            files += 1
+        mark_fs(dirpath, name)
+    if files < 1:
+        raise SystemExit(f"no files in update layer directory: {top}")
+    return files
+
+
+def keep(logical_path):
+    path = under(logical_path)
+    if not os.path.lexists(path):
+        raise SystemExit(f"missing path that stays with the rest of the image: {path}")
+    got = read_component(path)
+    if got is not None:
+        raise SystemExit(f"{path} is marked {got}; it stays with the rest of the image")
+    if path in assigned:
+        raise SystemExit(f"{path} is listed twice")
+    assigned[path] = None
+
+
+def keep_tree(logical_path):
+    top = under(logical_path)
+    if not os.path.isdir(top) or os.path.islink(top):
+        raise SystemExit(f"missing path that stays with the rest of the image: {top}")
+    files = 0
+    for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
+        keep_fs(dirpath)
+        for dirname in list(dirnames):
+            path = os.path.join(dirpath, dirname)
+            if os.path.islink(path):
+                keep_fs(path)
+                dirnames.remove(dirname)
+        for filename in filenames:
+            path = os.path.join(dirpath, filename)
+            keep_fs(path)
+            if not os.path.islink(path):
+                files += 1
+    if files < 1:
+        raise SystemExit(f"no files in {top}")
+
+
+def keep_fs(path):
+    got = read_component(path)
+    if got is not None:
+        raise SystemExit(f"{path} is marked {got}; it stays with the rest of the image")
+    if path in assigned:
+        raise SystemExit(f"{path} is listed twice")
+    assigned[path] = None
+
+
+for directory in PICTURE_DIRS:
+    mark_tree(directory, "wasd-pictures")
+for directory in APPS_DIRS:
+    mark_tree(directory, "wasd-apps")
+for path in APPS_FILES:
+    mark_fs(under(path), "wasd-apps")
+
+images = sorted(glob.glob(under("/usr/lib/modules/*/initramfs.img")))
+if len(images) != 1:
+    raise SystemExit("expected one initramfs, found: " + " ".join(images))
+mark_fs(images[0], "initramfs")
+
+for path in CLEAR_FILES:
+    keep(path)
+for path in CLEAR_INODES:
+    keep(path)
+for path in CLEAR_TREES:
+    keep_tree(path)
+
+kernels = sorted(glob.glob(under("/usr/lib/modules/*/vmlinuz")))
+if len(kernels) != 1:
+    raise SystemExit("expected one kernel image, found: " + " ".join(kernels))
+keep_fs(kernels[0])
+
+logos = sorted(glob.glob(under("/usr/share/icons/hicolor/*/apps/wasd-logo.png")))
+if not logos:
+    raise SystemExit("no WASD logo to leave unmarked")
+for path in logos:
+    keep_fs(path)
+
+for pattern in OWNED_GLOBS:
+    matches = glob.glob(under(pattern))
+    if not matches:
+        raise SystemExit(f"no files matched {pattern}")
+    for path in matches:
+        if path not in assigned:
+            raise SystemExit(f"not assigned to an update layer: {path}")
+
+present = {name for name in assigned.values() if name}
+if present != LAYERS:
+    raise SystemExit("update layers are " + " ".join(sorted(present)))
+
+counts = {name: 0 for name in LAYERS}
+for path, name in assigned.items():
+    if name and os.path.isfile(path):
+        counts[name] += 1
+if counts["initramfs"] != 1 or counts["wasd-pictures"] < 1 or counts["wasd-apps"] < 1:
+    raise SystemExit(f"update layer counts are wrong: {counts}")
+
+
+def nfiles(name):
+    count = counts[name]
+    word = "file" if count == 1 else "files"
+    return f"{count} {word}"
+
+
+print(
+    "update layers:"
+    f" initramfs {nfiles('initramfs')},"
+    f" wasd-pictures {nfiles('wasd-pictures')},"
+    f" wasd-apps {nfiles('wasd-apps')}"
+)
+PY

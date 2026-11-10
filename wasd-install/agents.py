@@ -9,12 +9,14 @@ the person's own account. Nothing here is a WASD-hosted model.
 The self-check injects the command runner. It does not download anything.
 """
 
+import json
 import os
 import shlex
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 WEBAPP = "/usr/libexec/wasd-webapp"
 
@@ -24,23 +26,30 @@ class AgentError(Exception):
 
 
 class Agent:
-    def __init__(self, agent_id, kind, url="", binary="", stamp="", bins=()):
+    def __init__(self, agent_id, kind, url="", binary="", stamp="", bins=(), app_name=""):
         self.agent_id = agent_id
         self.kind = kind
         self.url = url
         self.binary = binary
         self.stamp = stamp
+        self.app_name = app_name
         self.bins = tuple(bins) if bins else ((binary,) if binary else ())
 
     def fetches(self):
-        return self.kind == "cli" and bool(self.url)
+        return self.kind in ("cli", "app") and bool(self.url)
 
 
 # Display names match Install WASD. Install URLs are the official scripts
 # that were checked. A name with no URL is a menu entry only.
 CATALOG = {
     "Grok Build": Agent("grok-build", "cli", "https://x.ai/cli/install.sh", "grok", "grok"),
-    "Grok Bot": Agent("grok-bot", "cli", "https://x.ai/cli/install.sh", "grok", "grok"),
+    "Grok Bot": Agent(
+        "grok-bot",
+        "app",
+        "https://api2.cursor.sh/updates/api/download/stable/linux-x64/sand",
+        stamp="grok-bot",
+        app_name="Grok_Bot.AppImage",
+    ),
     "Grok": Agent("grok", "web", "https://grok.com/"),
     "Claude Code": Agent("claude-code", "cli", "https://claude.ai/install.sh", "claude", "claude"),
     "Codex": Agent("codex", "cli"),
@@ -102,15 +111,89 @@ def needs_fetch(name):
     return CATALOG[name].fetches()
 
 
+def client_url(payload):
+    """Return the official Grok Bot AppImage URL, or empty when it is not."""
+    if isinstance(payload, bytes):
+        try:
+            payload = payload.decode()
+        except UnicodeError:
+            return ""
+    try:
+        data = json.loads(payload)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    url = data.get("downloadUrl")
+    if not isinstance(url, str):
+        return ""
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname != "downloads.cursor.com":
+        return ""
+    if parts.username or parts.password or parts.query or parts.fragment:
+        return ""
+    if not parts.path.startswith("/grokbot/") or not parts.path.endswith(".AppImage"):
+        return ""
+    return url
+
+
+def _app_file(home, agent):
+    return Path(home) / ".local/share/wasd/apps" / agent.agent_id / agent.app_name
+
+
 def _stamp(home, agent):
     if not agent.stamp:
         return None
     return home / ".local/share/wasd/agents" / agent.stamp
 
 
+def _app_wrapper(agent):
+    dest = f'"$HOME/.local/share/wasd/apps/{agent.agent_id}/{agent.app_name}"'
+    return f"""#!/bin/bash
+set -euo pipefail
+dest={dest}
+if [[ ! -s "$dest" ]]; then
+    mkdir -p "$(dirname "$dest")"
+    feed=$(mktemp)
+    part=$(mktemp)
+    trap 'rm -f "$feed" "$part"' EXIT
+    curl -fsSL --proto '=https' --proto-redir '=https' --output "$feed" {shlex.quote(agent.url)}
+    url=$(python3 - "$feed" << 'PY'
+import json
+import sys
+from urllib.parse import urlsplit
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+url = data.get("downloadUrl") if isinstance(data, dict) else None
+if not isinstance(url, str):
+    raise SystemExit(1)
+parts = urlsplit(url)
+if parts.scheme != "https" or parts.hostname != "downloads.cursor.com":
+    raise SystemExit(1)
+if parts.username or parts.password or parts.query or parts.fragment:
+    raise SystemExit(1)
+if not parts.path.startswith("/grokbot/") or not parts.path.endswith(".AppImage"):
+    raise SystemExit(1)
+print(url)
+PY
+    )
+    curl -fsSL --proto '=https' --proto-redir '=https' --output "$part" "$url"
+    [[ -s "$part" ]]
+    chmod 755 "$part"
+    mv "$part" "$dest"
+    trap - EXIT
+    rm -f "$feed" "$part"
+fi
+export APPIMAGE_EXTRACT_AND_RUN=1
+exec "$dest" --no-sandbox "$@"
+"""
+
+
 def _wrapper(agent):
     if agent.kind == "web":
         return ""
+    if agent.kind == "app":
+        return _app_wrapper(agent)
     lines = ["#!/bin/bash", "set -euo pipefail"]
     if agent.fetches():
         quoted = " ".join(shlex.quote(item) for item in agent.bins)
@@ -165,6 +248,9 @@ def _desktop(home, agent, title):
     if agent.kind == "web":
         command = f"{WEBAPP} {agent.url}"
         terminal = "false"
+    elif agent.kind == "app":
+        command = f"{home / '.local/bin' / ('wasd-agent-' + agent.agent_id)} %U"
+        terminal = "false"
     else:
         command = f"konsole --hide-menubar -e {home / '.local/bin' / ('wasd-agent-' + agent.agent_id)}"
         terminal = "false"
@@ -215,11 +301,70 @@ def _run(runner, argv):
     return code, out or b"", err or b""
 
 
+def _curl(runner, url, dest):
+    code, _out, _err = _run(
+        runner,
+        [
+            "curl",
+            "-fsSL",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
+            "--output",
+            str(dest),
+            url,
+        ],
+    )
+    if code != 0:
+        raise AgentError("Could not install that agent.")
+
+
+def _install_app(home, agent, runner):
+    home = Path(home)
+    dest = _app_file(home, agent)
+    stamp = _stamp(home, agent)
+    if stamp is not None and stamp.is_file() and dest.is_file() and dest.stat().st_size > 0:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    feed = tempfile.NamedTemporaryFile(prefix="wasd-agent-", delete=False)
+    feed_path = Path(feed.name)
+    feed.close()
+    # The download has to land on the same filesystem as the final file.
+    # /tmp and /home are separate on this system, and replace cannot cross that.
+    part = tempfile.NamedTemporaryFile(prefix="wasd-agent-", dir=dest.parent, delete=False)
+    part_path = Path(part.name)
+    part.close()
+    try:
+        _curl(runner, agent.url, feed_path)
+        try:
+            url = client_url(feed_path.read_bytes())
+        except OSError as exc:
+            raise AgentError("Could not install that agent.") from exc
+        if not url:
+            raise AgentError("Could not install that agent.")
+        _curl(runner, url, part_path)
+        if not part_path.is_file() or part_path.stat().st_size == 0:
+            raise AgentError("Could not install that agent.")
+        os.chmod(part_path, 0o755)
+        os.replace(part_path, dest)
+    finally:
+        feed_path.unlink(missing_ok=True)
+        part_path.unlink(missing_ok=True)
+    if stamp is not None:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text("ok\n", encoding="utf-8")
+        os.chmod(stamp, 0o644)
+
+
 def install_agent(home, name, runner):
     agent = CATALOG[name]
     home = Path(home)
     write_launcher(home, name)
     if not agent.fetches():
+        return
+    if agent.kind == "app":
+        _install_app(home, agent, runner)
         return
     stamp = _stamp(home, agent)
     if stamp is not None and stamp.is_file():
@@ -281,7 +426,17 @@ def self_check():
     def runner(argv):
         calls.append(list(argv))
         if argv[0] == "curl":
-            Path(argv[argv.index("--output") + 1]).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            dest = Path(argv[argv.index("--output") + 1])
+            url = argv[-1]
+            if url.endswith("/sand"):
+                dest.write_text(
+                    '{"downloadUrl":"https://downloads.cursor.com/grokbot/stable/abc/linux/x64/Grok_Bot_0.AppImage"}',
+                    encoding="utf-8",
+                )
+            elif url.endswith(".AppImage"):
+                dest.write_bytes(b"appimage")
+            else:
+                dest.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             return 0, b"", b""
         if argv[0] == "bash":
             if not getattr(runner, "failed", False):
@@ -307,7 +462,13 @@ def self_check():
         install_agent(home, "Grok", runner)
         install_agent(home, "Codex", runner)
         curls = [item for item in calls if item[0] == "curl"]
-        if len(curls) != 2 or curls[0][-1] != "https://x.ai/cli/install.sh":
+        urls = [item[-1] for item in curls]
+        if urls != [
+            "https://x.ai/cli/install.sh",
+            "https://x.ai/cli/install.sh",
+            CATALOG["Grok Bot"].url,
+            "https://downloads.cursor.com/grokbot/stable/abc/linux/x64/Grok_Bot_0.AppImage",
+        ]:
             raise SystemExit(f"the grok installer was not run once and retried: {curls}")
         if any("codex" in item[-1] for item in curls):
             raise SystemExit("an unverified agent was downloaded")
@@ -315,8 +476,27 @@ def self_check():
         if f"Exec={WEBAPP} https://grok.com/" not in web:
             raise SystemExit("the Grok window was not created")
         bot = (home / ".local/share/applications/wasd-agent-grok-bot.desktop").read_text(encoding="utf-8")
-        if "wasd-agent-grok-bot" not in bot or "Name=Grok Bot" not in bot:
+        if "konsole" in bot or "x.ai/cli" in bot or "Name=Grok Bot" not in bot:
             raise SystemExit("Grok Bot was not its own menu entry")
+        if f"Exec={home / '.local/bin/wasd-agent-grok-bot'}" not in bot:
+            raise SystemExit("Grok Bot does not open its client")
+        wrapper = (home / ".local/bin/wasd-agent-grok-bot").read_text(encoding="utf-8")
+        if "APPIMAGE_EXTRACT_AND_RUN=1" not in wrapper or 'exec "$dest" --no-sandbox "$@"' not in wrapper:
+            raise SystemExit("Grok Bot does not open its client")
+        if "downloads.cursor.com" not in wrapper:
+            raise SystemExit("Grok Bot does not open its client")
+        if "x.ai/cli" in wrapper or "bins=(grok)" in wrapper:
+            raise SystemExit("Grok Bot still opens Grok Build")
+        app = _app_file(home, CATALOG["Grok Bot"])
+        if app.read_bytes() != b"appimage":
+            raise SystemExit("the Grok Bot client was not installed")
+        build = (home / ".local/share/applications/wasd-agent-grok-build.desktop").read_text(encoding="utf-8")
+        if "konsole" not in build or "wasd-agent-grok-build" not in build:
+            raise SystemExit("Grok Build lost its command")
+        if client_url(b'{"downloadUrl":"https://example.com/grokbot/Grok_Bot.AppImage"}'):
+            raise SystemExit("a client from another site was accepted")
+        if not client_url(b'{"downloadUrl":"https://downloads.cursor.com/grokbot/stable/x/linux/x64/Grok_Bot.AppImage"}'):
+            raise SystemExit("the official client was refused")
         codex = (home / ".local/bin/wasd-agent-codex").read_text(encoding="utf-8")
         if "does not download" not in codex or "curl" in codex:
             raise SystemExit("an unverified agent got an installer")

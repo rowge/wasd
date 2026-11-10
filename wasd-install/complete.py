@@ -25,6 +25,7 @@ sys.path.insert(0, "/usr/libexec")
 
 from agents import (  # noqa: E402
     AgentError,
+    CATALOG,
     install_agent,
     names_from,
     needs_fetch,
@@ -1336,7 +1337,17 @@ def self_check():
     def fake_agent_runner(argv):
         agent_calls.append(list(argv))
         if argv[0] == "curl":
-            Path(argv[argv.index("--output") + 1]).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            dest = Path(argv[argv.index("--output") + 1])
+            url = argv[-1]
+            if url.endswith("/sand"):
+                dest.write_text(
+                    '{"downloadUrl":"https://downloads.cursor.com/grokbot/stable/test/linux/x64/Grok_Bot_0.AppImage"}',
+                    encoding="utf-8",
+                )
+            elif url.endswith(".AppImage"):
+                dest.write_bytes(b"appimage")
+            else:
+                dest.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             if agent_calls and not seen.get("agent_failed"):
                 seen["agent_failed"] = True
                 return 1, b"", b"no"
@@ -1798,8 +1809,17 @@ def self_check():
         if text != "next":
             raise SystemExit(f"an agent step returned {text}")
     curls = [item for item in agent_calls if item and item[0] == "curl"]
-    if len(curls) != 2 or any(item[-1] != "https://x.ai/cli/install.sh" for item in curls):
+    urls = [item[-1] for item in curls]
+    if urls != [
+        "https://x.ai/cli/install.sh",
+        "https://x.ai/cli/install.sh",
+        CATALOG["Grok Bot"].url,
+        "https://downloads.cursor.com/grokbot/stable/test/linux/x64/Grok_Bot_0.AppImage",
+    ]:
         raise SystemExit(f"the grok installer was wrong: {curls}")
+    bot = (home / ".local/share/applications/wasd-agent-grok-bot.desktop").read_text(encoding="utf-8")
+    if "konsole" in bot or "Name=Grok Bot" not in bot:
+        raise SystemExit("Grok Bot still opens Grok Build")
     codex = (home / ".local/bin/wasd-agent-codex").read_text(encoding="utf-8")
     if "curl" in codex or "does not download" not in codex:
         raise SystemExit("an unverified agent was given an installer")
