@@ -329,10 +329,15 @@ info["version"] = f"{fedora}.{built}"
 info["version-pretty"] = pretty.replace(old, built)
 info_path.write_text(json.dumps(info, indent=2) + "\n")
 release_path.write_text(release.replace(old, built))
-if old in info_path.read_text() or old in release_path.read_text():
-    raise SystemExit("the updater date is still the Bazzite pin")
-if not info_path.read_text().count(built) or name not in info_path.read_text():
+written = json.loads(info_path.read_text())
+if written.get("version") != f"{fedora}.{built}" or written.get("image-name") != name:
     raise SystemExit("the image name or build date was not kept")
+if built not in release_path.read_text():
+    raise SystemExit("os-release has no build date")
+# A build on the same Pacific day as the Bazzite pin keeps that date.
+# That date is the build day.
+if old != built and (old in info_path.read_text() or old in release_path.read_text()):
+    raise SystemExit("the updater date is still the Bazzite pin")
 PY
 
 # The text login runs ublue-motd, which prints this file. PRETTY_NAME does not.
