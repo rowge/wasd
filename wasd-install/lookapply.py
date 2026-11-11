@@ -369,6 +369,33 @@ def record_loading_name(root, source):
     return path
 
 
+SHUTDOWN_MOUNT = "usr-share-plymouth-themes-wasd-background.png.mount"
+
+
+def shutdown_picture_ready(png):
+    """The shutdown splash can use this file. A link is refused."""
+    png = Path(png)
+    try:
+        return not png.is_symlink() and png.is_file() and png.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def show_shutdown_picture(root):
+    """Put the chosen picture where shutdown Plymouth reads it.
+
+    Startup reads a copy inside the initramfs. Shutdown starts Plymouth
+    again from the installed system and reads the theme file under /usr,
+    which stays the stained-glass picture shipped in the image.
+    """
+    if not _live(root):
+        return
+    png = Path(root) / "etc/wasd/loading-background.png"
+    if not shutdown_picture_ready(png):
+        return
+    subprocess.run(["systemctl", "restart", SHUTDOWN_MOUNT], capture_output=True)
+
+
 def prepare_loading(root, source):
     dest = root / "etc/wasd/loading-background.png"
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -619,6 +646,7 @@ def apply_look(root, home, user, look, session=False, rebuild=False):
         finally:
             # The theme tool can put its own splash and wallpaper back.
             apply_files(root, home, user, look)
+    show_shutdown_picture(root)
     note = ""
     if rebuild and _live(root):
         note = rebuild_initramfs(root / "etc/wasd/loading-background.png")
@@ -1102,12 +1130,58 @@ Image=file:///usr/share/wallpapers/Next/contents/images/Sweet.jpg
     host_qml = (Path(__file__).resolve().parent / "ApplyHost.qml").read_text(encoding="utf-8")
     if "writeSystem" not in host_qml or 'host.finished("The wallpaper is changed.", true)' not in host_qml:
         raise SystemExit("a wallpaper change still waits on the login helper")
+    if "Shutdown uses the loading picture now." not in host_qml:
+        raise SystemExit("WASD Look does not say that shutdown uses the picture")
     if "/usr/libexec/wasd-apply-wallpaper" not in host_qml or "plasma-apply-wallpaperimage" in host_qml:
         raise SystemExit("WASD Look still uses the Plasma wallpaper tool")
     if "needsSystem" not in window:
         raise SystemExit("WASD Look does not skip the login helper for a wallpaper")
     if "host.loadingDirty = true" not in page or "host.loginDirty = true" not in page:
         raise SystemExit("a login or loading change is not sent to the helper")
+    if "Shutdown uses this picture when you apply it." not in page:
+        raise SystemExit("WASD Look does not say when shutdown changes")
+    if "show_shutdown_picture" not in inspect.getsource(apply_look):
+        raise SystemExit("the chosen picture is not used while shutting down")
+    theme = Path(__file__).resolve().parents[1] / "system_files/usr/share/plymouth/themes/wasd/background.png"
+    mount_unit = (
+        Path(__file__).resolve().parents[1]
+        / "system_files/usr/lib/systemd/system"
+        / SHUTDOWN_MOUNT
+    )
+    mount_text = mount_unit.read_text(encoding="utf-8")
+    if (
+        "What=/etc/wasd/loading-background.png\n" not in mount_text
+        or "Where=/usr/share/plymouth/themes/wasd/background.png\n" not in mount_text
+        or "Options=bind\n" not in mount_text
+        or "DefaultDependencies=no\n" not in mount_text
+        or "plymouth-reboot.service" not in mount_text
+        or "ConditionPathExists=/etc/wasd/loading-background.png\n" not in mount_text
+        or "ConditionPathIsSymbolicLink=!/etc/wasd/loading-background.png\n" not in mount_text
+    ):
+        raise SystemExit("shutdown still uses the picture shipped in the image")
+    wants = mount_unit.parent / "local-fs.target.wants" / SHUTDOWN_MOUNT
+    if not wants.is_symlink() or os.readlink(wants) != f"../{SHUTDOWN_MOUNT}":
+        raise SystemExit("the shutdown picture is not mounted at boot")
+    for mode in ("reboot", "poweroff", "halt"):
+        drop = mount_unit.parent / f"plymouth-{mode}.service.d" / "wasd-loading.conf"
+        drop_text = drop.read_text(encoding="utf-8")
+        if SHUTDOWN_MOUNT not in drop_text or "Before=umount.target\n" not in drop_text:
+            raise SystemExit(f"shutdown {mode} can unmount the chosen picture first")
+    if not theme.is_file() or theme.is_symlink() or theme.stat().st_size == 0:
+        raise SystemExit("the shipped loading picture is missing")
+    with tempfile.TemporaryDirectory() as tmp:
+        picture = Path(tmp) / "loading-background.png"
+        picture.write_bytes(b"png")
+        if not shutdown_picture_ready(picture):
+            raise SystemExit("the chosen picture was refused")
+        link = Path(tmp) / "linked.png"
+        link.symlink_to(picture)
+        if shutdown_picture_ready(link) or shutdown_picture_ready(Path(tmp) / "missing.png"):
+            raise SystemExit("a linked loading picture was accepted")
+        empty = Path(tmp) / "empty.png"
+        empty.write_bytes(b"")
+        if shutdown_picture_ready(empty):
+            raise SystemExit("an empty loading picture was accepted")
     helper = Path(__file__).resolve().parent / "wallpaper.py"
     checked = subprocess.run([sys.executable, str(helper), "--self-check"])
     if checked.returncode != 0:

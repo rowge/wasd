@@ -1,0 +1,20 @@
+# Shutdown starts Plymouth from the installed system. The theme file under
+# /usr stays the stained-glass picture shipped in the image. Startup uses
+# the copy in the initramfs. This puts the chosen picture on the shutdown
+# screen. A missing file leaves the shipped picture in place.
+[Unit]
+Description=Use the chosen picture for the shutdown splash
+DefaultDependencies=no
+After=systemd-remount-fs.service
+Before=local-fs.target plymouth-reboot.service plymouth-poweroff.service plymouth-halt.service
+ConditionPathExists=/etc/wasd/loading-background.png
+ConditionPathIsSymbolicLink=!/etc/wasd/loading-background.png
+
+[Mount]
+What=/etc/wasd/loading-background.png
+Where=/usr/share/plymouth/themes/wasd/background.png
+Type=none
+Options=bind
+
+[Install]
+WantedBy=local-fs.target

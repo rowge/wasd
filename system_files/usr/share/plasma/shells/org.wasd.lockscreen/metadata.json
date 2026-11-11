@@ -1,0 +1,10 @@
+{
+    "KPackageStructure": "Plasma/Shell",
+    "KPlugin": {
+        "Id": "org.wasd.lockscreen",
+        "Name": "WASD",
+        "Description": "Plasma desktop shell. The lock screen stays up when the account has no password."
+    },
+    "X-Plasma-APIVersion": "2",
+    "X-Plasma-FallbackPackage": "org.kde.plasma.desktop"
+}

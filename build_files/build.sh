@@ -284,8 +284,10 @@ rm -f \
 rm -rf /usr/share/applications/Waydroid
 
 # The name on screen is WASD. Leave ID=bazzite so Bazzite's own scripts keep
-# matching. image-info.json stays as the base image shipped it, so the NVIDIA
-# build still says nvidia and the AMD build does not.
+# matching. image-info.json keeps the base image name, so the NVIDIA
+# build still says nvidia and the AMD build does not. WASD Updater reads
+# the last eight digits of its version and calls that Last Update, so that
+# date is the Pacific day this image is built, not the Bazzite pin.
 sed -i 's/^NAME=.*/NAME="WASD"/' /usr/lib/os-release
 sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="WASD"/' /usr/lib/os-release
 if grep -q '^BOOTLOADER_NAME=' /usr/lib/os-release; then
@@ -296,6 +298,42 @@ if [[ -f /etc/system-release ]]; then
 fi
 grep -q '^NAME="WASD"$' /usr/lib/os-release
 grep -q '^PRETTY_NAME="WASD"$' /usr/lib/os-release
+built=$(TZ=America/Los_Angeles date +%Y%m%d)
+python3 - "$built" << 'PY'
+import json
+import pathlib
+import sys
+
+built = sys.argv[1]
+info_path = pathlib.Path("/usr/share/ublue-os/image-info.json")
+release_path = pathlib.Path("/usr/lib/os-release")
+info = json.loads(info_path.read_text())
+name = info.get("image-name", "")
+version = info.get("version", "")
+fedora, dot, old = version.partition(".")
+if (
+    not name
+    or not dot
+    or not fedora.isdigit()
+    or len(old) != 8
+    or not old.isdigit()
+):
+    raise SystemExit(f"image version is not a dated pin: {version}")
+pretty = info.get("version-pretty", "")
+if old not in pretty:
+    raise SystemExit(f"version-pretty does not contain {old}")
+release = release_path.read_text()
+if old not in release:
+    raise SystemExit("os-release has no pin date")
+info["version"] = f"{fedora}.{built}"
+info["version-pretty"] = pretty.replace(old, built)
+info_path.write_text(json.dumps(info, indent=2) + "\n")
+release_path.write_text(release.replace(old, built))
+if old in info_path.read_text() or old in release_path.read_text():
+    raise SystemExit("the updater date is still the Bazzite pin")
+if not info_path.read_text().count(built) or name not in info_path.read_text():
+    raise SystemExit("the image name or build date was not kept")
+PY
 
 # The text login runs ublue-motd, which prints this file. PRETTY_NAME does not.
 grep -q '^# Welcome to WASD$' /usr/share/ublue-os/motd/template.md
@@ -461,6 +499,14 @@ grep -q '^Autolock=true$' /etc/xdg/kscreenlockerrc
 grep -q '^Timeout=5$' /etc/xdg/kscreenlockerrc
 grep -q '^Autolock=true$' /etc/skel/.config/kscreenlockerrc
 grep -q '^Timeout=5$' /etc/skel/.config/kscreenlockerrc
+grep -q '"Id": "org.wasd.lockscreen"' /usr/share/plasma/shells/org.wasd.lockscreen/metadata.json
+grep -q 'X-Plasma-FallbackPackage' /usr/share/plasma/shells/org.wasd.lockscreen/metadata.json
+grep -q 'mainBlock.mainPasswordBox.text.length' /usr/share/plasma/shells/org.wasd.lockscreen/contents/lockscreen/LockScreenUi.qml
+if grep -q 'if (!lockScreenUi.expectingPrompt)' /usr/share/plasma/shells/org.wasd.lockscreen/contents/lockscreen/LockScreenUi.qml; then
+    echo "lock screen still unlocks a blank password immediately" >&2
+    exit 1
+fi
+grep -q '^Environment=PLASMA_DEFAULT_SHELL=org.wasd.lockscreen$' /usr/lib/systemd/user/plasma-kwin_wayland.service.d/wasd-lock.conf
 test -d /games
 test ! -e /etc/skel/Desktop/Welcome.txt
 test ! -e /home/player/Desktop/Welcome.txt
@@ -526,6 +572,21 @@ test -s /usr/lib/systemd/system/wasd-boot-title.service
 test -s /usr/lib/systemd/system/wasd-boot-title-finalize.service
 test -L /usr/lib/systemd/system/multi-user.target.wants/wasd-boot-title.service
 test -L /usr/lib/systemd/system/ostree-finalize-staged.service.wants/wasd-boot-title-finalize.service
+test -s /usr/lib/systemd/system/boot.automount.d/wasd-idle.conf
+grep -q '^TimeoutIdleSec=0$' /usr/lib/systemd/system/boot.automount.d/wasd-idle.conf
+shutdown_mount=/usr/lib/systemd/system/usr-share-plymouth-themes-wasd-background.png.mount
+test -s "$shutdown_mount"
+grep -q '^What=/etc/wasd/loading-background.png$' "$shutdown_mount"
+grep -q '^Where=/usr/share/plymouth/themes/wasd/background.png$' "$shutdown_mount"
+grep -q '^Options=bind$' "$shutdown_mount"
+grep -q '^DefaultDependencies=no$' "$shutdown_mount"
+test -L /usr/lib/systemd/system/local-fs.target.wants/usr-share-plymouth-themes-wasd-background.png.mount
+for mode in reboot poweroff halt; do
+    drop=/usr/lib/systemd/system/plymouth-${mode}.service.d/wasd-loading.conf
+    test -s "$drop"
+    grep -q '^Before=umount.target$' "$drop"
+    grep -q '^After=usr-share-plymouth-themes-wasd-background.png.mount$' "$drop"
+done
 test -s /usr/share/wasd/install/SystemPage.qml
 test -s /usr/share/polkit-1/actions/org.wasd.password.policy
 test -s /usr/share/polkit-1/actions/org.wasd.wifi.policy
@@ -767,6 +828,7 @@ CLEAR_FILES = (
     "/usr/lib/systemd/system/wasd-boot-title-finalize.service",
     "/usr/lib/systemd/system/multi-user.target.wants/wasd-boot-title.service",
     "/usr/lib/systemd/system/ostree-finalize-staged.service.wants/wasd-boot-title-finalize.service",
+    "/usr/lib/systemd/system/boot.automount.d/wasd-idle.conf",
     "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-menu.js",
     "/usr/share/wasd/wasd-logo.png",
     "/usr/share/wasd/flatpaks",

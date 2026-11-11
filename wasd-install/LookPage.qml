@@ -399,7 +399,7 @@ Item {
         showBack: !host.tool
         nextText: host.tool ? "Apply" : "Next"
         nextEnabled: !host.tool || (!host.applying && host.avatarReady)
-        note: host.tool ? (host.savedLine || "The loading screen changes on the next boot.") : ""
+        note: host.tool ? (host.savedLine || "Shutdown uses this picture when you apply it. Startup uses it on the next boot.") : ""
         onBack: host.page = 0
         onGo: {
             if (host.tool)

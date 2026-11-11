@@ -78,8 +78,9 @@ class Launcher:
         self.games_dir = games_dir
         self.mount_games = bool(mount_games)
         self.channel_dirs = tuple(channel_dirs)
-        # A native launcher is a Linux program. Its game files still sit on
-        # an empty directory that the games folder is mounted onto.
+        # A native launcher is a Linux program. It is pointed at its games
+        # folder. A user namespace makes Bubblewrap, PulseAudio, and
+        # CurseForge's login handler see the wrong account.
         self.native = bool(native)
         self.native_args = tuple(native_args)
         self.native_env = tuple(native_env)
@@ -87,8 +88,10 @@ class Launcher:
         # that runs is native_program inside that tree, never the archive.
         self.archive_root = archive_root
         self.native_program = tuple(native_program)
-        # A host path the program always uses. The games folder is mounted
-        # on it. A symlink at that path is the failure Minecraft hit.
+        # A host path the program always uses. With mount_games, the games
+        # folder is mounted on an empty directory there. Otherwise that path
+        # is a link to the games folder. Java Minecraft still uses a mount,
+        # because that launcher will not create files through a link.
         self.host_link = tuple(host_link)
         self.bundle_libs = bool(bundle_libs)
 
@@ -129,39 +132,30 @@ CATALOG = {
         "https://github.com/Wyze3306/BedrockOnLinux/releases/download/v2.3.0/BedrockOnLinux-2.3.0-x86_64.AppImage",
         "BedrockOnLinux-2.3.0-x86_64.AppImage",
         (),
-        # BOL_HOME is this empty directory. The games folder is mounted on
-        # it for the launch, so the download, the worlds, and BedrockOnLinux's
-        # own prefix are real files. A symlink is the failure Minecraft hit.
-        ("data",),
-        mount_games=True,
+        # BOL_HOME is the games folder. BedrockOnLinux starts umu, and umu's
+        # bubblewrap refuses a user namespace that still has root capabilities.
         native=True,
-        native_env=(("BOL_HOME", "{mount}"),),
+        native_env=(("BOL_HOME", "{games}"),),
     ),
     "Modded Minecraft": Launcher(
         "minecraft-modded",
         "https://github.com/PolyMC/PolyMC/releases/download/8.1/PolyMC-Linux-amd64-8.1.AppImage",
         "PolyMC-Linux-amd64-8.1.AppImage",
         (),
-        # --dir is this empty directory, and the games folder is mounted on
-        # it. Instances and mods are written there. The AppImage stays in
-        # the cache, outside the mount, so the mount does not hide it.
-        ("data",),
-        mount_games=True,
+        # --dir is the games folder. Instances and mods are written there.
+        # The AppImage stays in the cache.
         native=True,
-        native_args=("--dir", "{mount}"),
+        native_args=("--dir", "{games}"),
     ),
     "MultiMC": Launcher(
         "multimc",
         "https://files.multimc.org/downloads/mmc-develop-lin64.tar.gz",
         "mmc-develop-lin64.tar.gz",
         (),
-        # --dir is this empty directory, and the games folder is mounted on
-        # it. The upstream start script refuses to run as root, and the
-        # mount namespace is root, so WASD starts bin/MultiMC itself.
-        ("data",),
-        mount_games=True,
+        # --dir is the games folder. WASD starts bin/MultiMC itself. The
+        # upstream wrapper only adds the library path, which is set below.
         native=True,
-        native_args=("--dir", "{mount}"),
+        native_args=("--dir", "{games}"),
         archive_root="MultiMC",
         native_program=("bin", "MultiMC"),
         bundle_libs=True,
@@ -172,10 +166,9 @@ CATALOG = {
         "CurseForge-1.325.0-41594.AppImage",
         (),
         # The Linux build's mod folder is Documents/curseforge. That path
-        # is an empty directory, and the games folder is mounted on it.
-        # Electron refuses a root namespace unless --no-sandbox is set.
+        # is a link to the games folder. --no-sandbox lets the login handler
+        # start when the browser returns.
         host_link=("Documents", "curseforge"),
-        mount_games=True,
         native=True,
         native_args=("--no-sandbox",),
     ),
@@ -185,10 +178,9 @@ CATALOG = {
         "ftb-app-linux-1.30.1-x86_64.AppImage",
         (),
         # getAppHome in the 1.30.1 source puts instances, the runtime, and
-        # settings in ~/.ftba. That path is an empty directory, and the
-        # games folder is mounted on it.
+        # settings in ~/.ftba. That path is a link to the games folder.
+        # PulseAudio refuses the account namespace, so the app stays outside it.
         host_link=(".ftba",),
-        mount_games=True,
         native=True,
         native_args=("--no-sandbox",),
     ),
@@ -551,6 +543,21 @@ def _account_names(user_name):
         if name and name not in names:
             names.append(name)
     return names
+
+
+def _link_games(folder, parts, target):
+    """Point a host path at the games folder. An empty directory becomes the link."""
+    if not parts:
+        return
+    current = _safe_dir(folder)
+    for part in parts[:-1]:
+        if part in ("", ".", ".."):
+            raise LauncherError("The launcher folder is a link.")
+        current = _safe_dir(current / part)
+    leaf = parts[-1]
+    if leaf in ("", ".", ".."):
+        raise LauncherError("The launcher folder is a link.")
+    _replace_link(current / leaf, target)
 
 
 def _prepare_game_mount(folder, parts, target):
@@ -931,6 +938,110 @@ def _java_env(env, launcher, games):
     )
 
 
+def _cfg_value(path, key):
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        return ""
+    prefix = key + "="
+    try:
+        rows = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for row in rows:
+        if row.startswith(prefix):
+            return row[len(prefix):]
+    return ""
+
+
+def _version_tuple(text):
+    """The first three numeric parts of a Minecraft version. 1.12.2 is (1, 12, 2)."""
+    if not isinstance(text, str) or not text:
+        return None
+    parts = []
+    for piece in text.split("."):
+        if not piece.isdigit():
+            return None
+        parts.append(int(piece))
+        if len(parts) == 3:
+            break
+    if len(parts) < 2 or parts[0] < 1:
+        return None
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts)
+
+
+def _java_for_minecraft(version):
+    """Java 8, 17, or 21 for a release. A version this table does not know is left alone."""
+    key = _version_tuple(version)
+    if key is None:
+        return ""
+    if key < (1, 17, 0):
+        return "8"
+    if key < (1, 20, 5):
+        return "17"
+    if key[0] == 1:
+        return "21"
+    return ""
+
+
+def _minecraft_version(pack):
+    pack = Path(pack)
+    if pack.is_symlink() or not pack.is_file():
+        return ""
+    try:
+        data = json.loads(pack.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return ""
+    components = data.get("components") if isinstance(data, dict) else None
+    if not isinstance(components, list):
+        return ""
+    for item in components:
+        if isinstance(item, dict) and item.get("uid") == "net.minecraft":
+            version = item.get("version")
+            if isinstance(version, str):
+                return version
+    return ""
+
+
+def _assign_instance_java(games):
+    """Give each pack the Java it needs, unless that pack already has one chosen."""
+    games = Path(games)
+    root = games / "instances"
+    if root.is_symlink() or not root.is_dir():
+        return
+    for child in root.iterdir():
+        if child.is_symlink() or not child.is_dir() or child.name.startswith("."):
+            continue
+        pack = child / "mmc-pack.json"
+        cfg = child / "instance.cfg"
+        if cfg.is_symlink() or pack.is_symlink():
+            continue
+        java = _java_for_minecraft(_minecraft_version(pack))
+        if not java:
+            continue
+        if _cfg_value(cfg, "OverrideJavaLocation") == "true":
+            continue
+        binary = _java_binary(games, java)
+        if not _usable_java(binary):
+            continue
+        _set_cfg_key(cfg, "OverrideJavaLocation", "true")
+        _set_cfg_key(cfg, "JavaPath", str(binary))
+
+
+def _raise_memory(games, launcher):
+    """MultiMC's own default is 1024 MB. A current pack runs out of that."""
+    if launcher.launcher_id != "multimc":
+        return
+    path = Path(games) / JAVA_CONFIG[launcher.launcher_id]
+    if path.is_symlink():
+        return
+    current = _cfg_value(path, "MaxMemAlloc")
+    if current.isdigit() and int(current) > 1024:
+        return
+    _set_cfg_key(path, "MaxMemAlloc", "8192")
+
+
 def _prepare_native(env, home, launcher, games, fetch):
     _browser_env(env, home)
     _game_preload(env, home)
@@ -938,6 +1049,8 @@ def _prepare_native(env, home, launcher, games, fetch):
     if launcher.launcher_id in JAVA_CONFIG:
         _ensure_java(games, fetch)
         _write_java_path(games, launcher)
+        _assign_instance_java(games)
+        _raise_memory(games, launcher)
         _java_env(env, launcher, games)
 
 
@@ -1069,26 +1182,34 @@ def _mount_slot(launcher, prefix, home=None):
     return ""
 
 
-def _mount_text(text, slot):
-    return str(text).replace("{mount}", slot)
+def _mount_text(text, slot, games=""):
+    return str(text).replace("{mount}", slot).replace("{games}", str(games))
+
+
+def _workdir_argv(argv, workdir):
+    """Start in the games folder without entering a user namespace."""
+    script = "set -eu\ncd " + shlex.quote(str(workdir)) + '\nexec "$@"\n'
+    return ["bash", "-c", script, "bash", *argv]
 
 
 def _launch_argv(user_name, launcher, prefix, games, args, home=None):
     mounts = _mounts(user_name, launcher, prefix, games, home)
     slot = _mount_slot(launcher, prefix, home)
     if launcher.native:
-        command = [_mount_text(item, slot) for item in args]
-        command.extend(_mount_text(item, slot) for item in launcher.native_args)
+        command = [_mount_text(item, slot, games) for item in args]
+        command.extend(_mount_text(item, slot, games) for item in launcher.native_args)
     else:
         command = umu_argv(list(args))
     workdir = games if launcher.launcher_id in JAVA_CONFIG else None
     if mounts:
         command = _mounted_argv(command, mounts, home, workdir)
+    elif workdir is not None:
+        command = _workdir_argv(command, workdir)
     _check_argv(command)
     return command
 
 
-def launch_env(prefix, launcher, slot=""):
+def launch_env(prefix, launcher, slot="", games=""):
     """The environment for one launch. A native program is not a Wine prefix."""
     if not launcher.native:
         return umu_env(prefix, launcher)
@@ -1107,7 +1228,7 @@ def launch_env(prefix, launcher, slot=""):
     # ostree has no FUSE for an AppImage to mount itself.
     env["APPIMAGE_EXTRACT_AND_RUN"] = "1"
     for key, value in launcher.native_env:
-        env[str(key)] = _mount_text(value, slot)
+        env[str(key)] = _mount_text(value, slot, games)
     return env
 
 
@@ -1141,7 +1262,10 @@ def ensure_links(prefix, games, saves, user_name, launcher, home=None):
     if launcher.host_link:
         if home is None:
             raise LauncherError("The games drive could not be prepared.")
-        _prepare_game_mount(Path(home), launcher.host_link, games)
+        if launcher.mount_games:
+            _prepare_game_mount(Path(home), launcher.host_link, games)
+        else:
+            _link_games(Path(home), launcher.host_link, games)
     if launcher.games_link:
         moved = prefix.joinpath(*launcher.games_link)
         parent = _safe_dir(moved.parent)
@@ -1550,8 +1674,8 @@ def _unpack_archive(home, launcher):
 def _bundle_env(env, root):
     """Point the launcher at its own libraries, and keep those off the game.
 
-    MultiMC's start script does this, then refuses to run as root. The mount
-    namespace is root, so the same variables are set around bin/MultiMC.
+    MultiMC's start script does this. WASD starts bin/MultiMC with the same
+    variables.
     """
     previous = env.get("LD_LIBRARY_PATH", "")
     if "GAME_LIBRARY_PATH" not in env:
@@ -1757,7 +1881,7 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
     write_menu(home, name, root)
     if not launcher.setup_url and not launcher.setup_name:
         return prefix
-    env = launch_env(prefix, launcher, _mount_slot(launcher, prefix, home))
+    env = launch_env(prefix, launcher, _mount_slot(launcher, prefix, home), games)
     if not launcher.native and not (prefix / "system.reg").is_file():
         boot = _launch_argv(home.name, launcher, prefix, games, ["wineboot", "-u"], home)
         if runner(boot, env) != 0:
@@ -1811,7 +1935,7 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
             raise LauncherError("Could not open that launcher.")
         target = setup
     # A later open can turn the slot back into a link. Mounting needs a real directory.
-    if launcher.user_link or launcher.mount_games:
+    if launcher.user_link or launcher.mount_games or launcher.host_link:
         ensure_links(prefix, games, saves, home.name, launcher, home)
     if launcher.launcher_id == "minecraft":
         _prefer_minecraft_vulkan(games)
@@ -1844,7 +1968,7 @@ def launch_installed(home, name, runner, root=None, fetch=None):
         raise LauncherError("Could not open that launcher.")
     games = _games(root, launcher)
     saves = _saves(root, launcher)
-    if launcher.user_link or launcher.mount_games:
+    if launcher.user_link or launcher.mount_games or launcher.host_link:
         ensure_links(prefix, games, saves, home.name, launcher, home)
     if launcher.launcher_id == "minecraft":
         _prefer_minecraft_vulkan(games)
@@ -1855,7 +1979,7 @@ def launch_installed(home, name, runner, root=None, fetch=None):
     feed_log(name + "\n")
     if fetch is None:
         fetch = FETCH
-    env = launch_env(prefix, launcher, _mount_slot(launcher, prefix, home))
+    env = launch_env(prefix, launcher, _mount_slot(launcher, prefix, home), games)
     if launcher.bundle_libs:
         _bundle_env(env, _archive_root(home, launcher))
     if launcher.native:
@@ -1939,6 +2063,15 @@ def add_custom(home, name, program, runner, fetch, root=None):
     return prefix
 
 
+def offers_reinstall(launcher):
+    """The vendor setup is a different program from the one Launch opens.
+
+    A native launcher's download is the program. Reinstall would open that
+    same file, which Launch already does.
+    """
+    return bool(launcher.program) and not launcher.native
+
+
 def _status_row(home, name, launcher, root, custom):
     prefix = _prefix(root, launcher)
     program = program_path(home, name, root)
@@ -1947,6 +2080,7 @@ def _status_row(home, name, launcher, root, custom):
         "id": launcher.launcher_id,
         "ready": program.is_file() and not program.is_symlink(),
         "prepared": prefix.is_dir() and not prefix.is_symlink(),
+        "reinstall": offers_reinstall(launcher),
         "custom": custom,
         "folder": str(_games(root, launcher)),
     }
@@ -2386,6 +2520,8 @@ def self_check():
         rows = {row["name"]: row for row in status_rows(home, root)}
         if "EA App" in rows or not rows["Battle.net"]["ready"] or rows["Ubisoft Connect"]["ready"]:
             raise SystemExit(f"the menu status was wrong: {rows}")
+        if not rows["Battle.net"]["reinstall"] or rows["Minecraft Bedrock"]["reinstall"]:
+            raise SystemExit(f"Reinstall was offered on the wrong row: {rows['Battle.net']} {rows['Minecraft Bedrock']}")
         write_marker()
         if marker_path().read_text(encoding="utf-8") != "ok\n":
             raise SystemExit("the launcher marker was not written")
@@ -2509,54 +2645,38 @@ def self_check():
                 for part in argv
             ):
                 raise SystemExit(f"{name} was opened with Wine: {calls}")
-            native_prefix = _prefix(root, launcher)
-            if launcher.host_link:
-                slot = home.joinpath(*launcher.host_link)
-            else:
-                slot = native_prefix / "data"
             games = root / folder
             app = _archived_program(home, launcher) if launcher.archive_root else _cache(home, launcher)
-            if slot.is_symlink() or not slot.is_dir() or any(slot.iterdir()):
-                raise SystemExit(f"{name} left its games folder as a link")
             if games.is_symlink() or not games.is_dir():
                 raise SystemExit(f"{name} games folder is a link")
             argv, env = calls[-1]
             mounted = "\n".join(str(part) for part in argv)
-            if (
-                argv[0] != "unshare"
-                or "mount --bind" not in mounted
-                or str(games) not in mounted
-                or str(slot) not in mounted
-                or str(app) not in argv
-            ):
-                raise SystemExit(f"{name} was not mounted on its games folder: {argv}")
+            if argv[0] == "unshare" or "mount --bind" in mounted or "ld.so.preload" in mounted:
+                raise SystemExit(f"{name} was put in a user namespace: {argv}")
+            if str(app) not in argv:
+                raise SystemExit(f"{name} was not pointed at its games folder: {argv}")
             try:
                 app.resolve().relative_to(games.resolve())
             except ValueError:
                 pass
             else:
                 raise SystemExit(f"{name} was launched from its games folder")
-            try:
-                app.resolve().relative_to(slot.resolve())
-            except ValueError:
-                pass
-            else:
-                raise SystemExit(f"{name} was launched from the mount")
             if env.get("APPIMAGE_EXTRACT_AND_RUN") != "1" or env.get("WASD_GAME") != "1":
                 raise SystemExit(f"{name} would not run its own program")
             if any(key in env for key in ("GAMEID", "WINEPREFIX", "PROTONPATH")):
                 raise SystemExit(f"{name} was given a Wine prefix")
             if marker == "BOL_HOME":
-                if env.get("BOL_HOME") != str(slot):
+                if env.get("BOL_HOME") != str(games) or launcher.mount_games or launcher.games_link:
                     raise SystemExit(f"{name} would write outside its games folder: {env.get('BOL_HOME')}")
             elif marker == "--dir":
-                if "--dir" not in argv or argv[argv.index("--dir") + 1] != str(slot):
+                if "--dir" not in argv or argv[argv.index("--dir") + 1] != str(games):
                     raise SystemExit(f"{name} would write outside its games folder: {argv}")
             elif marker == "--no-sandbox":
-                if "--no-sandbox" not in argv:
-                    raise SystemExit(f"{name} would not open in the mount namespace: {argv}")
+                link = home.joinpath(*launcher.host_link)
+                if "--no-sandbox" not in argv or not link.is_symlink() or link.resolve() != games.resolve():
+                    raise SystemExit(f"{name} would write outside its games folder: {argv}")
             else:
-                raise SystemExit(f"{name} has no mount check")
+                raise SystemExit(f"{name} has no games-folder check")
             if marker != "--no-sandbox" and "--no-sandbox" in argv:
                 raise SystemExit(f"{name} was given a sandbox flag it does not need")
             library = str(_noroot_library(home))
@@ -2571,8 +2691,6 @@ def self_check():
             if "cfauth://" not in opener or "https://" not in opener or "file://" in opener:
                 raise SystemExit("the browser opener would open a file")
             if env.get("GAME_PRELOAD", "").split(":")[0] != library:
-                raise SystemExit(f"{name} would drop the id library")
-            if "ld.so.preload" not in mounted:
                 raise SystemExit(f"{name} would drop the id library")
             if launcher.launcher_id in JAVA_CONFIG:
                 if f"\ncd {shlex.quote(str(games))}" not in mounted:
@@ -2617,24 +2735,79 @@ def self_check():
                     raise SystemExit(f"{name} would hand its libraries to the game")
             if not app.is_file() or app.is_symlink() or not os.access(app, os.X_OK):
                 raise SystemExit(f"{name} was not executable")
+            if launcher.launcher_id in JAVA_CONFIG:
+                cfg_path = games / JAVA_CONFIG[launcher.launcher_id]
+
+                def pack(folder_name, version, cfg):
+                    folder_path = games / "instances" / folder_name
+                    folder_path.mkdir(parents=True)
+                    (folder_path / "mmc-pack.json").write_text(
+                        '{"components":[{"uid":"net.minecraft","version":"' + version + '"}]}',
+                        encoding="utf-8",
+                    )
+                    if cfg:
+                        (folder_path / "instance.cfg").write_text(cfg, encoding="utf-8")
+                    return folder_path
+
+                old = pack("Old Pack", "1.12.2", "OverrideJavaLocation=false\n")
+                middle = pack("Middle Pack", "1.20.1", "")
+                chosen = pack("Chosen Pack", "1.7.10", "OverrideJavaLocation=true\nJavaPath=/opt/custom/java\n")
+                current = pack("Current Pack", "1.21.1", "")
+                later = pack("Later Pack", "26.1", "name=Later\n")
+                _set_cfg_key(cfg_path, "MaxMemAlloc", "1024")
+                launch_installed(home, name, runner, root, fetch)
+
+                def instance_text(path):
+                    return (path / "instance.cfg").read_text(encoding="utf-8")
+
+                old_text = instance_text(old)
+                if "OverrideJavaLocation=true" not in old_text or f"JavaPath={_java_binary(games, '8')}" not in old_text:
+                    raise SystemExit(f"{name} left an old pack on the wrong Java: {old_text!r}")
+                middle_text = instance_text(middle)
+                if f"JavaPath={_java_binary(games, '17')}" not in middle_text:
+                    raise SystemExit(f"{name} left a 1.20 pack on the wrong Java: {middle_text!r}")
+                chosen_text = instance_text(chosen)
+                if "JavaPath=/opt/custom/java" not in chosen_text or chosen_text.count("JavaPath=") != 1:
+                    raise SystemExit(f"{name} replaced a chosen Java: {chosen_text!r}")
+                current_text = instance_text(current)
+                if f"JavaPath={_java_binary(games, '21')}" not in current_text:
+                    raise SystemExit(f"{name} left a current pack without Java: {current_text!r}")
+                later_text = instance_text(later)
+                if "JavaPath=" in later_text or "OverrideJavaLocation=" in later_text:
+                    raise SystemExit(f"{name} guessed Java for a newer pack: {later_text!r}")
+                mem = cfg_path.read_text(encoding="utf-8")
+                if launcher.launcher_id == "multimc":
+                    if "MaxMemAlloc=8192" not in mem:
+                        raise SystemExit(f"{name} kept a 1024 MB heap: {mem!r}")
+                    _set_cfg_key(cfg_path, "MaxMemAlloc", "16384")
+                    launch_installed(home, name, runner, root, fetch)
+                    if "MaxMemAlloc=16384" not in cfg_path.read_text(encoding="utf-8"):
+                        raise SystemExit(f"{name} replaced a larger heap")
+                elif "MaxMemAlloc=1024" not in mem:
+                    raise SystemExit(f"{name} changed a heap it does not own: {mem!r}")
             (games / "keep.txt").write_text("world\n", encoding="utf-8")
             nuke(home, name, root)
             if (games / "keep.txt").read_text(encoding="utf-8") != "world\n":
                 raise SystemExit(f"nuking {name} deleted its games")
-            if slot.is_symlink() or not slot.is_dir() or any(slot.iterdir()):
-                raise SystemExit(f"nuking {name} put the games link back")
-            slot.rmdir()
-            slot.symlink_to(games)
+            if launcher.host_link:
+                link = home.joinpath(*launcher.host_link)
+                if link.is_symlink():
+                    link.unlink()
+                elif link.is_dir():
+                    link.rmdir()
+                link.mkdir()
             calls.clear()
             before = len(fetches)
             install_launcher(home, name, runner, fetch, root)
             if len(fetches) != before:
                 raise SystemExit(f"{name} downloaded again after it was installed")
-            if slot.is_symlink() or not slot.is_dir() or any(slot.iterdir()):
-                raise SystemExit(f"{name} left the games folder as a link")
             mounted = "\n".join(str(part) for part in calls[-1][0])
-            if "mount --bind" not in mounted or "umu-run" in mounted:
-                raise SystemExit(f"{name} did not mount after the link came back: {calls[-1][0]}")
+            if "unshare" in calls[-1][0] or "mount --bind" in mounted or "umu-run" in mounted:
+                raise SystemExit(f"{name} was put in a user namespace: {calls[-1][0]}")
+            if launcher.host_link:
+                link = home.joinpath(*launcher.host_link)
+                if not link.is_symlink() or link.resolve() != games.resolve():
+                    raise SystemExit(f"{name} left its games folder as a real directory")
 
         check_native("Minecraft Bedrock", "minecraft-bedrock", "BOL_HOME")
         check_native("Modded Minecraft", "minecraft-modded", "--dir")
@@ -2962,6 +3135,7 @@ def self_check():
                 custom_only["name"] != "Custom"
                 or custom_only["id"] != "custom3"
                 or custom_only["ready"]
+                or custom_only["reinstall"]
                 or custom_only["folder"] != str(root / "custom3")
             ):
                 raise SystemExit(f"the named folder was wrong: {custom_only}")
@@ -3052,6 +3226,15 @@ def self_check():
         raise SystemExit("WASD Launchers cannot preview, launch, or remake")
     if "Nuke/Fix" not in launch or "Reinstall" not in launch or "Saved games stay." not in launch:
         raise SystemExit("WASD Launchers is missing Nuke/Fix, Reinstall, or the saved-games note")
+    keeps = launch.index("function keepsReinstall")
+    shows = launch.index("function showInstall")
+    kept_ids = launch[keeps:shows]
+    for name, launcher in CATALOG.items():
+        listed = f'"{launcher.launcher_id}"' in kept_ids
+        if listed != offers_reinstall(launcher):
+            raise SystemExit(f"{name} still shows Reinstall after it is installed")
+    if "showInstall(name, reinstall)" not in launch:
+        raise SystemExit("WASD Launchers always shows Reinstall")
     if "Browse" not in launch or '"/browse"' not in launch:
         raise SystemExit("WASD Launchers cannot open a games folder")
     if "customNameField" not in launch or "addCustomGame" not in launch or '"/custom"' not in launch:
@@ -3068,55 +3251,64 @@ def self_check():
         raise SystemExit("Java Minecraft would skip the official launcher")
     bedrock = CATALOG["Minecraft Bedrock"]
     modded = CATALOG["Modded Minecraft"]
+    if _java_for_minecraft("1.7.10") != "8" or _java_for_minecraft("1.16.5") != "8":
+        raise SystemExit("an old pack would stay on Java 21")
+    if _java_for_minecraft("1.17") != "17" or _java_for_minecraft("1.20.4") != "17":
+        raise SystemExit("a 1.17 pack would get the wrong Java")
+    if _java_for_minecraft("1.20.5") != "21" or _java_for_minecraft("1.21.1") != "21":
+        raise SystemExit("a current pack would get the wrong Java")
+    if _java_for_minecraft("26.1") or _java_for_minecraft("nope"):
+        raise SystemExit("an unknown pack would be given a Java")
     if (
         not bedrock.native
-        or bedrock.native_env != (("BOL_HOME", "{mount}"),)
-        or bedrock.games_link != ("data",)
-        or not bedrock.mount_games
+        or bedrock.native_env != (("BOL_HOME", "{games}"),)
+        or bedrock.games_link
+        or bedrock.mount_games
+        or bedrock.host_link
         or bedrock.user_link
         or "BedrockOnLinux-2.3.0-x86_64.AppImage" not in bedrock.setup_url
     ):
-        raise SystemExit("Bedrock would write through a link")
+        raise SystemExit("Bedrock would enter a user namespace")
     if (
         not modded.native
-        or modded.native_args != ("--dir", "{mount}")
-        or modded.games_link != ("data",)
-        or not modded.mount_games
+        or modded.native_args != ("--dir", "{games}")
+        or modded.games_link
+        or modded.mount_games
         or "PolyMC-Linux-amd64-8.1.AppImage" not in modded.setup_url
     ):
-        raise SystemExit("Modded Minecraft would write through a link")
+        raise SystemExit("Modded Minecraft would enter a user namespace")
     multimc = CATALOG["MultiMC"]
     curse = CATALOG["CurseForge"]
     ftb = CATALOG["FTB App"]
     if (
         not multimc.native
-        or multimc.native_args != ("--dir", "{mount}")
-        or multimc.games_link != ("data",)
-        or not multimc.mount_games
+        or multimc.native_args != ("--dir", "{games}")
+        or multimc.games_link
+        or multimc.mount_games
         or multimc.host_link
         or multimc.archive_root != "MultiMC"
         or multimc.native_program != ("bin", "MultiMC")
         or not multimc.bundle_libs
         or "mmc-develop-lin64.tar.gz" not in multimc.setup_url
     ):
-        raise SystemExit("MultiMC would write through a link")
+        raise SystemExit("MultiMC would enter a user namespace")
     if (
         not curse.native
         or curse.native_args != ("--no-sandbox",)
         or curse.host_link != ("Documents", "curseforge")
-        or not curse.mount_games
+        or curse.mount_games
         or curse.games_link
         or "CurseForge-1.325.0-41594.AppImage" not in curse.setup_url
     ):
-        raise SystemExit("CurseForge would write through a link")
+        raise SystemExit("CurseForge would enter a user namespace")
     if (
         not ftb.native
         or ftb.native_args != ("--no-sandbox",)
         or ftb.host_link != (".ftba",)
-        or not ftb.mount_games
+        or ftb.mount_games
         or "ftb-app-linux-1.30.1-x86_64.AppImage" not in ftb.setup_url
     ):
-        raise SystemExit("the FTB App would write through a link")
+        raise SystemExit("the FTB App would enter a user namespace")
     for folder in ("minecraft-bedrock", "minecraft-modded", "multimc", "curseforge", "ftb"):
         if folder not in GAMES_DIRS:
             raise SystemExit("a new install would not make the Minecraft folders")

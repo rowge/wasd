@@ -61,6 +61,7 @@ Window {
                 name: rows[i][0],
                 launcherId: rows[i][1],
                 custom: false,
+                reinstall: keepsReinstall(rows[i][1], false),
                 folder: "/games/" + rows[i][1]
             })
         }
@@ -136,10 +137,15 @@ Window {
         for (let i = 0; i < rows.length; i++) {
             ready[rows[i].name] = !!rows[i].ready
             prepared[rows[i].name] = !!rows[i].prepared
+            const custom = !!rows[i].custom
+            let reinstall = rows[i].reinstall
+            if (reinstall !== true && reinstall !== false)
+                reinstall = win.keepsReinstall(rows[i].id || "", custom)
             launcherModel.append({
                 name: rows[i].name || "",
                 launcherId: rows[i].id || "",
-                custom: !!rows[i].custom,
+                custom: custom,
+                reinstall: reinstall,
                 folder: rows[i].folder || ""
             })
         }
@@ -158,6 +164,20 @@ Window {
             win.applyStatus(xhr.responseText || "")
         }
         xhr.send("")
+    }
+
+    function keepsReinstall(launcherId, custom) {
+        if (custom)
+            return false
+        return launcherId === "battlenet"
+            || launcherId === "ubisoft"
+            || launcherId === "rockstar"
+            || launcherId === "minecraft"
+            || launcherId === "starcitizen"
+    }
+
+    function showInstall(name, reinstall) {
+        return readyMap[name] !== true || reinstall === true
     }
 
     function startInstall(name) {
@@ -371,6 +391,7 @@ Window {
                         required property string name
                         required property string launcherId
                         required property bool custom
+                        required property bool reinstall
                         required property string folder
                         width: listColumn.width
 
@@ -452,6 +473,7 @@ Window {
 
                             Rectangle {
                                 objectName: "install" + launcherId
+                                visible: win.showInstall(name, reinstall)
                                 width: installLabel.implicitWidth + 28
                                 height: 34
                                 radius: 8
