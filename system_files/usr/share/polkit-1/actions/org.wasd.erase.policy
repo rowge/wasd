@@ -5,7 +5,7 @@
 <policyconfig>
   <vendor>WASD</vendor>
   <action id="org.wasd.erase">
-    <description>Install WASD onto the selected disk</description>
+    <description>WASD Install onto the selected disk</description>
     <message>Authentication is needed to install WASD onto the selected disk</message>
     <defaults>
       <allow_any>no</allow_any>

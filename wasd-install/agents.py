@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the agents chosen in Install WASD.
+"""Install the agents chosen in WASD Install.
 
 Web apps open in their own Brave window, the same kind of window Omarchy
 makes. Command-line agents with a checked installer are downloaded on first
@@ -39,7 +39,7 @@ class Agent:
         return self.kind in ("cli", "app") and bool(self.url)
 
 
-# Display names match Install WASD. Install URLs are the official scripts
+# Display names match WASD Install. Install URLs are the official scripts
 # that were checked. A name with no URL is a menu entry only.
 CATALOG = {
     "Grok Build": Agent("grok-build", "cli", "https://x.ai/cli/install.sh", "grok", "grok"),

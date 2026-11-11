@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Network helper for Install WASD.
+"""Network helper for WASD Install.
 
 --serve listens on 127.0.0.1:8765. Status is a read. Connecting and TCP/IP
 changes run only on a live USB, through NetworkManager, and the passphrase

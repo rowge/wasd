@@ -1,3 +1,7 @@
+[Daemon]
+Autolock=true
+Timeout=5
+
 [Greeter]
 WallpaperPlugin=org.kde.image
 

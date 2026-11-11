@@ -8,7 +8,7 @@ One build runs at a time. A second push waits in line behind the one already run
 
 ## Add pictures
 
-There is no separate art folder for the installer. Install WASD and WASD Look both read the four folders below. A new file in the right folder becomes a choice on the next image. It does not become the default. The default section is further down.
+There is no separate art folder for the installer. WASD Install and WASD Look both read the four folders below. A new file in the right folder becomes a choice on the next image. It does not become the default. The default section is further down.
 
 | What you are adding | Folder | Push starts a build |
 |---|---|---|

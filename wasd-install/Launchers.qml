@@ -335,15 +335,24 @@ Window {
                 font.pixelSize: 15
             }
 
-            Flickable {
+            Item {
+                id: listFrame
                 width: parent.width
                 height: 500
-                contentWidth: width
-                contentHeight: listColumn.height
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                flickableDirection: Flickable.VerticalFlick
-                interactive: contentHeight > height
+
+                Flickable {
+                    id: listFlick
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    anchors.rightMargin: 14
+                    contentWidth: width
+                    contentHeight: listColumn.height
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
+                    interactive: contentHeight > height
 
                 Column {
                     id: listColumn
@@ -619,6 +628,57 @@ Window {
                     height: 1
                     color: win.line
                 }
+                }
+                }
+
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: 8
+                    radius: 4
+                    color: Qt.rgba(1, 1, 1, 0.08)
+                    visible: listFlick.contentHeight > listFlick.height
+                }
+
+                Rectangle {
+                    id: listBar
+                    objectName: "launcherScroll"
+                    visible: listFlick.contentHeight > listFlick.height
+                    width: 8
+                    radius: 4
+                    color: win.brass
+                    anchors.right: parent.right
+                    height: Math.min(parent.height, Math.max(36, listFlick.visibleArea.heightRatio * parent.height))
+                    Binding on y {
+                        when: !listBarMouse.drag.active
+                        value: {
+                            var span = listFrame.height - listBar.height
+                            var maxY = listFlick.contentHeight - listFlick.height
+                            if (span <= 0 || maxY <= 0)
+                                return 0
+                            return listFlick.contentY / maxY * span
+                        }
+                    }
+
+                    MouseArea {
+                        id: listBarMouse
+                        anchors.fill: parent
+                        drag.target: parent
+                        drag.axis: Drag.YAxis
+                        drag.minimumY: 0
+                        drag.maximumY: Math.max(0, listFrame.height - listBar.height)
+                        cursorShape: Qt.PointingHandCursor
+                        onPositionChanged: {
+                            if (!drag.active)
+                                return
+                            var span = listFrame.height - listBar.height
+                            var maxY = listFlick.contentHeight - listFlick.height
+                            if (span <= 0 || maxY <= 0)
+                                return
+                            listFlick.contentY = Math.max(0, Math.min(maxY, listBar.y / span * maxY))
+                        }
+                    }
                 }
             }
 

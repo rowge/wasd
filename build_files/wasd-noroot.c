@@ -7,7 +7,9 @@
 
 /* umu refuses euid 0. The games mount runs in a user namespace whose root
    is this account, so umu is shown that account's id. Wine keeps the
-   namespace id, which is the owner of the prefix. */
+   namespace id, which is the owner of the prefix.
+   A native launcher sets WASD_SPOOF_UID=1. Java takes its home directory
+   from getuid, and that home is /root while the namespace id is 0. */
 
 static int umu_process(void)
 {
@@ -25,6 +27,13 @@ static int umu_process(void)
     return 0;
 }
 
+static int spoof_all(void)
+{
+    const char *flag = getenv("WASD_SPOOF_UID");
+
+    return flag && flag[0] == '1' && flag[1] == '\0';
+}
+
 static uid_t shown(uid_t (*real)(void))
 {
     const char *text = getenv("WASD_EUID");
@@ -33,7 +42,7 @@ static uid_t shown(uid_t (*real)(void))
 
     if (!real)
         return 0;
-    if (!umu_process() || !text || !*text)
+    if ((!spoof_all() && !umu_process()) || !text || !*text)
         return real();
     value = strtoul(text, &end, 10);
     if (!end || *end || value == 0)

@@ -19,7 +19,7 @@ def inhibit_argv():
     return [
         "systemd-inhibit",
         "--what=idle:sleep",
-        "--who=Install WASD",
+        "--who=WASD Install",
         "--why=Copying WASD",
         "--mode=block",
         "--",
@@ -47,15 +47,15 @@ def self_check():
     if sleep[:6] != [
         "systemd-inhibit",
         "--what=idle:sleep",
-        "--who=Install WASD",
+        "--who=WASD Install",
         "--why=Copying WASD",
         "--mode=block",
         "--",
     ] or sleep[-2:] != ["sleep", "infinity"]:
         raise SystemExit("the sleep hold is not limited to the copy")
-    screen = screen_call("Inhibit", "ss", "Install WASD", "Copying WASD")
+    screen = screen_call("Inhibit", "ss", "WASD Install", "Copying WASD")
     release = screen_call("UnInhibit", "u", "1")
-    if screen[-4:] != ["Inhibit", "ss", "Install WASD", "Copying WASD"]:
+    if screen[-4:] != ["Inhibit", "ss", "WASD Install", "Copying WASD"]:
         raise SystemExit("the screen hold is not a temporary inhibit")
     if release[-3:] != ["UnInhibit", "u", "1"]:
         raise SystemExit("the screen hold is not released")
@@ -103,7 +103,7 @@ def main():
         inhibit = None
     try:
         result = subprocess.run(
-            screen_call("Inhibit", "ss", "Install WASD", "Copying WASD"),
+            screen_call("Inhibit", "ss", "WASD Install", "Copying WASD"),
             capture_output=True,
             text=True,
             timeout=5,

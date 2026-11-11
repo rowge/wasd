@@ -12,6 +12,7 @@ import re
 import select
 import shlex
 import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -92,7 +93,7 @@ class Launcher:
         self.bundle_libs = bool(bundle_libs)
 
 
-# Display names match Install WASD and WASD Launchers. The setup addresses
+# Display names match WASD Install and WASD Launchers. The setup addresses
 # are the ones published for these launchers. No silent switch is passed.
 CATALOG = {
     "Battle.net": Launcher(
@@ -213,6 +214,60 @@ RSI_LATEST = "https://install.robertsspaceindustries.com/rel/2/latest.yml"
 _RSI_SETUP = re.compile(r"^RSI Launcher-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$")
 # A choice saved before Java Minecraft had that name.
 ALIASES = {"Minecraft": "Java Minecraft"}
+# Current Minecraft uses 21. Packs from 1.17 and 1.16 still need 17 and 8.
+# Adoptium publishes one archive for each. The games drive holds them.
+JAVA_RUNTIMES = (
+    ("21", "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jre/hotspot/normal/eclipse?project=jdk"),
+    ("17", "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jre/hotspot/normal/eclipse?project=jdk"),
+    ("8", "https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jre/hotspot/normal/eclipse?project=jdk"),
+)
+JAVA_CONFIG = {
+    "minecraft-modded": "polymc.cfg",
+    "multimc": "multimc.cfg",
+}
+# The launcher is inside the mount namespace, where a new Brave cannot
+# reach the session bus. This program asks the helper outside to open it.
+_BROWSER_SHIM = """#!/usr/bin/env python3
+import os
+import socket
+import sys
+
+def chosen(argv):
+    url = ""
+    for arg in argv:
+        if not arg.startswith("-"):
+            url = arg
+    return url
+
+def allowed(url):
+    if not url or len(url) > 4096:
+        return False
+    for ch in url:
+        if ord(ch) < 33 or ord(ch) == 127:
+            return False
+    lower = url.lower()
+    return lower.startswith("https://") or lower.startswith("http://") or lower.startswith("cfauth://")
+
+def main():
+    url = chosen(sys.argv[1:])
+    if not allowed(url):
+        return 1
+    address = os.environ.get("WASD_OPEN_SOCKET", "")
+    if not address:
+        return 1
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.connect(address)
+        sock.sendall(url.encode("utf-8") + bytes([10]))
+    except OSError:
+        return 1
+    finally:
+        sock.close()
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
 
 
 def canonical_name(name):
@@ -535,7 +590,358 @@ def _prepare_game_mount(folder, parts, target):
         raise LauncherError("The games drive could not be prepared.")
 
 
-def _mounted_argv(argv, mounts):
+def _noroot_library(home):
+    """The id library. The image copy wins. A local copy is the fallback."""
+    system = Path("/usr/libexec/wasd-noroot.so")
+    if system.is_file() and not system.is_symlink():
+        return system
+    return Path(home) / ".local/lib/wasd-noroot.so"
+
+
+def _write_preload_list(home):
+    """The library list Java still reads after a launcher clears LD_PRELOAD."""
+    path = Path(home) / ".cache/wasd/launchers/ld.so.preload"
+    if path.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    library = str(_noroot_library(home))
+    text = library + "\n"
+    host = Path("/etc/ld.so.preload")
+    if host.is_file() and not host.is_symlink():
+        try:
+            existing = host.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+        if library not in existing.splitlines():
+            if existing and not existing.endswith("\n"):
+                existing += "\n"
+            text = existing + text
+    path.write_text(text, encoding="utf-8")
+    os.chmod(path, 0o644)
+    return path
+
+
+def _browser_url(text):
+    """A sign-in page or CurseForge's return link. Not a file path."""
+    if not isinstance(text, str) or not text or len(text) > 4096:
+        return False
+    if any(ord(ch) < 33 or ord(ch) == 127 for ch in text):
+        return False
+    lowered = text.lower()
+    return lowered.startswith(("https://", "http://", "cfauth://"))
+
+
+def _browser_shim(home):
+    path = Path(home) / ".cache/wasd/launchers/bin/xdg-open"
+    if path.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.is_file() or path.read_text(encoding="utf-8") != _BROWSER_SHIM:
+        path.write_text(_BROWSER_SHIM, encoding="utf-8")
+    os.chmod(path, 0o755)
+    return path
+
+
+def _browser_env(env, home):
+    """Open Brave outside the namespace, and show Java this account's id."""
+    shim = _browser_shim(home)
+    bindir = str(shim.parent)
+    parts = [item for item in env.get("PATH", "").split(":") if item and item != bindir]
+    env["PATH"] = ":".join([bindir, *parts])
+    env["BROWSER"] = str(shim)
+    env["WASD_SPOOF_UID"] = "1"
+
+
+def _game_preload(env, home):
+    """Hand the id library to a game whose launcher removes LD_PRELOAD."""
+    library = str(_noroot_library(home))
+    current = env.get("GAME_PRELOAD", "")
+    parts = [item for item in current.split(":") if item and item != library]
+    env["GAME_PRELOAD"] = ":".join([library, *parts])
+
+
+def _host_open(url):
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        raise SystemExit("self-check tried to open a browser")
+    if not _browser_url(url):
+        return
+    opener = "/usr/bin/xdg-open"
+    if not os.access(opener, os.X_OK):
+        return
+    subprocess.Popen(
+        [opener, url],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+
+class _BrowserBridge:
+    """Accept a sign-in link from inside the namespace and open it outside."""
+
+    def __init__(self, env, opener=None):
+        self._sock = None
+        self._thread = None
+        self._stop = False
+        self.path = None
+        self._opener = opener or _host_open
+        if env.get("WASD_SPOOF_UID") != "1":
+            return
+        if os.environ.get("WASD_SELF_CHECK") == "1" and opener is None:
+            return
+        runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+        if not runtime or not Path(runtime).is_dir() or Path(runtime).is_symlink():
+            return
+        directory = Path(runtime) / "wasd"
+        try:
+            directory.mkdir(mode=0o700, exist_ok=True)
+            path = directory / f"open-{os.getpid()}.sock"
+            if path.exists() or path.is_symlink():
+                path.unlink()
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.bind(str(path))
+            os.chmod(path, 0o600)
+            sock.listen(8)
+            sock.settimeout(0.2)
+        except OSError:
+            return
+        self.path = path
+        self._sock = sock
+        env["WASD_OPEN_SOCKET"] = str(path)
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self):
+        sock = self._sock
+        while not self._stop:
+            try:
+                conn, _addr = sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            try:
+                data = b""
+                conn.settimeout(1)
+                while b"\n" not in data and len(data) < 4200:
+                    chunk = conn.recv(2048)
+                    if not chunk:
+                        break
+                    data += chunk
+                text = data.split(b"\n", 1)[0].decode("utf-8", "replace")
+                if _browser_url(text):
+                    self._opener(text)
+            except OSError:
+                pass
+            finally:
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+
+    def close(self):
+        self._stop = True
+        sock = self._sock
+        self._sock = None
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+        if self.path is not None:
+            try:
+                Path(self.path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _register_cfauth(home, launcher):
+    """Let the browser hand CurseForge's login back to the app."""
+    if launcher.launcher_id != "curseforge":
+        return None
+    app = _cache(home, launcher)
+    if app.is_symlink() or not app.is_file():
+        return None
+    desktop = Path(home) / ".local/share/applications/wasd-cfauth.desktop"
+    if desktop.is_symlink():
+        raise LauncherError("The menu entry is a link.")
+    desktop.parent.mkdir(parents=True, exist_ok=True)
+    command = "env APPIMAGE_EXTRACT_AND_RUN=1 " + shlex.quote(str(app)) + " --no-sandbox %u"
+    desktop.write_text(
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=CurseForge\n"
+        "NoDisplay=true\n"
+        f"Exec={command}\n"
+        "MimeType=x-scheme-handler/cfauth;\n"
+        "Terminal=false\n",
+        encoding="utf-8",
+    )
+    os.chmod(desktop, 0o644)
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        return desktop
+    subprocess.run(
+        ["xdg-mime", "default", desktop.name, "x-scheme-handler/cfauth"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return desktop
+
+
+def _java_binary(games, version):
+    return Path(games) / "java" / version / "bin" / "java"
+
+
+def _usable_java(path):
+    path = Path(path)
+    return (
+        path.is_file()
+        and not path.is_symlink()
+        and os.access(path, os.X_OK)
+        and path.stat().st_size > 0
+    )
+
+
+def _set_cfg_key(path, key, value):
+    path = Path(path)
+    if path.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    line = f"{key}={value}"
+    rows = []
+    if path.exists():
+        if not path.is_file():
+            raise LauncherError("Could not open that launcher.")
+        rows = path.read_text(encoding="utf-8").splitlines()
+    found = False
+    out = []
+    prefix = key + "="
+    for row in rows:
+        if row.startswith(prefix):
+            if not found:
+                out.append(line)
+                found = True
+            continue
+        out.append(row)
+    if not found:
+        out.append(line)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def _extract_java(archive, dest):
+    dest = Path(dest)
+    if dest.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    parent = _safe_dir(dest.parent)
+    staging = parent / (".wasd-java-" + dest.name)
+    if staging.exists() or staging.is_symlink():
+        _unlink_tree(staging)
+    staging.mkdir()
+
+    def _java_member(member, _dest):
+        name = member.name
+        if not name or name.startswith("/") or ".." in Path(name).parts:
+            raise LauncherError("Could not open that launcher.")
+        if member.issym():
+            link = member.linkname or ""
+            # Adoptium's legal notices link to a sibling with ../. That
+            # stays inside the archive. A link that leaves it does not.
+            if link.startswith("/"):
+                raise LauncherError("Could not open that launcher.")
+            resolved = Path(os.path.normpath(str(Path(name).parent / link)))
+            if resolved.is_absolute() or ".." in resolved.parts:
+                raise LauncherError("Could not open that launcher.")
+        elif not (member.isfile() or member.isdir()):
+            raise LauncherError("Could not open that launcher.")
+        return member
+
+    try:
+        with tarfile.open(archive, "r:gz") as tar:
+            tar.extractall(staging, filter=_java_member)
+        found = None
+        for candidate in staging.rglob("java"):
+            if candidate.parent.name != "bin" or candidate.is_symlink() or not candidate.is_file():
+                continue
+            found = candidate.parent.parent
+            break
+        if found is None:
+            raise LauncherError("Could not open that launcher.")
+        if dest.exists() or dest.is_symlink():
+            _unlink_tree(dest)
+        found.rename(dest)
+    except LauncherError:
+        raise
+    except (tarfile.TarError, OSError) as exc:
+        raise LauncherError("Could not open that launcher.") from exc
+    finally:
+        if staging.exists() or staging.is_symlink():
+            _unlink_tree(staging)
+    binary = dest / "bin" / "java"
+    if binary.is_symlink() or not binary.is_file():
+        raise LauncherError("Could not open that launcher.")
+    if not os.access(binary, os.X_OK):
+        binary.chmod(0o755)
+    return binary
+
+
+def _ensure_java(games, fetch):
+    """Download Java 21, 17, and 8 onto the games drive. Java 21 is the default."""
+    games = Path(games)
+    if games.is_symlink() or not games.is_dir():
+        raise LauncherError("The games drive could not be prepared.")
+    for version, url in JAVA_RUNTIMES:
+        binary = _java_binary(games, version)
+        if _usable_java(binary):
+            continue
+        archive = games / "java" / f"{version}.tar.gz"
+        if archive.is_symlink():
+            raise LauncherError("Could not open that launcher.")
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fetch(url, archive)
+            _extract_java(archive, games / "java" / version)
+        except LauncherError:
+            raise
+        except Exception as exc:
+            raise LauncherError("Could not open that launcher.") from exc
+        finally:
+            if archive.is_file() and not archive.is_symlink():
+                archive.unlink()
+        if not _usable_java(binary):
+            raise LauncherError("Could not open that launcher.")
+
+
+def _write_java_path(games, launcher):
+    name = JAVA_CONFIG.get(launcher.launcher_id)
+    if not name:
+        return
+    _set_cfg_key(Path(games) / name, "JavaPath", str(_java_binary(games, "21")))
+
+
+def _java_env(env, launcher, games):
+    if launcher.launcher_id != "minecraft-modded":
+        return
+    env["POLYMC_JAVA_PATHS"] = ":".join(
+        str(_java_binary(games, version)) for version, _url in JAVA_RUNTIMES
+    )
+
+
+def _prepare_native(env, home, launcher, games, fetch):
+    _browser_env(env, home)
+    _game_preload(env, home)
+    _register_cfauth(home, launcher)
+    if launcher.launcher_id in JAVA_CONFIG:
+        _ensure_java(games, fetch)
+        _write_java_path(games, launcher)
+        _java_env(env, launcher, games)
+
+
+def _mounted_argv(argv, mounts, home=None, workdir=None):
     """Run argv with the games folder mounted on each empty directory."""
     if not mounts:
         return list(argv)
@@ -544,6 +950,7 @@ def _mounted_argv(argv, mounts):
     euid = os.getuid()
     if euid <= 0:
         raise LauncherError("The games drive could not be prepared.")
+    preload = _write_preload_list(home) if home is not None else None
     lines = ["set -eu"]
     for source, target in mounts:
         source = Path(source)
@@ -564,8 +971,16 @@ def _mounted_argv(argv, mounts):
     lines.append("so=/usr/libexec/wasd-noroot.so")
     lines.append('if [ ! -f "$so" ]; then so="${HOME}/.local/lib/wasd-noroot.so"; fi')
     lines.append('if [ ! -f "$so" ]; then exit 1; fi')
+    if preload is not None:
+        lines.append(
+            "if [ -e /etc/ld.so.preload ]; then mount --bind "
+            + shlex.quote(str(preload))
+            + " /etc/ld.so.preload; fi"
+        )
     lines.append(f"export WASD_EUID={euid}")
     lines.append('export LD_PRELOAD="$so${LD_PRELOAD:+:$LD_PRELOAD}"')
+    if workdir is not None:
+        lines.append("cd " + shlex.quote(str(workdir)))
     lines.append('exec "$@"')
     return [
         "unshare",
@@ -666,8 +1081,9 @@ def _launch_argv(user_name, launcher, prefix, games, args, home=None):
         command.extend(_mount_text(item, slot) for item in launcher.native_args)
     else:
         command = umu_argv(list(args))
+    workdir = games if launcher.launcher_id in JAVA_CONFIG else None
     if mounts:
-        command = _mounted_argv(command, mounts)
+        command = _mounted_argv(command, mounts, home, workdir)
     _check_argv(command)
     return command
 
@@ -1180,6 +1596,10 @@ def umu_env(prefix, launcher):
     env["WINEPREFIX"] = str(prefix)
     env["GAMEID"] = "umu-default"
     env["WASD_GAME"] = "1"
+    # A native launcher is shown this account's id. Wine has to keep the
+    # namespace id, because that id owns the prefix.
+    env.pop("WASD_SPOOF_UID", None)
+    env.pop("WASD_OPEN_SOCKET", None)
     env.pop("STORE", None)
     env.pop("WINE_SIMULATE_WRITECOPY", None)
     env.pop("PROTONPATH", None)
@@ -1301,7 +1721,11 @@ def _stream(argv, env):
 
 
 def real_runner(argv, env):
-    return _stream(argv, env)
+    bridge = _BrowserBridge(env)
+    try:
+        return _stream(argv, env)
+    finally:
+        bridge.close()
 
 
 def real_fetch(url, dest):
@@ -1395,6 +1819,8 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
         target = _executable(target)
     if launcher.bundle_libs:
         _bundle_env(env, _archive_root(home, launcher))
+    if launcher.native:
+        _prepare_native(env, home, launcher, games, fetch)
     command = _launch_argv(home.name, launcher, prefix, games, [str(target)], home)
     code = runner(command, env)
     ensure_links(prefix, games, saves, home.name, launcher, home)
@@ -1404,7 +1830,7 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
     return prefix
 
 
-def launch_installed(home, name, runner, root=None):
+def launch_installed(home, name, runner, root=None, fetch=None):
     """Open the installed program. Do not download or run its setup."""
     name = canonical_name(name)
     launcher = require_launcher(home, name)
@@ -1427,9 +1853,13 @@ def launch_installed(home, name, runner, root=None):
     elif launcher.native:
         program = _executable(program)
     feed_log(name + "\n")
+    if fetch is None:
+        fetch = FETCH
     env = launch_env(prefix, launcher, _mount_slot(launcher, prefix, home))
     if launcher.bundle_libs:
         _bundle_env(env, _archive_root(home, launcher))
+    if launcher.native:
+        _prepare_native(env, home, launcher, games, fetch)
     command = _launch_argv(home.name, launcher, prefix, games, [str(program)], home)
     code = runner(command, env)
     write_menu(home, name, root)
@@ -1726,7 +2156,16 @@ def self_check():
         fetches.append(url)
         dest = Path(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.name.endswith(".tar.gz"):
+        if "api.adoptium.net" in url:
+            payload = b"#!/bin/sh\nexit 0\n"
+            info = tarfile.TarInfo("jdk/bin/java")
+            info.size = len(payload)
+            info.mode = 0o755
+            buf = __import__("io").BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+                tar.addfile(info, __import__("io").BytesIO(payload))
+            dest.write_bytes(buf.getvalue())
+        elif dest.name.endswith(".tar.gz"):
             payload = b"#!/bin/sh\nexit 0\n"
             info = tarfile.TarInfo("MultiMC/bin/MultiMC")
             info.size = len(payload)
@@ -1871,6 +2310,8 @@ def self_check():
             raise SystemExit("a launcher was not marked as a game")
         if calls[0][1].get("STORE") != "battlenet" or calls[0][1].get("WINE_SIMULATE_WRITECOPY") != "1":
             raise SystemExit("Battle.net did not turn on write-copy")
+        if calls[0][1].get("WASD_SPOOF_UID") or calls[0][1].get("WASD_OPEN_SOCKET"):
+            raise SystemExit("Battle.net would hide its prefix owner")
         rock_env = umu_env(prefix, CATALOG["Rockstar Launcher"])
         if "STORE" in rock_env or "WINE_SIMULATE_WRITECOPY" in rock_env:
             raise SystemExit("Rockstar turned on the Battle.net workaround")
@@ -1982,8 +2423,12 @@ def self_check():
         mounted = "\n".join(str(part) for part in calls[-1][0])
         if "mount --bind" not in mounted or str(minecraft_games) not in mounted or str(world_slot) not in mounted:
             raise SystemExit(f"Minecraft was not mounted on the games folder: {calls[-1][0]}")
-        if "wasd-noroot.so" not in mounted or "WASD_EUID=" not in mounted:
+        if "wasd-noroot.so" not in mounted or "WASD_EUID=" not in mounted or "ld.so.preload" not in mounted:
             raise SystemExit("Minecraft would launch as root")
+        if calls[-1][1].get("WASD_SPOOF_UID") or calls[-1][1].get("WASD_OPEN_SOCKET"):
+            raise SystemExit("Minecraft would hide its prefix owner")
+        if "\ncd " in mounted:
+            raise SystemExit("Minecraft was started in its games folder")
         if not calls[-1][0][-1].endswith("Minecraft.exe"):
             raise SystemExit(f"Minecraft was not opened: {calls}")
         options = minecraft_games / "options.txt"
@@ -2053,7 +2498,10 @@ def self_check():
             calls.clear()
             before = len(fetches)
             install_launcher(home, name, runner, fetch, root)
-            if fetches[before:] != [launcher.setup_url]:
+            expected = [launcher.setup_url]
+            if launcher.launcher_id in JAVA_CONFIG:
+                expected.extend(url for _version, url in JAVA_RUNTIMES)
+            if fetches[before:] != expected:
                 raise SystemExit(f"{name} did not use its published program: {fetches[before:]}")
             if any(
                 "umu-run" in str(part) or str(part) == "wineboot" or str(part).endswith("/wineboot")
@@ -2111,6 +2559,55 @@ def self_check():
                 raise SystemExit(f"{name} has no mount check")
             if marker != "--no-sandbox" and "--no-sandbox" in argv:
                 raise SystemExit(f"{name} was given a sandbox flag it does not need")
+            library = str(_noroot_library(home))
+            if env.get("WASD_SPOOF_UID") != "1":
+                raise SystemExit(f"{name} would run as root")
+            shim = home / ".cache/wasd/launchers/bin/xdg-open"
+            if env.get("BROWSER") != str(shim) or env.get("PATH", "").split(":")[0] != str(shim.parent):
+                raise SystemExit(f"{name} would not open a browser")
+            if not shim.is_file() or shim.is_symlink() or not os.access(shim, os.X_OK):
+                raise SystemExit(f"{name} has no browser opener")
+            opener = shim.read_text(encoding="utf-8")
+            if "cfauth://" not in opener or "https://" not in opener or "file://" in opener:
+                raise SystemExit("the browser opener would open a file")
+            if env.get("GAME_PRELOAD", "").split(":")[0] != library:
+                raise SystemExit(f"{name} would drop the id library")
+            if "ld.so.preload" not in mounted:
+                raise SystemExit(f"{name} would drop the id library")
+            if launcher.launcher_id in JAVA_CONFIG:
+                if f"\ncd {shlex.quote(str(games))}" not in mounted:
+                    raise SystemExit(f"{name} would not find Java")
+                for version, _url in JAVA_RUNTIMES:
+                    binary = _java_binary(games, version)
+                    if not _usable_java(binary):
+                        raise SystemExit(f"{name} is missing Java {version}")
+                cfg_path = games / JAVA_CONFIG[launcher.launcher_id]
+                cfg = cfg_path.read_text(encoding="utf-8")
+                if f"JavaPath={_java_binary(games, '21')}" not in cfg:
+                    raise SystemExit(f"{name} did not choose Java")
+                if launcher.launcher_id == "minecraft-modded":
+                    paths = env.get("POLYMC_JAVA_PATHS", "").split(":")
+                    for version, _url in JAVA_RUNTIMES:
+                        if str(_java_binary(games, version)) not in paths:
+                            raise SystemExit(f"{name} would hide a Java")
+                elif env.get("POLYMC_JAVA_PATHS"):
+                    raise SystemExit(f"{name} was given PolyMC's Java list")
+            else:
+                if "\ncd " in mounted:
+                    raise SystemExit(f"{name} was started in its games folder")
+                if (games / "java").exists():
+                    raise SystemExit(f"{name} downloaded Java it does not need")
+                if env.get("POLYMC_JAVA_PATHS"):
+                    raise SystemExit(f"{name} was given a Java list")
+            if launcher.launcher_id == "curseforge":
+                desk = home / ".local/share/applications/wasd-cfauth.desktop"
+                text = desk.read_text(encoding="utf-8")
+                if "x-scheme-handler/cfauth" not in text or "%u" not in text or str(app) not in text:
+                    raise SystemExit("CurseForge login cannot return")
+                if "APPIMAGE_EXTRACT_AND_RUN=1" not in text or "--no-sandbox" not in text:
+                    raise SystemExit("CurseForge login would not start")
+                if (home / ".config/mimeapps.list").exists():
+                    raise SystemExit("self-check changed the browser")
             if launcher.bundle_libs:
                 if not str(app).endswith("/bin/MultiMC"):
                     raise SystemExit(f"{name} was not its own program: {app}")
@@ -2144,6 +2641,102 @@ def self_check():
         check_native("MultiMC", "multimc", "--dir")
         check_native("CurseForge", "curseforge", "--no-sandbox")
         check_native("FTB App", "ftb", "--no-sandbox")
+
+        def java_tar(members):
+            import io
+
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+                for member, payload in members:
+                    if payload is None:
+                        tar.addfile(member)
+                    else:
+                        member.size = len(payload)
+                        tar.addfile(member, io.BytesIO(payload))
+            return buf.getvalue()
+
+        java_root = Path(tmp) / "java-unpack"
+        java_root.mkdir()
+        script = tarfile.TarInfo("jdk/bin/java")
+        script.mode = 0o755
+        notice = tarfile.TarInfo("jdk/legal/java.base/LICENSE")
+        link = tarfile.TarInfo("jdk/legal/java.naming/LICENSE")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../java.base/LICENSE"
+        good_archive = Path(tmp) / "good-java.tar.gz"
+        good_archive.write_bytes(java_tar([
+            (script, b"#!/bin/sh\nexit 0\n"),
+            (notice, b"keep"),
+            (link, None),
+        ]))
+        unpacked = _extract_java(good_archive, java_root / "21")
+        if not _usable_java(unpacked) or not (java_root / "21/legal/java.naming/LICENSE").is_symlink():
+            raise SystemExit("Java did not unpack")
+        escape = tarfile.TarInfo("jdk/bin/java")
+        escape.mode = 0o755
+        outside = tarfile.TarInfo("jdk/legal/java.naming/LICENSE")
+        outside.type = tarfile.SYMTYPE
+        outside.linkname = "../../../../../../tmp/wasd-java-escape"
+        bad_archive = Path(tmp) / "bad-java.tar.gz"
+        bad_archive.write_bytes(java_tar([
+            (escape, b"#!/bin/sh\nexit 0\n"),
+            (outside, None),
+        ]))
+        try:
+            _extract_java(bad_archive, java_root / "bad")
+        except LauncherError:
+            pass
+        else:
+            raise SystemExit("Java followed a link out of the archive")
+        opened_urls = []
+        runtime = Path(tmp) / "runtime"
+        runtime.mkdir()
+        previous_runtime = os.environ.get("XDG_RUNTIME_DIR")
+        os.environ["XDG_RUNTIME_DIR"] = str(runtime)
+        bridge = _BrowserBridge({"WASD_SPOOF_UID": "1"}, opener=opened_urls.append)
+        try:
+            if not bridge.path or not Path(bridge.path).is_socket():
+                raise SystemExit("the browser bridge did not listen")
+            shim = _browser_shim(home)
+
+            def send(args):
+                return subprocess.run(
+                    [str(shim), *args],
+                    env={"WASD_OPEN_SOCKET": str(bridge.path), "PATH": os.environ.get("PATH", "")},
+                    check=False,
+                ).returncode
+
+            def wait_for(count):
+                import time
+
+                deadline = time.time() + 2
+                while len(opened_urls) < count and time.time() < deadline:
+                    time.sleep(0.05)
+
+            if send(["https://www.microsoft.com/link"]) != 0:
+                raise SystemExit("a sign-in link was refused")
+            wait_for(1)
+            if send(["cfauth://wasd"]) != 0:
+                raise SystemExit("CurseForge login was refused")
+            wait_for(2)
+            if send(["file:///etc/passwd"]) == 0:
+                raise SystemExit("the browser opener accepted a file")
+            if send(["https://example.com/a b"]) == 0:
+                raise SystemExit("the browser opener accepted a bad link")
+            raw = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            raw.settimeout(2)
+            raw.connect(str(bridge.path))
+            raw.sendall(b"file:///tmp/secret\n")
+            raw.close()
+            wait_for(3)
+        finally:
+            bridge.close()
+            if previous_runtime is None:
+                os.environ.pop("XDG_RUNTIME_DIR", None)
+            else:
+                os.environ["XDG_RUNTIME_DIR"] = previous_runtime
+        if opened_urls != ["https://www.microsoft.com/link", "cfauth://wasd"]:
+            raise SystemExit(f"the browser bridge opened {opened_urls}")
         star_prefix = layout(home, "Star Citizen", root)
         star = CATALOG["Star Citizen"]
         star_slot = star_prefix.joinpath(*star.games_link)
@@ -2452,7 +3045,7 @@ def self_check():
         if name not in launch:
             raise SystemExit(f"{name} is missing from WASD Launchers")
         if name not in main:
-            raise SystemExit(f"{name} is missing from Install WASD")
+            raise SystemExit(f"{name} is missing from WASD Install")
     if "EA App" in launch or "EA App" in main:
         raise SystemExit("EA App is still in the installer")
     if "preview" not in launch or "/remake" not in launch or "/launch" not in launch:
@@ -2465,6 +3058,8 @@ def self_check():
         raise SystemExit("WASD Launchers cannot add a downloaded game")
     if "Name a game" not in launch:
         raise SystemExit("WASD Launchers has no name box")
+    if "launcherScroll" not in launch:
+        raise SystemExit("WASD Launchers has no scrollbar")
     if CATALOG["Java Minecraft"].setup_url != "https://launcher.mojang.com/download/Minecraft.exe":
         raise SystemExit("Minecraft is not the official launcher")
     if CATALOG["Java Minecraft"].user_link != ("AppData", "Roaming", ".minecraft"):
@@ -2562,6 +3157,8 @@ def self_check():
         raise SystemExit("the image build does not install the helper")
     if "qt5-qtbase" not in build or "qt5-qtbase-gui" not in build or "qt5-qtsvg" not in build:
         raise SystemExit("MultiMC would start without Qt 5")
+    if "/etc/ld.so.preload" not in build:
+        raise SystemExit("Java would lose its home directory")
     print("launchers self-check ok")
 
 

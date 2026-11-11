@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Open Install WASD.
+"""Open WASD Install.
 
 The window is Qt 6 QML. This launcher is how it runs on a machine whose
 qml command is not wired to Qt 6. The erase button writes a choice file.
@@ -197,7 +197,7 @@ def qml_app(save_path, shot_dir, live):
     context.setContextProperty("WasdBridge", bridge)
     engine.load(QUrl.fromLocalFile(str(HERE / "Main.qml")))
     if not engine.rootObjects():
-        raise SystemExit("Install WASD failed to open")
+        raise SystemExit("WASD Install failed to open")
     window = engine.rootObjects()[0]
     quick = shiboken6.wrapInstance(shiboken6.getCppPointer(window)[0], QQuickWindow)
 
@@ -1379,7 +1379,7 @@ def main():
             os.execv(venv_python, [str(venv_python), *sys.argv])
         raise SystemExit("This preview needs PySide6. The window itself is the QML in this folder.")
 
-    parser = argparse.ArgumentParser(description="Open the Install WASD window")
+    parser = argparse.ArgumentParser(description="Open the WASD Install window")
     parser.add_argument("--shot", help="Write page pictures to this directory and exit")
     parser.add_argument("--save", help="Choice file written by the erase button")
     parser.add_argument("--live", action="store_true", help="Read this machine's disks and firmware")
@@ -1446,7 +1446,7 @@ def main():
     context.setContextProperty("WasdBridge", bridge)
     engine.load(QUrl.fromLocalFile(str(HERE / "Main.qml")))
     if not engine.rootObjects():
-        raise SystemExit("Install WASD failed to open")
+        raise SystemExit("WASD Install failed to open")
     raise SystemExit(app.exec())
 
 

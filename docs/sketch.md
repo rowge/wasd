@@ -81,7 +81,7 @@ Every surface a user sees from USB insert to first match should say WASD. This i
 - Terminal prompt, colors, maybe a small logo
 - Login manager (SDDM if we stay on Plasma)
 - Wallpaper, lock screen, splash, cursor, icons
-- Installer app name, icon, and Anaconda/Titanoboa chrome ("Install WASD", not "Install Fedora" / "Install Bazzite")
+- Installer app name, icon, and Anaconda/Titanoboa chrome ("WASD Install", not "Install Fedora" / "Install Bazzite")
 - About this system / System Settings vendor strings
 - Default browser start page / bookmarks only if we actually want them
 

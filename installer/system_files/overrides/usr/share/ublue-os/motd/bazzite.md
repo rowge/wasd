@@ -9,5 +9,5 @@ Based on Bazzite.
 |  Command | Description |
 | ------- | ----------- |
 | `fastfetch` | View system information |
-| `wasd-install` | Open Install WASD |
+| `wasd-install` | Open WASD Install |
 | `bootloader_restore` | Launch Bootloader Restoring tool |

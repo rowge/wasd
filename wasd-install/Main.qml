@@ -7,7 +7,7 @@ Window {
     width: 1040
     height: 760
     visible: true
-    title: "Install WASD"
+    title: "WASD Install"
     color: bg
     flags: Qt.Window | Qt.FramelessWindowHint
 
@@ -1495,7 +1495,7 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
                 anchors.leftMargin: 16
-                text: "Install WASD"
+                text: "WASD Install"
                 color: win.muted
                 font.family: win.bodyFont
                 font.pixelSize: 13

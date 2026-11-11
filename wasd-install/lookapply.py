@@ -2,7 +2,7 @@
 """Apply the Look step on the installed system.
 
 The loading picture, the login picture, the theme, and the wallpaper are
-the ones chosen in Install WASD. The lock screen uses the login picture.
+the ones chosen in WASD Install. The lock screen uses the login picture.
 The session splash stays the WASD W. A theme wallpaper is not applied.
 
 --rebuild asks rpm-ostree to include the loading picture. It does that only

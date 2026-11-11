@@ -250,6 +250,6 @@ done
 nvidia_hardware_helper
 result=$?
 if [ $result -eq 0 ] || [ $result -eq 1 ] || [ $result -eq 124 ]; then
-    echo 'launch Install WASD'
+    echo 'launch WASD Install'
     launch_install
 fi

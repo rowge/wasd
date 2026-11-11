@@ -1,5 +1,5 @@
 #!/bin/bash
-# Open Install WASD. The window is Qt 6 QML.
+# Open WASD Install. The window is Qt 6 QML.
 # On a live USB, a local helper can connect to a network. It is stopped
 # when this window closes. The preview on a normal computer does not start it.
 
@@ -38,7 +38,7 @@ open_qml() {
             return
         fi
     done
-    echo "Install WASD needs its window tool, and this image does not have it." >&2
+    echo "WASD Install needs its window tool, and this image does not have it." >&2
     return 127
 }
 open_qml /usr/share/wasd/install/Main.qml

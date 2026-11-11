@@ -1,4 +1,4 @@
-"""Disk list for Install WASD.
+"""Disk list for WASD Install.
 
 The preview feeds this a sample. The live USB reads lsblk. Nothing here
 partitions, formats, or erases a disk.

@@ -5696,7 +5696,7 @@ def install(payload, defaults_path, status_id):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Install WASD onto the selected disk")
+    parser = argparse.ArgumentParser(description="WASD Install onto the selected disk")
     parser.add_argument("--render", action="store_true", help="Print the kickstart and do not install")
     parser.add_argument("--install", action="store_true", help="Start the install on a live USB")
     parser.add_argument("--self-check", action="store_true", help="Check the kickstart rules without a disk")

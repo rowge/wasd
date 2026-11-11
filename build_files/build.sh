@@ -16,9 +16,9 @@ if [[ ! -f /usr/share/zoneinfo/America/Los_Angeles ]]; then
 fi
 ln -sfn ../usr/share/zoneinfo/America/Los_Angeles /etc/localtime
 
-# The portal is Bazzite's setup window. The live desktop opens Install WASD.
+# The portal is Bazzite's setup window. The live desktop opens WASD Install.
 # Fcitx5 is not installed. Its announcement offers a Flatpak WASD does not use,
-# and that window covers Install WASD on the User page.
+# and that window covers WASD Install on the User page.
 rm -f \
     /etc/skel/.config/autostart/bazzite-portal.desktop \
     /etc/xdg/autostart/bazzite-portal.desktop \
@@ -159,6 +159,14 @@ g++ -O2 -std=c++17 -o /usr/bin/wasd-qml /ctx/wasd-qml.cpp \
 # reports that account's id so umu will start.
 gcc -O2 -shared -fPIC -o /usr/libexec/wasd-noroot.so /ctx/wasd-noroot.c
 test -f /usr/libexec/wasd-noroot.so
+# A native launcher bind-mounts its own list over this file. Java still
+# loads wasd-noroot.so when the launcher removes LD_PRELOAD. The host file
+# stays empty unless the base image already had one.
+if [ ! -e /etc/ld.so.preload ]; then
+    : > /etc/ld.so.preload
+    chmod 644 /etc/ld.so.preload
+fi
+test -e /etc/ld.so.preload
 kwallet_ver=$(rpm -q --qf '%{VERSION}' kf6-kwallet)
 kwallet_hdr=$(mktemp -d)
 kwallet_base="https://invent.kde.org/frameworks/kwallet/-/raw/v${kwallet_ver}/src/runtime/kwalletbackend"
@@ -449,6 +457,10 @@ grep -q '^Image=file:///usr/share/wasd/login/throne.jpg$' /etc/xdg/kscreenlocker
 grep -q '^PreviewImage=file:///usr/share/wasd/login/throne.jpg$' /etc/xdg/kscreenlockerrc
 grep -q '^WallpaperPlugin=org.kde.image$' /etc/xdg/kscreenlockerrc
 grep -q '^Image=file:///usr/share/wasd/login/throne.jpg$' /etc/skel/.config/kscreenlockerrc
+grep -q '^Autolock=true$' /etc/xdg/kscreenlockerrc
+grep -q '^Timeout=5$' /etc/xdg/kscreenlockerrc
+grep -q '^Autolock=true$' /etc/skel/.config/kscreenlockerrc
+grep -q '^Timeout=5$' /etc/skel/.config/kscreenlockerrc
 test -d /games
 test ! -e /etc/skel/Desktop/Welcome.txt
 test ! -e /home/player/Desktop/Welcome.txt
@@ -472,6 +484,11 @@ test -s /usr/share/applications/wasd-launchers.desktop
 test -s /usr/libexec/launchers.py
 test -s /usr/share/polkit-1/actions/org.wasd.look.policy
 test -s /usr/share/wasd/install/Main.qml
+grep -q 'title: "WASD Install"' /usr/share/wasd/install/Main.qml
+if grep -q 'Install WASD' /usr/share/wasd/install/Main.qml /usr/libexec/wasd-awake /usr/share/polkit-1/actions/org.wasd.erase.policy; then
+    echo "the installer is still named Install WASD" >&2
+    exit 1
+fi
 test -s /usr/share/wasd/install/Complete.qml
 test -s /usr/share/wasd/install/UserPage.qml
 test -s /usr/share/wasd/install/LiveHost.qml
@@ -537,7 +554,12 @@ grep -q '^x-scheme-handler/https=com.brave.Browser.desktop$' /etc/xdg/mimeapps.l
 grep -q '^text/html=com.brave.Browser.desktop$' /etc/xdg/mimeapps.list
 grep -q 'https://wasd.run' /etc/brave/policies/recommended/homepage.json
 grep -q '"HomepageLocation"' /etc/brave/policies/recommended/homepage.json
-grep -q '"RestoreOnStartup"' /etc/brave/policies/recommended/homepage.json
+grep -q '"RestoreOnStartup": 1' /etc/brave/policies/recommended/homepage.json
+if grep -q 'RestoreOnStartupURLs' /etc/brave/policies/recommended/homepage.json; then
+    echo "Brave startup is still a page list" >&2
+    exit 1
+fi
+grep -q '^loginMode=restorePreviousLogout$' /etc/xdg/ksmserverrc
 if grep -R -E 'HomepageLocation|RestoreOnStartup' /etc/brave/policies/managed >/dev/null; then
     echo "Brave homepage is locked" >&2
     exit 1
@@ -571,11 +593,12 @@ grep -q '^LC_TIME="en_US.UTF-8"$' /etc/locale.conf
 grep -q '^LC_TIME=en_US.UTF-8$' /etc/xdg/plasma-localerc
 grep -q '^LANG=C.UTF-8$' /etc/skel/.config/plasma-localerc
 grep -q '^LC_TIME=en_US.UTF-8$' /etc/skel/.config/plasma-localerc
-# Plugged in: dim stays at 5 minutes and the screen turns off after 30.
-# The same number for both skips the dim. The locked timeout stays Plasma's.
-# AutoSuspendAction 0 is PowerDevil's NoAction. Battery profiles are untouched.
-grep -q '^TurnOffDisplayWhenIdle=true$' /etc/xdg/powerdevilrc
-grep -q '^TurnOffDisplayIdleTimeoutSec=1800$' /etc/xdg/powerdevilrc
+# Plugged in: the lock screen is at 5 minutes, the picture dims at 15,
+# and the panels stay on. AutoSuspendAction 0 is PowerDevil's NoAction.
+# Battery profiles are untouched.
+grep -q '^DimDisplayWhenIdle=true$' /etc/xdg/powerdevilrc
+grep -q '^DimDisplayIdleTimeoutSec=900$' /etc/xdg/powerdevilrc
+grep -q '^TurnOffDisplayWhenIdle=false$' /etc/xdg/powerdevilrc
 grep -q '^AutoSuspendAction=0$' /etc/xdg/powerdevilrc
 if ! locale -a | grep -Eiq '^en_US\.(utf8|utf-8)$'; then
     echo "en_US.UTF-8 locale is not installed" >&2
@@ -684,7 +707,7 @@ APPS_DIRS = (
     "/usr/share/wasd/look",
     "/usr/share/wasd/launchers",
 )
-# Install WASD, WASD Look, and WASD Launchers, plus the helpers they ship.
+# WASD Install, WASD Look, and WASD Launchers, plus the helpers they ship.
 APPS_FILES = (
     "/usr/bin/wasd-install",
     "/usr/bin/wasd-look",
