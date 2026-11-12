@@ -659,12 +659,16 @@ grep -q '^LC_TIME="en_US.UTF-8"$' /etc/locale.conf
 grep -q '^LC_TIME=en_US.UTF-8$' /etc/xdg/plasma-localerc
 grep -q '^LANG=C.UTF-8$' /etc/skel/.config/plasma-localerc
 grep -q '^LC_TIME=en_US.UTF-8$' /etc/skel/.config/plasma-localerc
-# Plugged in: the lock screen is at 5 minutes, the picture dims at 15,
-# and the panels stay on. AutoSuspendAction 0 is PowerDevil's NoAction.
-# Battery profiles are untouched.
+# Plugged in: the lock screen is at 5 minutes. At 15 minutes the picture
+# dims and the screen turns off, including after the lock. The locked
+# timeout has to be set too, or PowerDevil uses its 60-second default and
+# the screen turns off as soon as it locks. AutoSuspendAction 0 is
+# PowerDevil's NoAction. Battery profiles are untouched.
 grep -q '^DimDisplayWhenIdle=true$' /etc/xdg/powerdevilrc
 grep -q '^DimDisplayIdleTimeoutSec=900$' /etc/xdg/powerdevilrc
-grep -q '^TurnOffDisplayWhenIdle=false$' /etc/xdg/powerdevilrc
+grep -q '^TurnOffDisplayWhenIdle=true$' /etc/xdg/powerdevilrc
+grep -q '^TurnOffDisplayIdleTimeoutSec=900$' /etc/xdg/powerdevilrc
+grep -q '^TurnOffDisplayIdleTimeoutWhenLockedSec=900$' /etc/xdg/powerdevilrc
 grep -q '^AutoSuspendAction=0$' /etc/xdg/powerdevilrc
 if ! locale -a | grep -Eiq '^en_US\.(utf8|utf-8)$'; then
     echo "en_US.UTF-8 locale is not installed" >&2

@@ -766,18 +766,18 @@ class _BrowserBridge:
                 pass
 
 
-def _register_cfauth(home, launcher):
+def _register_cfauth(home, launcher, program=None):
     """Let the browser hand CurseForge's login back to the app."""
     if launcher.launcher_id != "curseforge":
         return None
-    app = _cache(home, launcher)
+    app = Path(program) if program is not None else _cache(home, launcher)
     if app.is_symlink() or not app.is_file():
         return None
     desktop = Path(home) / ".local/share/applications/wasd-cfauth.desktop"
     if desktop.is_symlink():
         raise LauncherError("The menu entry is a link.")
     desktop.parent.mkdir(parents=True, exist_ok=True)
-    command = "env APPIMAGE_EXTRACT_AND_RUN=1 " + shlex.quote(str(app)) + " --no-sandbox %u"
+    command = _cfauth_exec(app)
     desktop.write_text(
         "[Desktop Entry]\n"
         "Type=Application\n"
@@ -798,6 +798,246 @@ def _register_cfauth(home, launcher):
         stderr=subprocess.DEVNULL,
     )
     return desktop
+
+
+def _cfauth_exec(app):
+    """Launch the same CurseForge binary the running app was started from."""
+    app = Path(app)
+    command = "env APPIMAGE_EXTRACT_AND_RUN=1 "
+    if app.name in ("AppRun", _CURSE_WRAPPER):
+        # AppRun only finds its own directory when APPDIR is already set.
+        # --no-sandbox is not a file, so its search walks off the tree.
+        command += "APPDIR=" + shlex.quote(str(app.parent)) + " "
+    return command + shlex.quote(str(app)) + " --no-sandbox %u"
+
+
+def _valid_squashfs(superblock, offset, size):
+    if len(superblock) < 48 or superblock[:4] != b"hsqs":
+        return False
+    (
+        _magic,
+        inodes,
+        _mkfs,
+        block_size,
+        _fragments,
+        compression,
+        block_log,
+        _flags,
+        _ids,
+        major,
+        minor,
+        _root,
+        used,
+    ) = struct.unpack_from("<IIIIIHHHHHHQQ", superblock)
+    if major != 4 or minor != 0 or not 1 <= compression <= 6:
+        return False
+    if not 1 <= inodes <= 1_000_000 or not 4096 <= block_size <= 1_048_576:
+        return False
+    if block_log >= 32 or (1 << block_log) != block_size:
+        return False
+    if used < 96 or offset < 0 or offset + used > size:
+        return False
+    return True
+
+
+def _squashfs_offset(path):
+    """The real squashfs superblock. An AppImage can contain an earlier false hit."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    size = len(data)
+    if size < 96:
+        return None
+    start = 0
+    while True:
+        hit = data.find(b"hsqs", start)
+        if hit < 0 or hit + 48 > size:
+            return None
+        if _valid_squashfs(data[hit:hit + 48], hit, size):
+            return hit
+        start = hit + 1
+
+
+def _remove_tree(path):
+    path = Path(path)
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+        return
+    if path.exists():
+        _unlink_tree(path)
+
+
+def _unsquash_appimage(image, dest, offset):
+    dest = Path(dest)
+    if dest.exists() or dest.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    tool = shutil.which("unsquashfs")
+    if tool:
+        result = subprocess.run(
+            [tool, "-o", str(offset), "-d", str(dest), str(image)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0 or dest.is_symlink() or not dest.is_dir():
+            _remove_tree(dest)
+            raise LauncherError("Could not open that launcher.")
+        return
+    work = dest.parent / ".wasd-curse-work"
+    if work.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    _remove_tree(work)
+    work.mkdir()
+    try:
+        result = subprocess.run(
+            [str(image), "--appimage-extract"],
+            cwd=work,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        got = work / "squashfs-root"
+        if result.returncode != 0 or got.is_symlink() or not got.is_dir():
+            raise LauncherError("Could not open that launcher.")
+        got.rename(dest)
+    finally:
+        _remove_tree(work)
+
+
+# ostree cannot mount an AppImage, so the runtime unpacks CurseForge into one
+# shared temporary directory and removes that directory when the process exits.
+# A second start rewrites the agent while the first one still has it open, and
+# modpack unzip then fails inside that file. Unpack once beside the download.
+_CURSE_EXTRACT_STAMP = "wasd-curse-2"
+_CURSE_WRAPPER = "wasd-run"
+
+
+def _curse_stamp(image):
+    stat = image.stat()
+    return f"{_CURSE_EXTRACT_STAMP} {stat.st_size} {stat.st_mtime_ns}\n"
+
+
+def _curse_agent(tree):
+    return (
+        Path(tree)
+        / "resources/app.asar.unpacked/plugins/curse/linux/Curse.Agent.Host"
+    )
+
+
+def _curse_wrapper_script():
+    """Start the private copy. A later launch follows APPIMAGE."""
+    return (
+        "#!/bin/bash\n"
+        "here=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
+        "export APPDIR=\"$here\"\n"
+        "export APPIMAGE=\"$here/" + _CURSE_WRAPPER + "\"\n"
+        "unset APPIMAGE_EXTRACT_AND_RUN\n"
+        "exec \"$here/AppRun\" \"$@\"\n"
+    )
+
+
+def _curse_ready(dest, stamp):
+    dest = Path(dest)
+    if dest.is_symlink() or not dest.is_dir():
+        return False
+    for name in ("AppRun", "curseforge", _CURSE_WRAPPER, ".wasd-extract"):
+        path = dest / name
+        if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
+            return False
+        if name != ".wasd-extract" and not os.access(path, os.X_OK):
+            return False
+    agent = _curse_agent(dest)
+    if agent.is_symlink() or not agent.is_file() or agent.stat().st_size < 1024:
+        return False
+    try:
+        text = (dest / ".wasd-extract").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+    return text == stamp
+
+
+def _mark_extracted(staging, stamp):
+    staging = Path(staging)
+    apprun = staging / "AppRun"
+    binary = staging / "curseforge"
+    if apprun.is_symlink() or binary.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    _executable(apprun)
+    _executable(binary)
+    wrapper = staging / _CURSE_WRAPPER
+    if wrapper.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    temporary = staging / (_CURSE_WRAPPER + ".wasd")
+    if temporary.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    temporary.write_text(_curse_wrapper_script(), encoding="utf-8")
+    os.chmod(temporary, 0o755)
+    os.replace(temporary, wrapper)
+    stamp_path = staging / ".wasd-extract"
+    if stamp_path.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    stamp_path.write_text(stamp, encoding="utf-8")
+
+
+def _extract_curseforge(image):
+    """Unpack CurseForge once beside its download and return that starter.
+
+    A file that is not an AppImage is left unchanged, so the self-check's
+    stand-in still launches as itself.
+    """
+    image = Path(image)
+    if image.is_symlink() or not image.is_file() or image.stat().st_size < 96:
+        return None
+    parent = image.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise LauncherError("Could not open that launcher.")
+    dest = parent / "extracted"
+    if dest.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    stamp = _curse_stamp(image)
+    if _curse_ready(dest, stamp):
+        return _executable(dest / _CURSE_WRAPPER)
+    offset = _squashfs_offset(image)
+    if offset is None:
+        return None
+    feed_log("Preparing CurseForge.\n")
+    staging = parent / "extracted.partial"
+    if staging.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    _remove_tree(staging)
+    try:
+        _unsquash_appimage(image, staging, offset)
+        host = _curse_agent(staging)
+        if host.is_symlink() or not host.is_file() or host.stat().st_size < 1024:
+            raise LauncherError("Could not open that launcher.")
+        _mark_extracted(staging, stamp)
+        if dest.exists() or dest.is_symlink():
+            _remove_tree(dest)
+        staging.rename(dest)
+    except LauncherError:
+        _remove_tree(staging)
+        raise
+    except OSError as exc:
+        _remove_tree(staging)
+        raise LauncherError("Could not open that launcher.") from exc
+    return _executable(dest / _CURSE_WRAPPER)
+
+
+def _curseforge_program(env, launcher, cached):
+    if launcher.launcher_id != "curseforge":
+        return cached
+    prepared = _extract_curseforge(cached)
+    if prepared is None:
+        return cached
+    env["APPDIR"] = str(prepared.parent)
+    # Login and a second window start $APPIMAGE. Keep that on this copy.
+    env["APPIMAGE"] = str(prepared)
+    env.pop("APPIMAGE_EXTRACT_AND_RUN", None)
+    return prepared
 
 
 def _java_binary(games, version):
@@ -1042,10 +1282,10 @@ def _raise_memory(games, launcher):
     _set_cfg_key(path, "MaxMemAlloc", "8192")
 
 
-def _prepare_native(env, home, launcher, games, fetch):
+def _prepare_native(env, home, launcher, games, fetch, program=None):
     _browser_env(env, home)
     _game_preload(env, home)
-    _register_cfauth(home, launcher)
+    _register_cfauth(home, launcher, program)
     if launcher.launcher_id in JAVA_CONFIG:
         _ensure_java(games, fetch)
         _write_java_path(games, launcher)
@@ -1209,6 +1449,27 @@ def _launch_argv(user_name, launcher, prefix, games, args, home=None):
     return command
 
 
+# CurseForge's account lives here, not in the empty prefix Nuke/Fix deletes.
+_LAUNCHER_STATE = {
+    "curseforge": (".config", "CurseForge"),
+}
+
+
+def _share_with_container(env, games):
+    """Let pressure-vessel see a games folder that is outside the home directory.
+
+    BedrockOnLinux runs umu inside that container. The container shares $HOME
+    and does not share /games, so wineboot cannot execute umu-shim and stops
+    before GameInput. The path is appended to any list already set.
+    """
+    games = str(games)
+    if not games or not Path(games).is_absolute():
+        return
+    key = "PRESSURE_VESSEL_FILESYSTEMS_RW"
+    parts = [part for part in env.get(key, "").split(":") if part and part != games]
+    env[key] = ":".join([games, *parts])
+
+
 def launch_env(prefix, launcher, slot="", games=""):
     """The environment for one launch. A native program is not a Wine prefix."""
     if not launcher.native:
@@ -1229,6 +1490,12 @@ def launch_env(prefix, launcher, slot="", games=""):
     env["APPIMAGE_EXTRACT_AND_RUN"] = "1"
     for key, value in launcher.native_env:
         env[str(key)] = _mount_text(value, slot, games)
+    if launcher.launcher_id == "minecraft-bedrock":
+        _share_with_container(env, games)
+    if launcher.launcher_id == "curseforge":
+        # Electron refuses to register cfauth unless it can name its desktop file.
+        # The browser then opens, and the return link never reaches the app.
+        env["CHROME_DESKTOP"] = "wasd-cfauth.desktop"
     return env
 
 
@@ -1311,6 +1578,26 @@ def layout(home, name, root=None):
     return prefix
 
 
+def _clear_launcher_state(home, launcher, games):
+    """Remove a native launcher's account files. The games folder stays."""
+    parts = _LAUNCHER_STATE.get(launcher.launcher_id)
+    if not parts:
+        return
+    path = Path(home).joinpath(*parts)
+    if path.is_symlink():
+        path.unlink()
+        return
+    if not path.exists():
+        return
+    if not path.is_dir():
+        raise LauncherError("The launcher folder is a link.")
+    resolved = path.resolve()
+    kept = Path(games).resolve()
+    if resolved == kept or _inside(resolved, kept) or _inside(kept, resolved):
+        raise LauncherError("The launcher folder is a link.")
+    _unlink_tree(path)
+
+
 def nuke(home, name, root=None):
     """Delete the prefix only. Games and saves stay where they are."""
     launcher = require_launcher(home, name)
@@ -1324,6 +1611,7 @@ def nuke(home, name, root=None):
         raise LauncherError("The launcher folder is a link.")
     if prefix.exists():
         _unlink_tree(prefix)
+    _clear_launcher_state(home, launcher, games)
     layout(home, name, root)
     return prefix
 
@@ -1941,10 +2229,11 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
         _prefer_minecraft_vulkan(games)
     if launcher.native and not launcher.archive_root:
         target = _executable(target)
+    target = _curseforge_program(env, launcher, target)
     if launcher.bundle_libs:
         _bundle_env(env, _archive_root(home, launcher))
     if launcher.native:
-        _prepare_native(env, home, launcher, games, fetch)
+        _prepare_native(env, home, launcher, games, fetch, target)
     command = _launch_argv(home.name, launcher, prefix, games, [str(target)], home)
     code = runner(command, env)
     ensure_links(prefix, games, saves, home.name, launcher, home)
@@ -1980,10 +2269,11 @@ def launch_installed(home, name, runner, root=None, fetch=None):
     if fetch is None:
         fetch = FETCH
     env = launch_env(prefix, launcher, _mount_slot(launcher, prefix, home), games)
+    program = _curseforge_program(env, launcher, program)
     if launcher.bundle_libs:
         _bundle_env(env, _archive_root(home, launcher))
     if launcher.native:
-        _prepare_native(env, home, launcher, games, fetch)
+        _prepare_native(env, home, launcher, games, fetch, program)
     command = _launch_argv(home.name, launcher, prefix, games, [str(program)], home)
     code = runner(command, env)
     write_menu(home, name, root)
@@ -2668,6 +2958,9 @@ def self_check():
             if marker == "BOL_HOME":
                 if env.get("BOL_HOME") != str(games) or launcher.mount_games or launcher.games_link:
                     raise SystemExit(f"{name} would write outside its games folder: {env.get('BOL_HOME')}")
+                shared = env.get("PRESSURE_VESSEL_FILESYSTEMS_RW", "").split(":")
+                if str(games) not in shared:
+                    raise SystemExit(f"{name} would hide its Wine prefix from the container")
             elif marker == "--dir":
                 if "--dir" not in argv or argv[argv.index("--dir") + 1] != str(games):
                     raise SystemExit(f"{name} would write outside its games folder: {argv}")
@@ -2724,6 +3017,8 @@ def self_check():
                     raise SystemExit("CurseForge login cannot return")
                 if "APPIMAGE_EXTRACT_AND_RUN=1" not in text or "--no-sandbox" not in text:
                     raise SystemExit("CurseForge login would not start")
+                if env.get("CHROME_DESKTOP") != desk.name:
+                    raise SystemExit("CurseForge would not register its login")
                 if (home / ".config/mimeapps.list").exists():
                     raise SystemExit("self-check changed the browser")
             if launcher.bundle_libs:
@@ -2786,9 +3081,16 @@ def self_check():
                 elif "MaxMemAlloc=1024" not in mem:
                     raise SystemExit(f"{name} changed a heap it does not own: {mem!r}")
             (games / "keep.txt").write_text("world\n", encoding="utf-8")
+            state = None
+            if launcher.launcher_id == "curseforge":
+                state = home.joinpath(*_LAUNCHER_STATE["curseforge"])
+                state.mkdir(parents=True)
+                (state / "storage.json").write_text("{}\n", encoding="utf-8")
             nuke(home, name, root)
             if (games / "keep.txt").read_text(encoding="utf-8") != "world\n":
                 raise SystemExit(f"nuking {name} deleted its games")
+            if state is not None and state.exists():
+                raise SystemExit("nuking CurseForge left the signed-out account")
             if launcher.host_link:
                 link = home.joinpath(*launcher.host_link)
                 if link.is_symlink():
@@ -3351,6 +3653,84 @@ def self_check():
         raise SystemExit("MultiMC would start without Qt 5")
     if "/etc/ld.so.preload" not in build:
         raise SystemExit("Java would lose its home directory")
+
+    def superblock(major=4, minor=0, block_size=131072, block_log=17, compression=1, inodes=10, used=400):
+        return struct.pack(
+            "<IIIIIHHHHHHQQ",
+            0x73717368,
+            inodes,
+            0,
+            block_size,
+            0,
+            compression,
+            block_log,
+            0,
+            1,
+            major,
+            minor,
+            1,
+            used,
+        )
+
+    with tempfile.TemporaryDirectory(prefix="wasd-curse-") as curse_tmp:
+        curse_root = Path(curse_tmp)
+        false_hit = bytearray(superblock(major=3, minor=1, block_size=99, block_log=0, used=10))
+        false_hit[:4] = b"hsqs"
+        good = superblock()
+        image = curse_root / "fake.AppImage"
+        image.write_bytes(b"hsqs-early" + bytes(false_hit) + b"pad" + good + bytes(400))
+        found = _squashfs_offset(image)
+        if found != image.read_bytes().rfind(b"hsqs"):
+            raise SystemExit("CurseForge would unpack the wrong part of the AppImage")
+        plain = curse_root / "plain"
+        plain.write_bytes(b"MZ")
+        if _squashfs_offset(plain) is not None or _extract_curseforge(plain) is not None:
+            raise SystemExit("CurseForge extracted a file that is not an AppImage")
+        kept = curse_root / "kept.AppImage"
+        kept.write_bytes(b"x" * 96)
+        tree = curse_root / "extracted"
+        tree.mkdir()
+        (tree / "AppRun").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (tree / "AppRun").chmod(0o755)
+        (tree / "curseforge").write_bytes(b"elf-curseforge")
+        (tree / "curseforge").chmod(0o755)
+        agent = _curse_agent(tree)
+        agent.parent.mkdir(parents=True)
+        agent.write_bytes(b"agent-host" + (b"\x00" * 1024))
+        wrapper = tree / _CURSE_WRAPPER
+        wrapper.write_text("#!/bin/bash\nexit 7\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+        (tree / ".wasd-extract").write_text(_curse_stamp(kept), encoding="utf-8")
+        before = agent.stat().st_mtime_ns
+        got = _extract_curseforge(kept)
+        if got != wrapper or wrapper.read_text(encoding="utf-8") != "#!/bin/bash\nexit 7\n":
+            raise SystemExit("CurseForge unpacked again over its own agent")
+        if agent.stat().st_mtime_ns != before or (curse_root / "extracted.partial").exists():
+            raise SystemExit("CurseForge unpacked again over its own agent")
+        stage = curse_root / "stage"
+        stage.mkdir()
+        (stage / "AppRun").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (stage / "curseforge").write_bytes(b"elf-curseforge")
+        _mark_extracted(stage, "stamp\n")
+        script = (stage / _CURSE_WRAPPER).read_text(encoding="utf-8")
+        if script != _curse_wrapper_script() or "unset APPIMAGE_EXTRACT_AND_RUN" not in script:
+            raise SystemExit("CurseForge would unpack into the shared temporary directory")
+        if 'exec "$here/AppRun"' not in script or not os.access(stage / _CURSE_WRAPPER, os.X_OK):
+            raise SystemExit("CurseForge would unpack into the shared temporary directory")
+        env = {}
+        prepared = _curseforge_program(env, CATALOG["CurseForge"], kept)
+        if prepared != wrapper or env.get("APPDIR") != str(tree) or env.get("APPIMAGE") != str(wrapper):
+            raise SystemExit("CurseForge would start the AppImage again")
+        if "APPIMAGE_EXTRACT_AND_RUN" in env:
+            raise SystemExit("CurseForge would unpack into the shared temporary directory")
+        command = _cfauth_exec(wrapper)
+        if "APPDIR=" not in command or str(wrapper) not in command or "--no-sandbox" not in command:
+            raise SystemExit("CurseForge login would unpack the AppImage again")
+        if str(kept) in command:
+            raise SystemExit("CurseForge login would unpack the AppImage again")
+        (tree / ".wasd-extract").write_text("wasd-curse-1 stale\n", encoding="utf-8")
+        if _extract_curseforge(kept) is not None:
+            raise SystemExit("CurseForge trusted a stale extract")
     print("launchers self-check ok")
 
 
