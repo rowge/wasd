@@ -28,6 +28,7 @@ GAMES_DIRS = (
     "battlenet",
     "ubisoft",
     "rockstar",
+    "epic",
     "minecraft",
     "minecraft-bedrock",
     "minecraft-modded",
@@ -68,11 +69,14 @@ class Launcher:
         native_program=(),
         host_link=(),
         bundle_libs=False,
+        programs=(),
     ):
         self.launcher_id = launcher_id
         self.setup_url = setup_url
         self.setup_name = setup_name
         self.program = tuple(program)
+        # Other places the same program can be. The first real file wins.
+        self.programs = tuple(tuple(item) for item in programs)
         self.games_link = tuple(games_link)
         self.user_link = tuple(user_link)
         self.games_dir = games_dir
@@ -90,7 +94,7 @@ class Launcher:
         self.native_program = tuple(native_program)
         # A host path the program always uses. With mount_games, the games
         # folder is mounted on an empty directory there. Otherwise that path
-        # is a link to the games folder. Java Minecraft still uses a mount,
+        # is a link to the games folder. Minecraft Java still uses a mount,
         # because that launcher will not create files through a link.
         self.host_link = tuple(host_link)
         self.bundle_libs = bool(bundle_libs)
@@ -98,12 +102,48 @@ class Launcher:
 
 # Display names match WASD Install and WASD Launchers. The setup addresses
 # are the ones published for these launchers. No silent switch is passed.
+# Epic's published installer address. It redirects to the current MSI.
+# The launcher is the Windows one. The Linux preview is a different program.
+_EPIC_SETUP = (
+    "https://launcher-public-service-prod06.ol.epicgames.com"
+    "/launcher/api/installer/download/EpicGamesLauncherInstaller.msi"
+)
+# The MSI shortcut targets Win32 under Program Files (x86). Some installs
+# now use Win64, and some put that tree under Program Files.
+_EPIC_PROGRAMS = (
+    ("drive_c", "Program Files (x86)", "Epic Games", "Launcher", "Portal", "Binaries", "Win32", "EpicGamesLauncher.exe"),
+    ("drive_c", "Program Files (x86)", "Epic Games", "Launcher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"),
+    ("drive_c", "Program Files", "Epic Games", "Launcher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"),
+    ("drive_c", "Program Files", "Epic Games", "Launcher", "Portal", "Binaries", "Win32", "EpicGamesLauncher.exe"),
+)
+
+
 CATALOG = {
     "Battle.net": Launcher(
         "battlenet",
         "https://www.battle.net/download/getInstallerForGame?os=win&installer=Battle.net-Setup.exe",
         "Battle.net-Setup.exe",
         ("drive_c", "Program Files (x86)", "Battle.net", "Battle.net Launcher.exe"),
+    ),
+    "Rockstar Launcher": Launcher(
+        "rockstar",
+        "https://gamedownloads.rockstargames.com/public/installer/Rockstar-Games-Launcher.exe",
+        "Rockstar-Games-Launcher.exe",
+        ("drive_c", "Program Files", "Rockstar Games", "Launcher", "Launcher.exe"),
+    ),
+    "Epic Games": Launcher(
+        "epic",
+        _EPIC_SETUP,
+        "EpicGamesLauncherInstaller.msi",
+        _EPIC_PROGRAMS[0],
+        programs=_EPIC_PROGRAMS[1:],
+        # Epic copies a game into Program Files\Epic Games. That copy fails
+        # through a link, and D: is a link, so this folder is mounted instead.
+        # The launcher itself is outside this folder. When an install puts it
+        # inside, it is moved out. If it cannot be moved, the mount uses a
+        # Games folder beside it.
+        games_link=("drive_c", "Program Files", "Epic Games"),
+        mount_games=True,
     ),
     "Ubisoft Connect": Launcher(
         "ubisoft",
@@ -112,13 +152,21 @@ CATALOG = {
         ("drive_c", "Program Files (x86)", "Ubisoft", "Ubisoft Game Launcher", "UbisoftConnect.exe"),
         ("drive_c", "Program Files (x86)", "Ubisoft", "Ubisoft Game Launcher", "games"),
     ),
-    "Rockstar Launcher": Launcher(
-        "rockstar",
-        "https://gamedownloads.rockstargames.com/public/installer/Rockstar-Games-Launcher.exe",
-        "Rockstar-Games-Launcher.exe",
-        ("drive_c", "Program Files", "Rockstar Games", "Launcher", "Launcher.exe"),
+    "Star Citizen": Launcher(
+        "starcitizen",
+        "https://install.robertsspaceindustries.com/rel/2/RSI%20Launcher-Setup-2.19.1.exe",
+        "RSI-Launcher-Setup.exe",
+        ("drive_c", "Program Files", "Roberts Space Industries", "RSI Launcher", "RSI Launcher.exe"),
+        # The launcher installs the game under this folder. An old setup file
+        # is refused at sign-in, so the download follows their latest.yml.
+        # LIVE is created here. The folder is mounted as a real directory,
+        # because the launcher cannot create it through a link and then
+        # shows error 8004.
+        ("drive_c", "Program Files", "Roberts Space Industries", "StarCitizen"),
+        mount_games=True,
+        channel_dirs=("LIVE",),
     ),
-    "Java Minecraft": Launcher(
+    "Minecraft Java": Launcher(
         "minecraft",
         "https://launcher.mojang.com/download/Minecraft.exe",
         "Minecraft.exe",
@@ -137,7 +185,19 @@ CATALOG = {
         native=True,
         native_env=(("BOL_HOME", "{games}"),),
     ),
-    "Modded Minecraft": Launcher(
+    "FTB (modded Minecraft)": Launcher(
+        "ftb",
+        "https://piston.feed-the-beast.com/app/ftb-app-linux-1.30.1-x86_64.AppImage",
+        "ftb-app-linux-1.30.1-x86_64.AppImage",
+        (),
+        # getAppHome in the 1.30.1 source puts instances, the runtime, and
+        # settings in ~/.ftba. That path is a link to the games folder.
+        # PulseAudio refuses the account namespace, so the app stays outside it.
+        host_link=(".ftba",),
+        native=True,
+        native_args=("--no-sandbox",),
+    ),
+    "PolyMC (modded Minecraft)": Launcher(
         "minecraft-modded",
         "https://github.com/PolyMC/PolyMC/releases/download/8.1/PolyMC-Linux-amd64-8.1.AppImage",
         "PolyMC-Linux-amd64-8.1.AppImage",
@@ -147,7 +207,7 @@ CATALOG = {
         native=True,
         native_args=("--dir", "{games}"),
     ),
-    "MultiMC": Launcher(
+    "MultiMC (modded Minecraft)": Launcher(
         "multimc",
         "https://files.multimc.org/downloads/mmc-develop-lin64.tar.gz",
         "mmc-develop-lin64.tar.gz",
@@ -160,7 +220,7 @@ CATALOG = {
         native_program=("bin", "MultiMC"),
         bundle_libs=True,
     ),
-    "CurseForge": Launcher(
+    "CurseForge (modded Minecraft)": Launcher(
         "curseforge",
         "https://curseforge.overwolf.com/electron/linux/CurseForge-1.325.0-41594.AppImage",
         "CurseForge-1.325.0-41594.AppImage",
@@ -172,40 +232,23 @@ CATALOG = {
         native=True,
         native_args=("--no-sandbox",),
     ),
-    "FTB App": Launcher(
-        "ftb",
-        "https://piston.feed-the-beast.com/app/ftb-app-linux-1.30.1-x86_64.AppImage",
-        "ftb-app-linux-1.30.1-x86_64.AppImage",
-        (),
-        # getAppHome in the 1.30.1 source puts instances, the runtime, and
-        # settings in ~/.ftba. That path is a link to the games folder.
-        # PulseAudio refuses the account namespace, so the app stays outside it.
-        host_link=(".ftba",),
-        native=True,
-        native_args=("--no-sandbox",),
-    ),
-    "Star Citizen": Launcher(
-        "starcitizen",
-        "https://install.robertsspaceindustries.com/rel/2/RSI%20Launcher-Setup-2.19.1.exe",
-        "RSI-Launcher-Setup.exe",
-        ("drive_c", "Program Files", "Roberts Space Industries", "RSI Launcher", "RSI Launcher.exe"),
-        # The launcher installs the game under this folder. An old setup file
-        # is refused at sign-in, so the download follows their latest.yml.
-        # LIVE is created here. The folder is mounted as a real directory,
-        # because the launcher cannot create it through a link and then
-        # shows error 8004.
-        ("drive_c", "Program Files", "Roberts Space Industries", "StarCitizen"),
-        mount_games=True,
-        channel_dirs=("LIVE",),
-    ),
 }
 
 # Roberts Space Industries publishes the current setup here. The catalog URL
 # is the 2026-11-02 file, used when the check does not download.
 RSI_LATEST = "https://install.robertsspaceindustries.com/rel/2/latest.yml"
 _RSI_SETUP = re.compile(r"^RSI Launcher-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$")
-# A choice saved before Java Minecraft had that name.
-ALIASES = {"Minecraft": "Java Minecraft"}
+# Older names still open the same row.
+ALIASES = {
+    "Minecraft": "Minecraft Java",
+    "Java Minecraft": "Minecraft Java",
+    "Modded Minecraft": "PolyMC (modded Minecraft)",
+    "FTB": "FTB (modded Minecraft)",
+    "FTB App": "FTB (modded Minecraft)",
+    "FTB App (modded Minecraft)": "FTB (modded Minecraft)",
+    "MultiMC": "MultiMC (modded Minecraft)",
+    "CurseForge": "CurseForge (modded Minecraft)",
+}
 # Current Minecraft uses 21. Packs from 1.17 and 1.16 still need 17 and 8.
 # Adoptium publishes one archive for each. The games drive holds them.
 JAVA_RUNTIMES = (
@@ -1395,6 +1438,111 @@ def _host_slot(home, launcher):
     return Path(home).joinpath(*launcher.host_link)
 
 
+def _program_candidates(launcher):
+    found = []
+    if launcher.program:
+        found.append(tuple(launcher.program))
+    for extra in launcher.programs:
+        extra = tuple(extra)
+        if extra and extra not in found:
+            found.append(extra)
+    return found
+
+
+def _real_program(path):
+    path = Path(path)
+    return path.is_file() and not path.is_symlink()
+
+
+def _mounted_games_link(prefix, launcher):
+    """The directory the games folder is mounted on.
+
+    Epic copies into Program Files\\Epic Games. When the program is inside
+    that directory, mounting it would hide the program. The mount then uses
+    a Games folder beside the program.
+    """
+    parts = tuple(launcher.games_link)
+    if not parts:
+        return parts
+    prefix = Path(prefix)
+    for candidate in _program_candidates(launcher):
+        exe = prefix.joinpath(*candidate)
+        inside = candidate[: len(parts)] == parts
+        if exe.is_symlink() and inside:
+            return parts + ("Games",)
+        if not _real_program(exe):
+            continue
+        if inside:
+            return parts + ("Games",)
+        return parts
+    return parts
+
+
+def _keep_program_outside(prefix, games, launcher):
+    """Move a launcher program out of the folder the games drive is mounted on.
+
+    A copy through that mount lands on the games drive. The program has to
+    stay in the prefix, or the mount hides it and a remake keeps the only
+    copy. A link is left where it is. When the program is already outside, a
+    second copy in the mount folder is removed so it is not carried onto the
+    games drive.
+    """
+    if not launcher.mount_games:
+        return
+    slot_parts = tuple(launcher.games_link)
+    if not slot_parts:
+        return
+    outside = []
+    inside = []
+    for candidate in _program_candidates(launcher):
+        if candidate[: len(slot_parts)] == slot_parts:
+            relative = candidate[len(slot_parts) :]
+            if relative:
+                inside.append(relative)
+        else:
+            outside.append(candidate)
+    if not outside or not inside:
+        return
+    head = inside[0][0]
+    if head in ("", ".", "..") or any(not relative or relative[0] != head for relative in inside):
+        return
+    if head not in outside[0]:
+        return
+    prefix = Path(prefix)
+    games = Path(games)
+    slot = prefix.joinpath(*slot_parts)
+    dest = prefix.joinpath(*outside[0][: outside[0].index(head) + 1])
+
+    def program_in(base):
+        base = Path(base)
+        for relative in inside:
+            exe = base.joinpath(*relative)
+            if _real_program(exe) and _inside(exe, base):
+                return True
+        return False
+
+    if any(_real_program(prefix.joinpath(*candidate)) for candidate in outside):
+        source = slot / head
+        if program_in(slot) and source.is_dir() and not source.is_symlink() and _inside(source, slot):
+            _unlink_tree(source)
+        return
+    if dest.exists() or dest.is_symlink():
+        return
+    if _inside(dest, games) or (slot.exists() and not slot.is_symlink() and _inside(dest, slot)):
+        return
+    for base in (slot, games):
+        source = Path(base) / head
+        if source.is_symlink() or not source.is_dir() or not program_in(base):
+            continue
+        if not _inside(source, base):
+            continue
+        if dest.parent.is_symlink():
+            return
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(dest))
+        return
+
+
 def _mounts(user_name, launcher, prefix, games, home=None):
     mounts = []
     if launcher.user_link:
@@ -1409,7 +1557,7 @@ def _mounts(user_name, launcher, prefix, games, home=None):
             raise LauncherError("The games drive could not be prepared.")
         mounts.append((games, slot))
     elif launcher.mount_games and launcher.games_link:
-        mounts.append((games, prefix.joinpath(*launcher.games_link)))
+        mounts.append((games, prefix.joinpath(*_mounted_games_link(prefix, launcher))))
     return mounts
 
 
@@ -1418,7 +1566,7 @@ def _mount_slot(launcher, prefix, home=None):
         slot = _host_slot(home, launcher)
         return "" if slot is None else str(slot)
     if launcher.mount_games and launcher.games_link:
-        return str(prefix.joinpath(*launcher.games_link))
+        return str(prefix.joinpath(*_mounted_games_link(prefix, launcher)))
     return ""
 
 
@@ -1534,11 +1682,19 @@ def ensure_links(prefix, games, saves, user_name, launcher, home=None):
         else:
             _link_games(Path(home), launcher.host_link, games)
     if launcher.games_link:
-        moved = prefix.joinpath(*launcher.games_link)
+        if launcher.mount_games:
+            _keep_program_outside(prefix, games, launcher)
+            moved = prefix.joinpath(*_mounted_games_link(prefix, launcher))
+        else:
+            moved = prefix.joinpath(*launcher.games_link)
         parent = _safe_dir(moved.parent)
         if parent != moved.parent and moved.parent.is_symlink():
             raise LauncherError("The launcher folder is a link.")
         if launcher.mount_games:
+            if tuple(moved.parts[-len(launcher.games_link) :]) != launcher.games_link:
+                original = prefix.joinpath(*launcher.games_link)
+                if original.is_symlink():
+                    raise LauncherError("The launcher folder is a link.")
             _prepare_game_mount(parent, (moved.name,), games)
             for name in launcher.channel_dirs:
                 _channel_dir(games, name)
@@ -1887,14 +2043,18 @@ def program_path(home, name, root=None):
     """
     launcher = require_launcher(home, name)
     home = Path(home)
-    if not launcher.program:
+    candidates = _program_candidates(launcher)
+    if not candidates:
         if launcher.archive_root:
             return _archived_program(home, launcher)
         return _cache(home, launcher)
     root = Path(root) if root is not None else games_root(home)
-    installed = _prefix(root, launcher).joinpath(*launcher.program)
-    if installed.is_file() and not installed.is_symlink():
-        return installed
+    prefix = _prefix(root, launcher)
+    installed = prefix.joinpath(*candidates[0])
+    for parts in candidates:
+        candidate = prefix.joinpath(*parts)
+        if _real_program(candidate):
+            return candidate
     if launcher.launcher_id == "minecraft":
         cached = _cache(home, launcher)
         if cached.is_file() and not cached.is_symlink():
@@ -2627,8 +2787,22 @@ def self_check():
         raise SystemExit("a missing launcher list was treated as a choice")
     if names_from({"launchers": []}) != []:
         raise SystemExit("an empty launcher list was refused")
-    if names_from({"launchers": ["Minecraft"]}) != ["Java Minecraft"]:
+    if names_from({"launchers": ["Minecraft"]}) != ["Minecraft Java"]:
         raise SystemExit("a saved Minecraft choice was refused")
+    if names_from({"launchers": ["Java Minecraft"]}) != ["Minecraft Java"]:
+        raise SystemExit("a saved Minecraft choice was refused")
+    if names_from({"launchers": ["Modded Minecraft"]}) != ["PolyMC (modded Minecraft)"]:
+        raise SystemExit("a saved Modded Minecraft choice was refused")
+    if names_from({"launchers": ["FTB"]}) != ["FTB (modded Minecraft)"]:
+        raise SystemExit("a saved FTB choice was refused")
+    if names_from({"launchers": ["FTB App"]}) != ["FTB (modded Minecraft)"]:
+        raise SystemExit("a saved FTB App choice was refused")
+    if names_from({"launchers": ["FTB App (modded Minecraft)"]}) != ["FTB (modded Minecraft)"]:
+        raise SystemExit("a saved FTB App choice was refused")
+    if names_from({"launchers": ["MultiMC"]}) != ["MultiMC (modded Minecraft)"]:
+        raise SystemExit("a saved MultiMC choice was refused")
+    if names_from({"launchers": ["CurseForge"]}) != ["CurseForge (modded Minecraft)"]:
+        raise SystemExit("a saved CurseForge choice was refused")
     try:
         names_from({"launchers": ["Minecraft", "Java Minecraft"]})
     except LauncherError:
@@ -2827,7 +3001,7 @@ def self_check():
         (minecraft_games / "saves").mkdir()
         (minecraft_games / "saves" / "world.txt").write_text("keep\n", encoding="utf-8")
         (world_slot / "extra.txt").write_text("moved\n", encoding="utf-8")
-        ensure_links(mine, minecraft_games, root / "saves" / "minecraft", home.name, CATALOG["Java Minecraft"])
+        ensure_links(mine, minecraft_games, root / "saves" / "minecraft", home.name, CATALOG["Minecraft Java"])
         if (minecraft_games / "extra.txt").read_text(encoding="utf-8") != "moved\n":
             raise SystemExit("a Minecraft file stayed in the launcher")
         if any(world_slot.iterdir()):
@@ -2842,7 +3016,7 @@ def self_check():
         calls.clear()
         before_fetches = len(fetches)
         install_launcher(home, "Minecraft", runner, fetch, root)
-        if fetches[before_fetches:] != [CATALOG["Java Minecraft"].setup_url]:
+        if fetches[before_fetches:] != [CATALOG["Minecraft Java"].setup_url]:
             raise SystemExit(f"Minecraft did not use the official launcher: {fetches[before_fetches:]}")
         if not calls or calls[0][0][0] != "unshare" or "wineboot" not in calls[0][0]:
             raise SystemExit(f"Minecraft was not opened on its games folder: {calls}")
@@ -2883,7 +3057,7 @@ def self_check():
         options.write_text('preferredGraphicsBackend:"opengl"\n', encoding="utf-8")
         pixel = struct.pack("<IiiHHIIiiII", 40, 1, 2, 1, 32, 0, 4, 0, 0, 0, 0)
         pixel += bytes((0x10, 0x20, 0x30, 0xFF)) + b"\x00\x00\x00\x00"
-        _cache(home, CATALOG["Java Minecraft"]).write_bytes(_pe_containing_dib(pixel))
+        _cache(home, CATALOG["Minecraft Java"]).write_bytes(_pe_containing_dib(pixel))
         write_menu(home, "Minecraft", root)
         mine_icon = ""
         mine_entry = (home / ".local/share/applications/wasd-launcher-minecraft.desktop").read_text(encoding="utf-8")
@@ -2895,7 +3069,7 @@ def self_check():
         if not Path(mine_icon).read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
             raise SystemExit("Minecraft's icon was not its own")
         mine_rows = {row["name"]: row for row in status_rows(home, root)}
-        if not mine_rows["Java Minecraft"]["ready"]:
+        if not mine_rows["Minecraft Java"]["ready"]:
             raise SystemExit("Minecraft's launcher was not counted as installed")
         calls.clear()
         launch_installed(home, "Minecraft", runner, root)
@@ -2904,7 +3078,7 @@ def self_check():
         if options.read_text(encoding="utf-8") != 'preferredGraphicsBackend:"opengl"\n':
             raise SystemExit("Minecraft overwrote an explicit graphics choice")
         installed_mine = (
-            _prefix(root, CATALOG["Java Minecraft"])
+            _prefix(root, CATALOG["Minecraft Java"])
             / "drive_c"
             / "Program Files (x86)"
             / "Minecraft Launcher"
@@ -2916,7 +3090,7 @@ def self_check():
         launch_installed(home, "Minecraft", runner, root)
         if not str(calls[-1][0][-1]).endswith("MinecraftLauncher.exe"):
             raise SystemExit(f"Launch ignored the installed Minecraft launcher: {calls}")
-        if "Name=Java Minecraft" not in mine_entry or '--open "Java Minecraft"' not in mine_entry:
+        if "Name=Minecraft Java" not in mine_entry or '--open "Minecraft Java"' not in mine_entry:
             raise SystemExit("Minecraft's menu entry kept the old name")
 
         def check_native(name, folder, marker):
@@ -3112,10 +3286,10 @@ def self_check():
                     raise SystemExit(f"{name} left its games folder as a real directory")
 
         check_native("Minecraft Bedrock", "minecraft-bedrock", "BOL_HOME")
-        check_native("Modded Minecraft", "minecraft-modded", "--dir")
-        check_native("MultiMC", "multimc", "--dir")
-        check_native("CurseForge", "curseforge", "--no-sandbox")
-        check_native("FTB App", "ftb", "--no-sandbox")
+        check_native("PolyMC (modded Minecraft)", "minecraft-modded", "--dir")
+        check_native("MultiMC (modded Minecraft)", "multimc", "--dir")
+        check_native("CurseForge (modded Minecraft)", "curseforge", "--no-sandbox")
+        check_native("FTB (modded Minecraft)", "ftb", "--no-sandbox")
 
         def java_tar(members):
             import io
@@ -3244,6 +3418,97 @@ def self_check():
             raise SystemExit("nuking Star Citizen deleted the LIVE folder")
         if star_slot.is_symlink() or any(star_slot.iterdir()):
             raise SystemExit("Star Citizen remake put the games link back")
+        epic_prefix = layout(home, "Epic Games", root)
+        epic = CATALOG["Epic Games"]
+        epic_slot = epic_prefix.joinpath(*epic.games_link)
+        epic_games = root / "epic"
+        if epic_slot.is_symlink() or not epic_slot.is_dir() or any(epic_slot.iterdir()):
+            raise SystemExit("Epic games are behind a link")
+        (epic_games / "keep.txt").write_text("game\n", encoding="utf-8")
+        epic_slot.rmdir()
+        epic_slot.symlink_to(epic_games)
+        (epic_prefix / "system.reg").write_text("WINE REGISTRY Version 2\n", encoding="utf-8")
+        calls.clear()
+        before_fetches = len(fetches)
+        install_launcher(home, "Epic Games", runner, fetch, root)
+        if fetches[before_fetches:] != [epic.setup_url]:
+            raise SystemExit(f"Epic did not use the published setup: {fetches[before_fetches:]}")
+        if epic_slot.is_symlink() or not epic_slot.is_dir() or any(epic_slot.iterdir()):
+            raise SystemExit("Epic left the games folder as a link")
+        if (epic_games / "keep.txt").read_text(encoding="utf-8") != "game\n":
+            raise SystemExit("Epic setup disturbed the games folder")
+        mounted = "\n".join(str(part) for part in calls[-1][0])
+        if (
+            "mount --bind" not in mounted
+            or str(epic_games) not in mounted
+            or shlex.quote(str(epic_slot)) not in mounted
+            or shlex.quote(str(epic_slot / "Games")) in mounted
+        ):
+            raise SystemExit(f"Epic was not mounted on its games folder: {calls[-1][0]}")
+        if "wineboot" in calls[-1][0] or not calls[-1][0][-1].endswith("EpicGamesLauncherInstaller.msi"):
+            raise SystemExit(f"Epic did not open its setup: {calls[-1][0]}")
+        if any(item in calls[-1][0] for item in BANNED_ARGS):
+            raise SystemExit("Epic was silenced")
+        nested = epic_games / "Launcher" / "Portal" / "Binaries" / "Win64" / "EpicGamesLauncher.exe"
+        nested.parent.mkdir(parents=True)
+        nested.write_bytes(b"MZ")
+        ensure_links(epic_prefix, epic_games, root / "saves" / "epic", home.name, epic, home)
+        outside = (
+            epic_prefix
+            / "drive_c"
+            / "Program Files (x86)"
+            / "Epic Games"
+            / "Launcher"
+            / "Portal"
+            / "Binaries"
+            / "Win64"
+            / "EpicGamesLauncher.exe"
+        )
+        drive = epic_prefix / "dosdevices" / "d:"
+        if not outside.is_file() or outside.is_symlink() or outside.read_bytes() != b"MZ":
+            raise SystemExit("Epic left its launcher inside the games folder")
+        if nested.exists() or (epic_games / "Launcher").exists():
+            raise SystemExit("Epic left a second launcher in the games folder")
+        if (epic_games / "keep.txt").read_text(encoding="utf-8") != "game\n":
+            raise SystemExit("moving Epic's launcher deleted the game")
+        if epic_slot.is_symlink() or any(epic_slot.iterdir()):
+            raise SystemExit("Epic mounted over its own launcher")
+        if not drive.is_symlink() or drive.resolve() != epic_games.resolve():
+            raise SystemExit("Epic lost the games drive")
+        calls.clear()
+        launch_installed(home, "Epic Games", runner, root)
+        mounted = "\n".join(str(part) for part in calls[-1][0])
+        if shlex.quote(str(epic_slot)) not in mounted or str(outside) not in mounted:
+            raise SystemExit(f"Epic did not open the launcher outside the mount: {calls[-1][0]}")
+        if shlex.quote(str(epic_slot / "Games")) in mounted:
+            raise SystemExit("Epic hid its launcher behind the games folder")
+        shutil.rmtree(outside.parents[3])
+        outside.parents[3].mkdir()
+        held = epic_slot / "Launcher" / "Portal" / "Binaries" / "Win64" / "EpicGamesLauncher.exe"
+        held.parent.mkdir(parents=True)
+        held.write_bytes(b"MZ")
+        ensure_links(epic_prefix, epic_games, root / "saves" / "epic", home.name, epic, home)
+        side = epic_slot / "Games"
+        if not held.is_file() or held.is_symlink() or held.read_bytes() != b"MZ":
+            raise SystemExit("Epic moved a launcher it was told to leave")
+        if side.is_symlink() or not side.is_dir() or any(side.iterdir()):
+            raise SystemExit("Epic did not leave a real folder beside its launcher")
+        if epic_slot.is_symlink():
+            raise SystemExit("Epic games are behind a link")
+        calls.clear()
+        launch_installed(home, "Epic Games", runner, root)
+        mounted = "\n".join(str(part) for part in calls[-1][0])
+        if shlex.quote(str(side)) not in mounted or not calls[-1][0][-1].endswith(str(held)):
+            raise SystemExit(f"Epic mounted over its launcher: {calls[-1][0]}")
+        if shlex.quote(str(epic_slot)) in mounted:
+            raise SystemExit("Epic mounted the folder that holds its launcher")
+        nuke(home, "Epic Games", root)
+        if (epic_games / "keep.txt").read_text(encoding="utf-8") != "game\n":
+            raise SystemExit("nuking Epic deleted the games folder")
+        if epic_slot.is_symlink() or any(epic_slot.iterdir()):
+            raise SystemExit("Epic remake put the games link back")
+        if held.exists() or outside.exists():
+            raise SystemExit("nuking Epic left the launcher program")
         download = home / "Downloads"
         download.mkdir()
         chosen = download / "MyGame.exe"
@@ -3276,6 +3541,7 @@ def self_check():
             ("Minecraft", str(chosen)),
             ("MultiMC", str(chosen)),
             ("CurseForge", str(chosen)),
+            ("FTB", str(chosen)),
             ("FTB App", str(chosen)),
             ("My Game", str(chosen)),
             ("", str(chosen)),
@@ -3313,7 +3579,7 @@ def self_check():
                 body = json.loads(response.read().decode())
             if [row["name"] for row in body["rows"]] != [*CATALOG.keys(), "My Game"]:
                 raise SystemExit(f"the window listed {body}")
-            minecraft_row = body["rows"][list(CATALOG).index("Java Minecraft")]
+            minecraft_row = body["rows"][list(CATALOG).index("Minecraft Java")]
             if minecraft_row["folder"] != str(root / "minecraft") or minecraft_row["custom"]:
                 raise SystemExit(f"Minecraft was not on the list: {minecraft_row}")
             custom_row = body["rows"][-1]
@@ -3462,7 +3728,7 @@ def self_check():
                 shutil.rmtree(linked_games)
             linked_games.symlink_to(root / "minecraft")
             refused_folder = urllib.request.Request(
-                f"http://127.0.0.1:{port}/browse", data=b"FTB App", method="POST"
+                f"http://127.0.0.1:{port}/browse", data=b"FTB (modded Minecraft)", method="POST"
             )
             try:
                 urllib.request.urlopen(refused_folder, timeout=2)
@@ -3473,7 +3739,7 @@ def self_check():
                 raise SystemExit("a linked games folder was opened")
             linked_games.unlink()
             opened_folders.clear()
-            for label, folder in (("Java Minecraft", "minecraft"), ("FTB App", "ftb")):
+            for label, folder in (("Minecraft Java", "minecraft"), ("FTB (modded Minecraft)", "ftb")):
                 opened_folders.clear()
                 browsed = urllib.request.Request(
                     f"http://127.0.0.1:{port}/browse", data=label.encode(), method="POST"
@@ -3522,6 +3788,15 @@ def self_check():
             raise SystemExit(f"{name} is missing from WASD Launchers")
         if name not in main:
             raise SystemExit(f"{name} is missing from WASD Install")
+
+    def listed_launchers(text, start, end):
+        block = text[text.index(start) : text.index(end, text.index(start))]
+        return [item for item in re.findall(r'"([^"]+)"', block) if item in CATALOG]
+
+    install_order = listed_launchers(main, "property var launcherNames", "]")
+    window_order = listed_launchers(launch, "function fillDefaults", "for (let i")
+    if install_order != list(CATALOG) or window_order != list(CATALOG):
+        raise SystemExit(f"the launcher order does not match: {install_order} {window_order}")
     if "EA App" in launch or "EA App" in main:
         raise SystemExit("EA App is still in the installer")
     if "preview" not in launch or "/remake" not in launch or "/launch" not in launch:
@@ -3545,14 +3820,14 @@ def self_check():
         raise SystemExit("WASD Launchers has no name box")
     if "launcherScroll" not in launch:
         raise SystemExit("WASD Launchers has no scrollbar")
-    if CATALOG["Java Minecraft"].setup_url != "https://launcher.mojang.com/download/Minecraft.exe":
+    if CATALOG["Minecraft Java"].setup_url != "https://launcher.mojang.com/download/Minecraft.exe":
         raise SystemExit("Minecraft is not the official launcher")
-    if CATALOG["Java Minecraft"].user_link != ("AppData", "Roaming", ".minecraft"):
+    if CATALOG["Minecraft Java"].user_link != ("AppData", "Roaming", ".minecraft"):
         raise SystemExit("Minecraft games would stay in the launcher")
-    if CATALOG["Java Minecraft"].native:
-        raise SystemExit("Java Minecraft would skip the official launcher")
+    if CATALOG["Minecraft Java"].native:
+        raise SystemExit("Minecraft Java would skip the official launcher")
     bedrock = CATALOG["Minecraft Bedrock"]
-    modded = CATALOG["Modded Minecraft"]
+    modded = CATALOG["PolyMC (modded Minecraft)"]
     if _java_for_minecraft("1.7.10") != "8" or _java_for_minecraft("1.16.5") != "8":
         raise SystemExit("an old pack would stay on Java 21")
     if _java_for_minecraft("1.17") != "17" or _java_for_minecraft("1.20.4") != "17":
@@ -3578,10 +3853,10 @@ def self_check():
         or modded.mount_games
         or "PolyMC-Linux-amd64-8.1.AppImage" not in modded.setup_url
     ):
-        raise SystemExit("Modded Minecraft would enter a user namespace")
-    multimc = CATALOG["MultiMC"]
-    curse = CATALOG["CurseForge"]
-    ftb = CATALOG["FTB App"]
+        raise SystemExit("PolyMC would enter a user namespace")
+    multimc = CATALOG["MultiMC (modded Minecraft)"]
+    curse = CATALOG["CurseForge (modded Minecraft)"]
+    ftb = CATALOG["FTB (modded Minecraft)"]
     if (
         not multimc.native
         or multimc.native_args != ("--dir", "{games}")
@@ -3625,6 +3900,19 @@ def self_check():
         raise SystemExit("Star Citizen would not create the LIVE folder")
     if star.program[-1] != "RSI Launcher.exe":
         raise SystemExit("Star Citizen would not open the RSI Launcher")
+    epic_row = CATALOG["Epic Games"]
+    if epic_row.native or not epic_row.mount_games:
+        raise SystemExit("Epic would copy through a link")
+    if epic_row.games_link != ("drive_c", "Program Files", "Epic Games"):
+        raise SystemExit("Epic would copy through a link")
+    if epic_row.program != _EPIC_PROGRAMS[0] or epic_row.programs != _EPIC_PROGRAMS[1:]:
+        raise SystemExit("Epic would not find its launcher")
+    if epic_row.setup_url != _EPIC_SETUP or epic_row.setup_name != "EpicGamesLauncherInstaller.msi":
+        raise SystemExit("Epic is not the Windows installer")
+    if "epic" not in GAMES_DIRS or "epic" in _READY_DIRS:
+        raise SystemExit("an older games drive would be refused")
+    if not offers_reinstall(epic_row):
+        raise SystemExit("Epic would hide Reinstall")
     sample = "version: 2.19.1\npath: RSI Launcher-Setup-2.19.1.exe\n"
     if rsi_setup_url(sample) != "https://install.robertsspaceindustries.com/rel/2/RSI%20Launcher-Setup-2.19.1.exe":
         raise SystemExit("Star Citizen did not use the published setup")
@@ -3718,7 +4006,7 @@ def self_check():
         if 'exec "$here/AppRun"' not in script or not os.access(stage / _CURSE_WRAPPER, os.X_OK):
             raise SystemExit("CurseForge would unpack into the shared temporary directory")
         env = {}
-        prepared = _curseforge_program(env, CATALOG["CurseForge"], kept)
+        prepared = _curseforge_program(env, CATALOG["CurseForge (modded Minecraft)"], kept)
         if prepared != wrapper or env.get("APPDIR") != str(tree) or env.get("APPIMAGE") != str(wrapper):
             raise SystemExit("CurseForge would start the AppImage again")
         if "APPIMAGE_EXTRACT_AND_RUN" in env:

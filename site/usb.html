@@ -7,7 +7,7 @@
   <meta name="description" content="Download the WASD ISO, check it, and write it to a USB stick.">
   <meta name="theme-color" content="#14161a">
   <link rel="icon" href="favicon.png" type="image/png">
-  <link rel="stylesheet" href="styles.css?v=20261031-4">
+  <link rel="stylesheet" href="styles.css?v=20261112-1">
 </head>
 <body class="guide">
   <div class="guide-rail">
@@ -27,32 +27,46 @@
   <main>
     <p class="back"><a href="/">WASD</a></p>
     <h1>How to make a bootable USB</h1>
-    <p>Download the ISO for <a href="https://downloads.wasd.run/WASD-nvidia.iso">NVIDIA</a> if you have a GeForce card, or <a href="https://downloads.wasd.run/WASD.iso">AMD and Intel</a> if not.</p>
-    <p>Hardcore gets every update as it is published. That disc is <a href="https://downloads.wasd.run/WASD-hardcore.iso">AMD and Intel</a> or <a href="https://downloads.wasd.run/WASD-nvidia-hardcore.iso">NVIDIA</a>. The checksums are <a href="https://downloads.wasd.run/WASD-hardcore.iso.sha256">AMD and Intel</a> and <a href="https://downloads.wasd.run/WASD-nvidia-hardcore.iso.sha256">NVIDIA</a>. In the commands below, use <code>WASD-hardcore.iso</code> or <code>WASD-nvidia-hardcore.iso</code>.</p>
-    <h2>Check the file</h2>
-    <p>When the download finishes, compare it with the checksum published next to it.</p>
-    <p class="checks">
-      <a href="https://downloads.wasd.run/WASD.iso.sha256">AMD and Intel checksum</a>
-      <a href="https://downloads.wasd.run/WASD-nvidia.iso.sha256">NVIDIA checksum</a>
-    </p>
-    <p>On Linux, in the folder with both files:</p>
-    <pre>sha256sum -c WASD.iso.sha256</pre>
-    <p>On macOS:</p>
-    <pre>shasum -a 256 -c WASD.iso.sha256</pre>
-    <p>On Windows, compare the result with the text in the checksum file:</p>
-    <pre>certutil -hashfile WASD.iso SHA256</pre>
-    <p>For the NVIDIA disc, use <code>WASD-nvidia.iso</code> in those commands.</p>
-    <h2>Write it to a USB stick</h2>
-    <p>Use a 16 GB or larger stick.</p>
-    <p>Use a free tool for the computer you are on. It will erase the stick.</p>
-    <h3>Windows</h3>
-    <p><a href="https://fedoraproject.org/workstation/download/">Fedora Media Writer</a> or <a href="https://rufus.ie">Rufus</a>. In Rufus, write the ISO in DD mode.</p>
-    <h3>Mac</h3>
-    <p><a href="https://fedoraproject.org/workstation/download/">Fedora Media Writer</a> or <a href="https://etcher.balena.io">balenaEtcher</a>.</p>
-    <h3>Linux</h3>
-    <p><a href="https://fedoraproject.org/workstation/download/">Fedora Media Writer</a> or <a href="https://etcher.balena.io">balenaEtcher</a>.</p>
-    <h2>Boot it</h2>
-    <p>Restart the PC, open the boot menu, and choose the USB stick. The menu on the stick says <span class="boot">Start WASD</span>.</p>
+    <ol class="steps">
+      <li>
+        <p class="do">Download the ISO for your graphics card.</p>
+        <div class="more">
+          <p><a href="https://downloads.wasd.run/WASD-nvidia.iso">NVIDIA</a> if you have a GeForce card. <a href="https://downloads.wasd.run/WASD.iso">AMD and Intel</a> if not.</p>
+          <p>Hardcore gets every update as it is published. That disc is <a href="https://downloads.wasd.run/WASD-hardcore.iso">AMD and Intel</a> or <a href="https://downloads.wasd.run/WASD-nvidia-hardcore.iso">NVIDIA</a>. In the commands below, use <code>WASD-hardcore.iso</code> or <code>WASD-nvidia-hardcore.iso</code>.</p>
+        </div>
+      </li>
+      <li>
+        <p class="do">Check the file against its checksum.</p>
+        <div class="more">
+          <p class="checks">
+            <a href="https://downloads.wasd.run/WASD.iso.sha256">AMD and Intel checksum</a>
+            <a href="https://downloads.wasd.run/WASD-nvidia.iso.sha256">NVIDIA checksum</a>
+            <a href="https://downloads.wasd.run/WASD-hardcore.iso.sha256">AMD and Intel hardcore</a>
+            <a href="https://downloads.wasd.run/WASD-nvidia-hardcore.iso.sha256">NVIDIA hardcore</a>
+          </p>
+          <p>On Linux, in the folder with both files:</p>
+          <pre>sha256sum -c WASD.iso.sha256</pre>
+          <p>On macOS:</p>
+          <pre>shasum -a 256 -c WASD.iso.sha256</pre>
+          <p>On Windows, compare the result with the text in the checksum file:</p>
+          <pre>certutil -hashfile WASD.iso SHA256</pre>
+          <p>For the NVIDIA disc, use <code>WASD-nvidia.iso</code> in those commands.</p>
+        </div>
+      </li>
+      <li>
+        <p class="do">Write it to a 16 GB or larger stick.</p>
+        <div class="more">
+          <p>Use a free tool for the computer you are on. It will erase the stick.</p>
+          <p>On Windows, <a href="https://fedoraproject.org/workstation/download/">Fedora Media Writer</a> or <a href="https://rufus.ie">Rufus</a>. In Rufus, write the ISO in DD mode.</p>
+          <p>On a Mac, <a href="https://fedoraproject.org/workstation/download/">Fedora Media Writer</a> or <a href="https://etcher.balena.io">balenaEtcher</a>.</p>
+          <p>On Linux, <a href="https://fedoraproject.org/workstation/download/">Fedora Media Writer</a> or <a href="https://etcher.balena.io">balenaEtcher</a>.</p>
+        </div>
+      </li>
+      <li>
+        <p class="do">Restart, open the boot menu, and choose the USB stick.</p>
+        <div class="more"><p>The menu on the stick says <span class="boot">Start WASD</span>.</p></div>
+      </li>
+    </ol>
   </main>
   </div>
 </body>

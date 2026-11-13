@@ -139,6 +139,48 @@ body.guide h3 {
 
 body.guide p { margin: 0.55rem 0 0; }
 
+ol.steps {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  counter-reset: step;
+}
+
+ol.steps > li {
+  margin: 1.15rem 0 0;
+  counter-increment: step;
+}
+
+ol.steps > li > .do::before {
+  content: counter(step) ".";
+  display: inline-block;
+  min-width: 1.35rem;
+  margin-right: 0.35rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.do {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.08rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.more {
+  margin: 0.4rem 0 0 1.7rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.more p { margin: 0.4rem 0 0; }
+
+.more p:first-child { margin-top: 0; }
+
+ol.steps > li > figure,
+ol.steps > li > pre { margin-left: 1.7rem; }
+
 body.guide ul.missing,
 body.guide ul.works {
   margin: 0.85rem 0 0;

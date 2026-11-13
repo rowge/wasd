@@ -46,15 +46,16 @@ Window {
         launcherModel.clear()
         const rows = [
             ["Battle.net", "battlenet"],
-            ["Ubisoft Connect", "ubisoft"],
             ["Rockstar Launcher", "rockstar"],
-            ["Java Minecraft", "minecraft"],
+            ["Epic Games", "epic"],
+            ["Ubisoft Connect", "ubisoft"],
+            ["Star Citizen", "starcitizen"],
+            ["Minecraft Java", "minecraft"],
             ["Minecraft Bedrock", "minecraft-bedrock"],
-            ["Modded Minecraft", "minecraft-modded"],
-            ["MultiMC", "multimc"],
-            ["CurseForge", "curseforge"],
-            ["FTB App", "ftb"],
-            ["Star Citizen", "starcitizen"]
+            ["FTB (modded Minecraft)", "ftb"],
+            ["PolyMC (modded Minecraft)", "minecraft-modded"],
+            ["MultiMC (modded Minecraft)", "multimc"],
+            ["CurseForge (modded Minecraft)", "curseforge"]
         ]
         for (let i = 0; i < rows.length; i++) {
             launcherModel.append({
@@ -170,10 +171,11 @@ Window {
         if (custom)
             return false
         return launcherId === "battlenet"
-            || launcherId === "ubisoft"
             || launcherId === "rockstar"
-            || launcherId === "minecraft"
+            || launcherId === "epic"
+            || launcherId === "ubisoft"
             || launcherId === "starcitizen"
+            || launcherId === "minecraft"
     }
 
     function showInstall(name, reinstall) {
