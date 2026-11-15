@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Starship
+Comment=Open the game in the browser
+Exec=xdg-open https://starshipthegame.spacex.com/
+Icon=applications-games
+Terminal=false
+Type=Application
+Categories=Game;
+StartupNotify=false

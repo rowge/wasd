@@ -532,6 +532,22 @@ test -s /usr/share/applications/wasd-look.desktop
 test -s /usr/share/wasd/launchers/Launchers.qml
 test -x /usr/bin/wasd-launchers
 test -s /usr/share/applications/wasd-launchers.desktop
+test -s /usr/share/applications/wasd-starship.desktop
+grep -q 'https://starshipthegame.spacex.com/' /usr/share/applications/wasd-starship.desktop
+grep -q '^Categories=Game;$' /usr/share/applications/wasd-starship.desktop
+grep -q '<Filename>wasd-starship.desktop</Filename>' /etc/xdg/menus/applications-merged/wasd-free-online.menu
+test -s /usr/share/applications/wasd-kitten-cannon.desktop
+grep -q 'https://www.newgrounds.com/portal/view/228520' /usr/share/applications/wasd-kitten-cannon.desktop
+grep -q '^Categories=Game;X-WASD-FreeOnline;$' /usr/share/applications/wasd-kitten-cannon.desktop
+test -s /usr/share/applications/wasd-qwop.desktop
+grep -q 'https://www.foddy.net/legacy/Athletics.html' /usr/share/applications/wasd-qwop.desktop
+grep -q '^Categories=Game;X-WASD-FreeOnline;$' /usr/share/applications/wasd-qwop.desktop
+test -s /usr/share/applications/wasd-line-rider.desktop
+grep -q 'https://www.linerider.com/' /usr/share/applications/wasd-line-rider.desktop
+grep -q '^Categories=Game;X-WASD-FreeOnline;$' /usr/share/applications/wasd-line-rider.desktop
+test -s /usr/share/desktop-directories/wasd-free-online.directory
+grep -q '^Name=Free online$' /usr/share/desktop-directories/wasd-free-online.directory
+test -s /etc/xdg/menus/applications-merged/wasd-free-online.menu
 test -s /usr/libexec/launchers.py
 test -s /usr/share/polkit-1/actions/org.wasd.look.policy
 test -s /usr/share/wasd/install/Main.qml
@@ -839,6 +855,12 @@ CLEAR_FILES = (
     "/usr/lib/systemd/system/ostree-finalize-staged.service.wants/wasd-boot-title-finalize.service",
     "/usr/lib/systemd/system/boot.automount.d/wasd-idle.conf",
     "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/updates/zz-wasd-menu.js",
+    "/usr/share/applications/wasd-starship.desktop",
+    "/usr/share/applications/wasd-kitten-cannon.desktop",
+    "/usr/share/applications/wasd-qwop.desktop",
+    "/usr/share/applications/wasd-line-rider.desktop",
+    "/usr/share/desktop-directories/wasd-free-online.directory",
+    "/etc/xdg/menus/applications-merged/wasd-free-online.menu",
     "/usr/share/wasd/wasd-logo.png",
     "/usr/share/wasd/flatpaks",
     "/usr/share/plasma/look-and-feel/com.valve.vapor.desktop/contents/splash/images/wasd_logo.png",

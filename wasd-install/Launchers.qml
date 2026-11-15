@@ -48,6 +48,7 @@ Window {
             ["Battle.net", "battlenet"],
             ["Rockstar Launcher", "rockstar"],
             ["Epic Games", "epic"],
+            ["GOG Galaxy", "gog"],
             ["Ubisoft Connect", "ubisoft"],
             ["Star Citizen", "starcitizen"],
             ["Minecraft Java", "minecraft"],
@@ -173,6 +174,7 @@ Window {
         return launcherId === "battlenet"
             || launcherId === "rockstar"
             || launcherId === "epic"
+            || launcherId === "gog"
             || launcherId === "ubisoft"
             || launcherId === "starcitizen"
             || launcherId === "minecraft"

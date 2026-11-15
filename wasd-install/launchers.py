@@ -29,6 +29,7 @@ GAMES_DIRS = (
     "ubisoft",
     "rockstar",
     "epic",
+    "gog",
     "minecraft",
     "minecraft-bedrock",
     "minecraft-modded",
@@ -116,6 +117,16 @@ _EPIC_PROGRAMS = (
     ("drive_c", "Program Files", "Epic Games", "Launcher", "Portal", "Binaries", "Win64", "EpicGamesLauncher.exe"),
     ("drive_c", "Program Files", "Epic Games", "Launcher", "Portal", "Binaries", "Win32", "EpicGamesLauncher.exe"),
 )
+# The Windows button on https://www.gog.com/galaxy. The file is GOG's web
+# installer and it fetches the current client. The Linux client is not the
+# program this address serves.
+_GOG_SETUP = "https://webinstallers.gog-statics.com/download/GOG_Galaxy_2.0.exe"
+# The current installer is 64-bit and uses Program Files. An older client
+# is under Program Files (x86). GalaxyClient.exe sits beside the Games folder.
+_GOG_PROGRAMS = (
+    ("drive_c", "Program Files", "GOG Galaxy", "GalaxyClient.exe"),
+    ("drive_c", "Program Files (x86)", "GOG Galaxy", "GalaxyClient.exe"),
+)
 
 
 CATALOG = {
@@ -143,6 +154,19 @@ CATALOG = {
         # inside, it is moved out. If it cannot be moved, the mount uses a
         # Games folder beside it.
         games_link=("drive_c", "Program Files", "Epic Games"),
+        mount_games=True,
+    ),
+    "GOG Galaxy": Launcher(
+        "gog",
+        _GOG_SETUP,
+        "GOG_Galaxy_2.0.exe",
+        _GOG_PROGRAMS[0],
+        programs=_GOG_PROGRAMS[1:],
+        # Games go in the client's Games folder. That copy fails through a
+        # link, and D: is a link, so this folder is mounted instead. The
+        # client stays beside it. Mounting the client folder would hide
+        # GalaxyClient.exe.
+        games_link=("drive_c", "Program Files", "GOG Galaxy", "Games"),
         mount_games=True,
     ),
     "Ubisoft Connect": Launcher(
@@ -640,12 +664,74 @@ def _prepare_game_mount(folder, parts, target):
         raise LauncherError("The games drive could not be prepared.")
 
 
+# Present in the id library once bubblewrap is left with its namespace id.
+_NOROOT_MARKER = b"wasd-noroot-keeps-bwrap"
+
+
+def _library_keeps_bwrap(path):
+    path = Path(path)
+    try:
+        if path.is_symlink() or not path.is_file():
+            return False
+        return _NOROOT_MARKER in path.read_bytes()
+    except OSError:
+        return False
+
+
+def _noroot_source():
+    return Path(__file__).resolve().parent.parent / "build_files" / "wasd-noroot.c"
+
+
+def _build_noroot(dest):
+    """Compile the id library that leaves bubblewrap its real id."""
+    source = _noroot_source()
+    dest = Path(dest)
+    gcc = shutil.which("gcc")
+    if gcc is None or source.is_symlink() or not source.is_file() or dest.is_symlink():
+        return None
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    temporary = dest.with_name(dest.name + ".tmp")
+    if temporary.is_symlink() or temporary.exists():
+        try:
+            temporary.unlink()
+        except OSError:
+            return None
+    result = subprocess.run(
+        [gcc, "-O2", "-shared", "-fPIC", "-o", str(temporary), str(source)],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0 or not _library_keeps_bwrap(temporary):
+        temporary.unlink(missing_ok=True)
+        return None
+    os.chmod(temporary, 0o755)
+    try:
+        os.replace(temporary, dest)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        return None
+    return dest
+
+
 def _noroot_library(home):
-    """The id library. The image copy wins. A local copy is the fallback."""
+    """The id library. A copy that leaves bubblewrap alone wins.
+
+    The image copy is used once it has that fix. Until then, a checkout
+    compiles the fixed library into this account's home.
+    """
     system = Path("/usr/libexec/wasd-noroot.so")
+    local = Path(home) / ".local/lib/wasd-noroot.so"
+    if _library_keeps_bwrap(system):
+        return system
+    if _library_keeps_bwrap(local):
+        return local
+    built = _build_noroot(local)
+    if built is not None:
+        return built
     if system.is_file() and not system.is_symlink():
         return system
-    return Path(home) / ".local/lib/wasd-noroot.so"
+    return local
 
 
 def _write_preload_list(home):
@@ -1364,8 +1450,12 @@ def _mounted_argv(argv, mounts, home=None, workdir=None):
         lines.append(
             "mount --bind " + shlex.quote(str(source)) + " " + shlex.quote(str(target))
         )
-    lines.append("so=/usr/libexec/wasd-noroot.so")
-    lines.append('if [ ! -f "$so" ]; then so="${HOME}/.local/lib/wasd-noroot.so"; fi')
+    library = _noroot_library(home) if home is not None else None
+    if library is not None:
+        lines.append("so=" + shlex.quote(str(library)))
+    else:
+        lines.append("so=/usr/libexec/wasd-noroot.so")
+        lines.append('if [ ! -f "$so" ]; then so="${HOME}/.local/lib/wasd-noroot.so"; fi')
     lines.append('if [ ! -f "$so" ]; then exit 1; fi')
     if preload is not None:
         lines.append(
@@ -3509,6 +3599,76 @@ def self_check():
             raise SystemExit("Epic remake put the games link back")
         if held.exists() or outside.exists():
             raise SystemExit("nuking Epic left the launcher program")
+        gog_prefix = layout(home, "GOG Galaxy", root)
+        gog = CATALOG["GOG Galaxy"]
+        gog_slot = gog_prefix.joinpath(*gog.games_link)
+        gog_games = root / "gog"
+        gog_client = gog_slot.parent
+        if gog_slot.is_symlink() or not gog_slot.is_dir() or any(gog_slot.iterdir()):
+            raise SystemExit("GOG games are behind a link")
+        if gog_client.name != "GOG Galaxy":
+            raise SystemExit("GOG mounted the client folder")
+        (gog_games / "keep.txt").write_text("game\n", encoding="utf-8")
+        gog_slot.rmdir()
+        gog_slot.symlink_to(gog_games)
+        (gog_prefix / "system.reg").write_text("WINE REGISTRY Version 2\n", encoding="utf-8")
+        calls.clear()
+        before_fetches = len(fetches)
+        install_launcher(home, "GOG Galaxy", runner, fetch, root)
+        if fetches[before_fetches:] != [gog.setup_url]:
+            raise SystemExit(f"GOG did not use the published setup: {fetches[before_fetches:]}")
+        if gog_slot.is_symlink() or not gog_slot.is_dir() or any(gog_slot.iterdir()):
+            raise SystemExit("GOG left the games folder as a link")
+        if (gog_games / "keep.txt").read_text(encoding="utf-8") != "game\n":
+            raise SystemExit("GOG setup disturbed the games folder")
+        mounted = "\n".join(str(part) for part in calls[-1][0])
+        if (
+            "mount --bind" not in mounted
+            or str(gog_games) not in mounted
+            or shlex.quote(str(gog_slot)) not in mounted
+            or shlex.quote(str(gog_client)) in mounted
+        ):
+            raise SystemExit(f"GOG was not mounted on its games folder: {calls[-1][0]}")
+        if "wineboot" in calls[-1][0] or not calls[-1][0][-1].endswith("GOG_Galaxy_2.0.exe"):
+            raise SystemExit(f"GOG did not open its setup: {calls[-1][0]}")
+        if any(item in calls[-1][0] for item in BANNED_ARGS):
+            raise SystemExit("GOG was silenced")
+        client = gog_client / "GalaxyClient.exe"
+        client.write_bytes(b"MZ")
+        ensure_links(gog_prefix, gog_games, root / "saves" / "gog", home.name, gog, home)
+        drive = gog_prefix / "dosdevices" / "d:"
+        if not client.is_file() or client.is_symlink() or client.read_bytes() != b"MZ":
+            raise SystemExit("GOG hid its client behind the games folder")
+        if gog_slot.is_symlink() or any(gog_slot.iterdir()):
+            raise SystemExit("GOG mounted over its client")
+        if (gog_games / "keep.txt").read_text(encoding="utf-8") != "game\n":
+            raise SystemExit("GOG setup deleted the game")
+        if not drive.is_symlink() or drive.resolve() != gog_games.resolve():
+            raise SystemExit("GOG lost the games drive")
+        calls.clear()
+        launch_installed(home, "GOG Galaxy", runner, root)
+        mounted = "\n".join(str(part) for part in calls[-1][0])
+        if shlex.quote(str(gog_slot)) not in mounted or str(client) not in mounted:
+            raise SystemExit(f"GOG did not open the client outside the mount: {calls[-1][0]}")
+        if shlex.quote(str(gog_client)) in mounted:
+            raise SystemExit("GOG mounted the folder that holds its client")
+        client.unlink()
+        older = gog_prefix / "drive_c" / "Program Files (x86)" / "GOG Galaxy" / "GalaxyClient.exe"
+        older.parent.mkdir(parents=True)
+        older.write_bytes(b"MZ")
+        calls.clear()
+        launch_installed(home, "GOG Galaxy", runner, root)
+        if not str(calls[-1][0][-1]).endswith(str(older)):
+            raise SystemExit(f"GOG ignored the older client: {calls[-1][0]}")
+        if shlex.quote(str(gog_slot)) not in "\n".join(str(part) for part in calls[-1][0]):
+            raise SystemExit("GOG stopped mounting the games folder")
+        nuke(home, "GOG Galaxy", root)
+        if (gog_games / "keep.txt").read_text(encoding="utf-8") != "game\n":
+            raise SystemExit("nuking GOG deleted the games folder")
+        if gog_slot.is_symlink() or any(gog_slot.iterdir()):
+            raise SystemExit("GOG remake put the games link back")
+        if client.exists() or older.exists():
+            raise SystemExit("nuking GOG left the client")
         download = home / "Downloads"
         download.mkdir()
         chosen = download / "MyGame.exe"
@@ -3913,6 +4073,19 @@ def self_check():
         raise SystemExit("an older games drive would be refused")
     if not offers_reinstall(epic_row):
         raise SystemExit("Epic would hide Reinstall")
+    gog_row = CATALOG["GOG Galaxy"]
+    if gog_row.native or not gog_row.mount_games:
+        raise SystemExit("GOG would copy through a link")
+    if gog_row.games_link != ("drive_c", "Program Files", "GOG Galaxy", "Games"):
+        raise SystemExit("GOG would copy through a link")
+    if gog_row.program != _GOG_PROGRAMS[0] or gog_row.programs != _GOG_PROGRAMS[1:]:
+        raise SystemExit("GOG would not find its client")
+    if gog_row.setup_url != _GOG_SETUP or gog_row.setup_name != "GOG_Galaxy_2.0.exe":
+        raise SystemExit("GOG is not the Windows installer")
+    if "gog" not in GAMES_DIRS or "gog" in _READY_DIRS:
+        raise SystemExit("an older games drive would be refused")
+    if not offers_reinstall(gog_row):
+        raise SystemExit("GOG would hide Reinstall")
     sample = "version: 2.19.1\npath: RSI Launcher-Setup-2.19.1.exe\n"
     if rsi_setup_url(sample) != "https://install.robertsspaceindustries.com/rel/2/RSI%20Launcher-Setup-2.19.1.exe":
         raise SystemExit("Star Citizen did not use the published setup")
@@ -4019,6 +4192,87 @@ def self_check():
         (tree / ".wasd-extract").write_text("wasd-curse-1 stale\n", encoding="utf-8")
         if _extract_curseforge(kept) is not None:
             raise SystemExit("CurseForge trusted a stale extract")
+    with tempfile.TemporaryDirectory(prefix="wasd-noroot-") as noroot_tmp:
+        library = _noroot_library(Path(noroot_tmp))
+        if not _library_keeps_bwrap(library):
+            raise SystemExit("bubblewrap would see the wrong account id")
+        source = _noroot_source().read_text(encoding="utf-8")
+        if "is_bubblewrap" not in source or "srt-bwrap" not in source:
+            raise SystemExit("bubblewrap would see the wrong account id")
+        gcc = shutil.which("gcc")
+        if gcc is None or shutil.which("unshare") is None or shutil.which("bwrap") is None:
+            raise SystemExit("bubblewrap would see the wrong account id")
+        uid_src = Path(noroot_tmp) / "uid.c"
+        uid_bin = Path(noroot_tmp) / "uid"
+        uid_src.write_text(
+            "#include <stdio.h>\n#include <unistd.h>\n"
+            "int main(void){printf(\"%u\\n\", getuid());return 0;}\n",
+            encoding="utf-8",
+        )
+        built = subprocess.run(
+            [gcc, "-O2", "-o", str(uid_bin), str(uid_src)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if built.returncode != 0:
+            raise SystemExit("bubblewrap would see the wrong account id")
+
+        def shown_uid(argv0):
+            probe = subprocess.run(
+                [
+                    "unshare",
+                    "--user",
+                    "--mount",
+                    "--map-root-user",
+                    "--propagation",
+                    "private",
+                    "--",
+                    "bash",
+                    "-c",
+                    'export WASD_EUID=1000\nexport LD_PRELOAD="$1"\nexec -a "$2" "$3"\n',
+                    "bash",
+                    str(library),
+                    argv0,
+                    str(uid_bin),
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if probe.returncode != 0:
+                raise SystemExit(
+                    "bubblewrap would see the wrong account id: " + probe.stderr.strip()
+                )
+            return probe.stdout.strip()
+
+        if shown_uid("umu-run") != "1000":
+            raise SystemExit("umu would see the namespace id")
+        wrapped = subprocess.run(
+            [
+                "unshare",
+                "--user",
+                "--mount",
+                "--map-root-user",
+                "--propagation",
+                "private",
+                "--",
+                "bash",
+                "-c",
+                'export WASD_EUID=1000\nexport LD_PRELOAD="$1"\n'
+                'exec -a /var/lib/umu/srt-bwrap /usr/bin/bwrap --dev-bind / / -- true\n',
+                "bash",
+                str(library),
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if wrapped.returncode != 0:
+            raise SystemExit("bubblewrap would see the wrong account id: " + wrapped.stderr.strip())
     print("launchers self-check ok")
 
 

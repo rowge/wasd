@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Kitten Cannon
+Comment=Open the game in the browser
+Exec=xdg-open https://www.newgrounds.com/portal/view/228520
+Icon=applications-games
+Terminal=false
+Type=Application
+Categories=Game;X-WASD-FreeOnline;
+StartupNotify=false

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Line Rider
+Comment=Open the game in the browser
+Exec=xdg-open https://www.linerider.com/
+Icon=applications-games
+Terminal=false
+Type=Application
+Categories=Game;X-WASD-FreeOnline;
+StartupNotify=false
