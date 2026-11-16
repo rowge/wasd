@@ -84,7 +84,7 @@ sudoif command *args:
 # The script constructs the version string using the tag and the current date.
 # If the git working directory is clean, it also includes the short SHA of the current HEAD.
 #
-# just build $target_image $tag
+# just build $target_image $tag $variant $channel
 #
 # Example usage:
 #   just build myimage mytag
@@ -93,7 +93,7 @@ sudoif command *args:
 #
 
 # Build the image using the specified parameters
-build $target_image=image_name $tag=default_tag $variant="amd":
+build $target_image=image_name $tag=default_tag $variant="amd" $channel="":
     #!/usr/bin/env bash
 
     set -euox pipefail
@@ -105,6 +105,13 @@ build $target_image=image_name $tag=default_tag $variant="amd":
             exit 1
             ;;
     esac
+    case "$channel" in
+        "" | normal | hardcore) ;;
+        *)
+            echo "channel must be normal or hardcore, got: ${channel}" >&2
+            exit 1
+            ;;
+    esac
     base=$(awk -F= -v key="${variant}_base" '$1 == key { print substr($0, index($0, "=") + 1); exit }' images.env)
     if [[ ! $base =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]]; then
         echo "images.env has no pin for ${variant}" >&2
@@ -113,6 +120,9 @@ build $target_image=image_name $tag=default_tag $variant="amd":
     echo "Building ${target_image} from ${base}"
 
     BUILD_ARGS=("--build-arg" "BASE_IMAGE=${base}")
+    if [[ -n $channel ]]; then
+        BUILD_ARGS+=("--build-arg" "WASD_CHANNEL=${channel}")
+    fi
     LABELS=()
     if [[ -z "$(git status -s)" ]]; then
         GIT_SHA=$(git rev-parse --short HEAD)

@@ -764,6 +764,40 @@ if grep -q 'org.mozilla.firefox' /usr/share/wasd/flatpaks /usr/share/ublue-os/ba
     exit 1
 fi
 
+# Impact and Impact Condensed are Monotype faces. Hardcore installs Anton,
+# which is under the SIL Open Font License, and fontconfig answers those
+# two names with it. The family name stays Anton. Any other channel leaves
+# this font out.
+if [[ ${WASD_CHANNEL:-} == hardcore ]]; then
+    install -d /usr/share/fonts/anton /usr/share/licenses/anton /usr/share/fontconfig/conf.avail
+    install -m 644 /ctx/fonts/Anton-Regular.ttf /usr/share/fonts/anton/Anton-Regular.ttf
+    install -m 644 /ctx/fonts/OFL.txt /usr/share/licenses/anton/OFL.txt
+    install -m 644 /ctx/fonts/65-wasd-impact.conf /usr/share/fontconfig/conf.avail/65-wasd-impact.conf
+    ln -sfn /usr/share/fontconfig/conf.avail/65-wasd-impact.conf /etc/fonts/conf.d/65-wasd-impact.conf
+    anton_family=$(fc-scan --format '%{family}' /usr/share/fonts/anton/Anton-Regular.ttf)
+    if [[ $anton_family != Anton ]]; then
+        echo "Anton-Regular.ttf family is ${anton_family}" >&2
+        exit 1
+    fi
+    fc-cache -f /usr/share/fonts/anton
+    impact_match=$(fc-match -f '%{file} %{family}' 'Impact Condensed')
+    plain_match=$(fc-match -f '%{file} %{family}' Impact)
+    if [[ $impact_match != '/usr/share/fonts/anton/Anton-Regular.ttf Anton' ]]; then
+        echo "Impact Condensed matched ${impact_match}" >&2
+        exit 1
+    fi
+    if [[ $plain_match != '/usr/share/fonts/anton/Anton-Regular.ttf Anton' ]]; then
+        echo "Impact matched ${plain_match}" >&2
+        exit 1
+    fi
+elif [[ -n ${WASD_CHANNEL:-} && ${WASD_CHANNEL} != normal ]]; then
+    echo "WASD_CHANNEL must be normal or hardcore, got: ${WASD_CHANNEL}" >&2
+    exit 1
+elif [[ -e /usr/share/fonts/anton/Anton-Regular.ttf || -e /etc/fonts/conf.d/65-wasd-impact.conf ]]; then
+    echo "Anton is installed on a channel other than hardcore" >&2
+    exit 1
+fi
+
 # The rechunk reads user.component and puts each name in its own layer,
 # ahead of the package groups. The names stay fixed across builds.
 python3 - << 'PY'
