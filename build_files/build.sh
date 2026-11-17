@@ -287,7 +287,8 @@ rm -rf /usr/share/applications/Waydroid
 # matching. image-info.json keeps the base image name, so the NVIDIA
 # build still says nvidia and the AMD build does not. WASD Updater reads
 # the last eight digits of its version and calls that Last Update, so that
-# date is the Pacific day this image is built, not the Bazzite pin.
+# date is the Pacific day this image is built, not the Bazzite pin. A pin
+# may add .N after that date. The suffix is not part of the updater date.
 sed -i 's/^NAME=.*/NAME="WASD"/' /usr/lib/os-release
 sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="WASD"/' /usr/lib/os-release
 if grep -q '^BOOTLOADER_NAME=' /usr/lib/os-release; then
@@ -302,41 +303,52 @@ built=$(TZ=America/Los_Angeles date +%Y%m%d)
 python3 - "$built" << 'PY'
 import json
 import pathlib
+import re
 import sys
 
 built = sys.argv[1]
+if not re.fullmatch(r"\d{8}", built):
+    raise SystemExit(f"build day is not a date: {built}")
 info_path = pathlib.Path("/usr/share/ublue-os/image-info.json")
 release_path = pathlib.Path("/usr/lib/os-release")
 info = json.loads(info_path.read_text())
 name = info.get("image-name", "")
 version = info.get("version", "")
-fedora, dot, old = version.partition(".")
-if (
-    not name
-    or not dot
-    or not fedora.isdigit()
-    or len(old) != 8
-    or not old.isdigit()
-):
+match = re.fullmatch(r"(\d+)\.(\d{8})(?:\.\d+)?", version)
+if not name or match is None:
     raise SystemExit(f"image version is not a dated pin: {version}")
+fedora, old = match.group(1), match.group(2)
+pin = version
 pretty = info.get("version-pretty", "")
 if old not in pretty:
     raise SystemExit(f"version-pretty does not contain {old}")
 release = release_path.read_text()
 if old not in release:
     raise SystemExit("os-release has no pin date")
+
+def stamp(text):
+    # The full pin first, so 20261117.1 does not become 20261118.1.
+    stamped = re.sub(re.escape(pin) + r"(?!\d)", f"{fedora}.{built}", text)
+    if old != built:
+        stamped = re.sub(r"(?<!\d)" + re.escape(old) + r"(?!\.?\d)", built, stamped)
+    return stamped
+
 info["version"] = f"{fedora}.{built}"
-info["version-pretty"] = pretty.replace(old, built)
+info["version-pretty"] = stamp(pretty)
 info_path.write_text(json.dumps(info, indent=2) + "\n")
-release_path.write_text(release.replace(old, built))
+release_path.write_text(stamp(release))
 written = json.loads(info_path.read_text())
 if written.get("version") != f"{fedora}.{built}" or written.get("image-name") != name:
     raise SystemExit("the image name or build date was not kept")
-if built not in release_path.read_text():
+release_text = release_path.read_text()
+info_text = info_path.read_text()
+if built not in release_text:
     raise SystemExit("os-release has no build date")
 # A build on the same Pacific day as the Bazzite pin keeps that date.
-# That date is the build day.
-if old != built and (old in info_path.read_text() or old in release_path.read_text()):
+# That date is the build day. A trailing .N is not part of it.
+if pin != f"{fedora}.{built}" and (pin in info_text or pin in release_text):
+    raise SystemExit("the updater date is still the Bazzite pin")
+if old != built and (old in info_text or old in release_text):
     raise SystemExit("the updater date is still the Bazzite pin")
 PY
 
