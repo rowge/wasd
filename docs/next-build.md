@@ -16,7 +16,7 @@ Both images in this tree use Bazzite stable 45.20261117.1, created 2026-11-17. T
 
 Hardcore installs Anton, from the Anton project under the SIL Open Font License, and keeps that license in the image. Fontconfig answers a request for Impact Condensed or Impact with Anton. The family name stays Anton. Impact and Impact Condensed are Monotype faces, so those font files are not in the image. The install runs only when the build channel is hardcore. A normal build of this tree leaves Anton out.
 
-Spawn is a row in Install WASD and WASD Launchers. It starts unchecked. Install downloads the Linux AppImage Spawn publishes and opens that program. The image does not contain the file. Games stay on Spawn's servers. The folder is `/games/spawn`. Reinstall hides after install. The site does not list Spawn.
+Spawn is a row in Install WASD and WASD Launchers. It starts unchecked. Install downloads the Linux AppImage Spawn publishes and opens that program. The image does not contain the file. Games stay on Spawn's servers. The folder is `/games/spawn`. Reinstall hides after install. The site does not list Spawn. The sign-in test opens this row and stops when the Spawn window is up. It does not type a password.
 
 GOG Galaxy keeps its games in `/games/gog`. That folder is mounted on `C:\Program Files\GOG Galaxy\Games`, beside GalaxyClient.exe, so a game copies into a real directory. D: stays a link. An older client under Program Files (x86) still opens. WASD downloads the installer from the Windows button on gog.com/galaxy and opens that window with umu. No silent switch is passed. Reinstall stays.
 
