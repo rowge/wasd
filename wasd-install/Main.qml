@@ -131,7 +131,8 @@ Window {
         "Battle.net", "Rockstar Launcher", "Epic Games", "GOG Galaxy", "Ubisoft Connect",
         "Star Citizen", "Minecraft Java", "Minecraft Bedrock",
         "FTB (modded Minecraft)", "PolyMC (modded Minecraft)",
-        "MultiMC (modded Minecraft)", "CurseForge (modded Minecraft)"
+        "MultiMC (modded Minecraft)", "CurseForge (modded Minecraft)",
+        "Spawn"
     ]
 
     readonly property var iconFiles: files.icons || []

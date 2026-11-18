@@ -56,7 +56,8 @@ Window {
             ["FTB (modded Minecraft)", "ftb"],
             ["PolyMC (modded Minecraft)", "minecraft-modded"],
             ["MultiMC (modded Minecraft)", "multimc"],
-            ["CurseForge (modded Minecraft)", "curseforge"]
+            ["CurseForge (modded Minecraft)", "curseforge"],
+            ["Spawn", "spawn"]
         ]
         for (let i = 0; i < rows.length; i++) {
             launcherModel.append({
