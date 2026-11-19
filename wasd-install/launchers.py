@@ -3937,9 +3937,19 @@ def self_check():
     main = (here / "Main.qml").read_text(encoding="utf-8")
     window = (here / "Complete.qml").read_text(encoding="utf-8")
     launch = (here / "Launchers.qml").read_text(encoding="utf-8")
-    order = [page.index('text: "General"'), page.index('text: "Launchers"'), page.index('text: "Agents"')]
+    order = [
+        page.index('text: "General"'),
+        page.index('text: "Games"'),
+        page.index('text: "Emulators"'),
+        page.index('text: "Launchers"'),
+        page.index('text: "Agents"'),
+    ]
     if order != sorted(order) or 'text: "Apps"' not in page:
-        raise SystemExit("the groups are not General, Launchers, Agents under Apps")
+        raise SystemExit("the groups are not General, Games, Emulators, Launchers, Agents under Apps")
+    if "selectAllGames" not in page or "selectNoneGames" not in page:
+        raise SystemExit("Games has no select all")
+    if "selectAllEmulators" not in page or "selectNoneEmulators" not in page:
+        raise SystemExit("Emulators has no select all")
     if "selectAllLaunchers" not in page or "selectNoneLaunchers" not in page:
         raise SystemExit("Launchers has no select all")
     if "Installing the launchers." not in window or 'status === "Installing what you checked."' not in window:

@@ -5,5 +5,5 @@ Exec=xdg-open https://www.linerider.com/
 Icon=applications-games
 Terminal=false
 Type=Application
-Categories=Game;X-WASD-FreeOnline;
+Categories=Game;X-WASD-BrowserGames;
 StartupNotify=false

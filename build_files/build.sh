@@ -546,20 +546,118 @@ test -x /usr/bin/wasd-launchers
 test -s /usr/share/applications/wasd-launchers.desktop
 test -s /usr/share/applications/wasd-starship.desktop
 grep -q 'https://starshipthegame.spacex.com/' /usr/share/applications/wasd-starship.desktop
-grep -q '^Categories=Game;$' /usr/share/applications/wasd-starship.desktop
-grep -q '<Filename>wasd-starship.desktop</Filename>' /etc/xdg/menus/applications-merged/wasd-free-online.menu
+grep -q '^Categories=Game;X-WASD-BrowserGames;$' /usr/share/applications/wasd-starship.desktop
 test -s /usr/share/applications/wasd-kitten-cannon.desktop
 grep -q 'https://www.newgrounds.com/portal/view/228520' /usr/share/applications/wasd-kitten-cannon.desktop
-grep -q '^Categories=Game;X-WASD-FreeOnline;$' /usr/share/applications/wasd-kitten-cannon.desktop
+grep -q '^Categories=Game;X-WASD-BrowserGames;$' /usr/share/applications/wasd-kitten-cannon.desktop
 test -s /usr/share/applications/wasd-qwop.desktop
 grep -q 'https://www.foddy.net/legacy/Athletics.html' /usr/share/applications/wasd-qwop.desktop
-grep -q '^Categories=Game;X-WASD-FreeOnline;$' /usr/share/applications/wasd-qwop.desktop
+grep -q '^Categories=Game;X-WASD-BrowserGames;$' /usr/share/applications/wasd-qwop.desktop
 test -s /usr/share/applications/wasd-line-rider.desktop
 grep -q 'https://www.linerider.com/' /usr/share/applications/wasd-line-rider.desktop
-grep -q '^Categories=Game;X-WASD-FreeOnline;$' /usr/share/applications/wasd-line-rider.desktop
-test -s /usr/share/desktop-directories/wasd-free-online.directory
-grep -q '^Name=Free online$' /usr/share/desktop-directories/wasd-free-online.directory
-test -s /etc/xdg/menus/applications-merged/wasd-free-online.menu
+grep -q '^Categories=Game;X-WASD-BrowserGames;$' /usr/share/applications/wasd-line-rider.desktop
+test -s /usr/share/desktop-directories/wasd-browser-games.directory
+grep -q '^Name=Browser games$' /usr/share/desktop-directories/wasd-browser-games.directory
+test -s /usr/share/desktop-directories/wasd-real-games.directory
+grep -q '^Name=Real Games$' /usr/share/desktop-directories/wasd-real-games.directory
+test -s /etc/xdg/menus/applications-merged/wasd-games.menu
+grep -q '<Menuname>BrowserGames</Menuname>' /etc/xdg/menus/applications-merged/wasd-games.menu
+grep -q '<Menuname>RealGames</Menuname>' /etc/xdg/menus/applications-merged/wasd-games.menu
+grep -q '<Menuname>Emulators</Menuname>' /etc/xdg/menus/applications-merged/wasd-games.menu
+test -s /usr/share/desktop-directories/wasd-emulators.directory
+grep -q '^Name=Emulators$' /usr/share/desktop-directories/wasd-emulators.directory
+menu_order=$(grep -o '<Menuname>[^<]*</Menuname>' /etc/xdg/menus/applications-merged/wasd-games.menu | tr '\n' ' ')
+if [ "$menu_order" != "<Menuname>BrowserGames</Menuname> <Menuname>RealGames</Menuname> <Menuname>Emulators</Menuname> " ]; then
+    echo "the Games menu folders are out of order: ${menu_order}" >&2
+    exit 1
+fi
+for desktop in \
+    io.itch.itch.desktop \
+    com.play0ad.zeroad.desktop \
+    org.openttd.OpenTTD.desktop \
+    net.supertuxkart.SuperTuxKart.desktop \
+    org.luanti.luanti.desktop \
+    org.wesnoth.Wesnoth.desktop \
+    org.freeciv.sdl2.desktop
+do
+    if ! grep -q "<Filename>${desktop}</Filename>" /etc/xdg/menus/applications-merged/wasd-games.menu; then
+        echo "Real Games is missing ${desktop}" >&2
+        exit 1
+    fi
+done
+for desktop in \
+    org.libretro.RetroArch.desktop \
+    org.DolphinEmu.dolphin-emu.desktop \
+    net.pcsx2.PCSX2.desktop \
+    net.rpcs3.RPCS3.desktop
+do
+    if ! grep -q "<Filename>${desktop}</Filename>" /etc/xdg/menus/applications-merged/wasd-games.menu; then
+        echo "Emulators is missing ${desktop}" >&2
+        exit 1
+    fi
+done
+grep -q 'X-WASD-BrowserGames' /etc/xdg/menus/applications-merged/wasd-games.menu
+grep -q 'X-WASD-RealGames' /etc/xdg/menus/applications-merged/wasd-games.menu
+grep -q '<Name>Arcade</Name>' /etc/xdg/menus/applications-merged/wasd-games.menu
+grep -q '<Name>TacticStrategy</Name>' /etc/xdg/menus/applications-merged/wasd-games.menu
+if grep -q 'wasd-starship.desktop' /etc/xdg/menus/applications-merged/wasd-games.menu; then
+    echo "Starship is still pinned outside Browser games" >&2
+    exit 1
+fi
+if grep -q 'Free online\|X-WASD-FreeOnline\|wasd-free-online' \
+    /etc/xdg/menus/applications-merged/wasd-games.menu \
+    /usr/share/desktop-directories/wasd-browser-games.directory \
+    /usr/share/applications/wasd-starship.desktop \
+    /usr/share/applications/wasd-kitten-cannon.desktop \
+    /usr/share/applications/wasd-qwop.desktop \
+    /usr/share/applications/wasd-line-rider.desktop
+then
+    echo "the Games menu still has the Free online folder" >&2
+    exit 1
+fi
+python3 - << 'PY'
+import re
+from pathlib import Path
+qml = Path("/usr/share/wasd/install/Main.qml").read_text()
+apps = Path("/usr/libexec/apps.py").read_text()
+
+def listed(name):
+    match = re.search(rf"readonly property var {name}: \[(.*?)\]", qml, re.S)
+    if not match:
+        raise SystemExit(f"missing {name}")
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+games = [
+    ("itch.io", "io.itch.itch"),
+    ("0 A.D.", "com.play0ad.zeroad"),
+    ("OpenTTD", "org.openttd.OpenTTD"),
+    ("SuperTuxKart", "net.supertuxkart.SuperTuxKart"),
+    ("Luanti", "org.luanti.luanti"),
+    ("Battle for Wesnoth", "org.wesnoth.Wesnoth"),
+    ("Freeciv", "org.freeciv.sdl2"),
+]
+emulators = [
+    ("RetroArch", "org.libretro.RetroArch"),
+    ("Dolphin", "org.DolphinEmu.dolphin-emu"),
+    ("PCSX2", "net.pcsx2.PCSX2"),
+    ("RPCS3", "net.rpcs3.RPCS3"),
+]
+if list(zip(listed("gameNames"), listed("gameIds"))) != games:
+    raise SystemExit("Games is not the game list")
+if list(zip(listed("emulatorNames"), listed("emulatorIds"))) != emulators:
+    raise SystemExit("Emulators is not the emulator list")
+general = set(listed("appIds"))
+for label, app_id in games + emulators:
+    if app_id in general or label in listed("appNames"):
+        raise SystemExit(f"{label} is still in General")
+    needle = f'"{app_id}": "{label}"'
+    if needle not in apps:
+        raise SystemExit(f"{label} is missing from the app names")
+if 'const order = ["general", "games", "emulators", "launchers", "agents"]' not in qml:
+    raise SystemExit("Next does not walk Games and Emulators")
+if "gameOn[gameNames[g]]" not in qml or "emulatorOn[emulatorNames[e]]" not in qml:
+    raise SystemExit("checked games and emulators are not installed")
+PY
 test -s /usr/libexec/launchers.py
 test -s /usr/share/polkit-1/actions/org.wasd.look.policy
 test -s /usr/share/wasd/install/Main.qml
@@ -675,6 +773,18 @@ fi
 grep -q '/var/mnt:ro' /etc/flatpak/overrides/com.brave.Browser
 grep -q 'xdg-pictures:ro' /etc/flatpak/overrides/com.brave.Browser
 grep -q '^org.kde.kwalletd6=talk$' /etc/flatpak/overrides/im.riot.Riot
+for emu in \
+    org.libretro.RetroArch \
+    org.DolphinEmu.dolphin-emu \
+    net.pcsx2.PCSX2 \
+    net.rpcs3.RPCS3
+do
+    override="/etc/flatpak/overrides/${emu}"
+    test -s "$override"
+    grep -q '/games:ro' "$override"
+    grep -q 'xdg-documents:ro' "$override"
+    grep -q 'xdg-download:ro' "$override"
+done
 grep -q '^First Use=false$' /etc/xdg/kwalletrc
 test ! -e /etc/skel/.ssh/authorized_keys
 test ! -e /etc/ssh/sshd_config.d/50-wasd-test.conf
@@ -730,6 +840,17 @@ for gone in \
     app/io.github.flattool.Warehouse/ \
     app/com.vysp3r.ProtonPlus/ \
     app/org.gnome.Firmware/ \
+    app/io.itch.itch/ \
+    app/com.play0ad.zeroad/ \
+    app/org.openttd.OpenTTD/ \
+    app/net.supertuxkart.SuperTuxKart/ \
+    app/org.luanti.luanti/ \
+    app/org.wesnoth.Wesnoth/ \
+    app/org.freeciv.sdl2/ \
+    app/org.libretro.RetroArch/ \
+    app/org.DolphinEmu.dolphin-emu/ \
+    app/net.pcsx2.PCSX2/ \
+    app/net.rpcs3.RPCS3/ \
     runtime/com.obsproject.Studio.Plugin.OBSVkCapture/ \
     runtime/com.obsproject.Studio.Plugin.Gstreamer/ \
     runtime/com.obsproject.Studio.Plugin.GStreamerVaapi/ \
@@ -761,6 +882,17 @@ for gone in \
     io.github.flattool.Warehouse \
     com.vysp3r.ProtonPlus \
     org.gnome.Firmware \
+    io.itch.itch \
+    com.play0ad.zeroad \
+    org.openttd.OpenTTD \
+    net.supertuxkart.SuperTuxKart \
+    org.luanti.luanti \
+    org.wesnoth.Wesnoth \
+    org.freeciv.sdl2 \
+    org.libretro.RetroArch \
+    org.DolphinEmu.dolphin-emu \
+    net.pcsx2.PCSX2 \
+    net.rpcs3.RPCS3 \
     com.obsproject.Studio.Plugin.OBSVkCapture \
     com.obsproject.Studio.Plugin.Gstreamer \
     com.obsproject.Studio.Plugin.GStreamerVaapi \
@@ -905,8 +1037,10 @@ CLEAR_FILES = (
     "/usr/share/applications/wasd-kitten-cannon.desktop",
     "/usr/share/applications/wasd-qwop.desktop",
     "/usr/share/applications/wasd-line-rider.desktop",
-    "/usr/share/desktop-directories/wasd-free-online.directory",
-    "/etc/xdg/menus/applications-merged/wasd-free-online.menu",
+    "/usr/share/desktop-directories/wasd-browser-games.directory",
+    "/usr/share/desktop-directories/wasd-real-games.directory",
+    "/usr/share/desktop-directories/wasd-emulators.directory",
+    "/etc/xdg/menus/applications-merged/wasd-games.menu",
     "/usr/share/wasd/wasd-logo.png",
     "/usr/share/wasd/flatpaks",
     "/usr/share/plasma/look-and-feel/com.valve.vapor.desktop/contents/splash/images/wasd_logo.png",

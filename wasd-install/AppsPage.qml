@@ -233,6 +233,250 @@ Item {
                 height: 48
 
                 Text {
+                    id: gameTri
+                    anchors.left: parent.left
+                    anchors.leftMargin: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: host.appsOpen === "games" ? "▾" : "▸"
+                    color: host.muted
+                    font.pixelSize: 16
+                }
+
+                Text {
+                    id: gameLabel
+                    anchors.left: gameTri.right
+                    anchors.leftMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Games"
+                    color: host.ink
+                    font.family: host.bodyFont
+                    font.pixelSize: 18
+                }
+
+                Text {
+                    anchors.left: gameLabel.right
+                    anchors.right: parent.right
+                    anchors.leftMargin: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: host.appsOpen !== "games"
+                    text: host.gameSummary
+                    color: host.muted
+                    font.family: host.bodyFont
+                    font.pixelSize: 14
+                    elide: Text.ElideRight
+                    horizontalAlignment: Text.AlignRight
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: host.openApps("games")
+                }
+            }
+
+            Column {
+                width: parent.width
+                visible: host.appsOpen === "games"
+                leftPadding: 26
+                bottomPadding: 12
+                spacing: 12
+
+                Row {
+                    spacing: 8
+
+                    ChoiceButton {
+                        objectName: "selectAllGames"
+                        label: "Select All"
+                        host: page.host
+                        onClicked: host.selectAllGames()
+                    }
+
+                    ChoiceButton {
+                        objectName: "selectNoneGames"
+                        label: "Select None"
+                        host: page.host
+                        onClicked: host.selectNoneGames()
+                    }
+                }
+
+                Grid {
+                    width: parent.width - 26
+                    columns: 2
+                    columnSpacing: 24
+                    rowSpacing: 4
+
+                    Repeater {
+                        model: host.gameNames
+                        delegate: Item {
+                            required property string modelData
+                            width: (parent.width - 24) / 2
+                            height: 24
+
+                            Rectangle {
+                                id: mark
+                                width: 16
+                                height: 16
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: host.gameOn[modelData] ? host.brass : "transparent"
+                                border.width: 2
+                                border.color: host.gameOn[modelData] ? host.brass : host.muted
+                            }
+
+                            Text {
+                                anchors.left: mark.right
+                                anchors.leftMargin: 10
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData
+                                color: host.ink
+                                font.family: host.bodyFont
+                                font.pixelSize: 15
+                                elide: Text.ElideRight
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: host.toggleGame(modelData)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: host.line
+            }
+
+            Item {
+                width: parent.width
+                height: 48
+
+                Text {
+                    id: emulatorTri
+                    anchors.left: parent.left
+                    anchors.leftMargin: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: host.appsOpen === "emulators" ? "▾" : "▸"
+                    color: host.muted
+                    font.pixelSize: 16
+                }
+
+                Text {
+                    id: emulatorLabel
+                    anchors.left: emulatorTri.right
+                    anchors.leftMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Emulators"
+                    color: host.ink
+                    font.family: host.bodyFont
+                    font.pixelSize: 18
+                }
+
+                Text {
+                    anchors.left: emulatorLabel.right
+                    anchors.right: parent.right
+                    anchors.leftMargin: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: host.appsOpen !== "emulators"
+                    text: host.emulatorSummary
+                    color: host.muted
+                    font.family: host.bodyFont
+                    font.pixelSize: 14
+                    elide: Text.ElideRight
+                    horizontalAlignment: Text.AlignRight
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: host.openApps("emulators")
+                }
+            }
+
+            Column {
+                width: parent.width
+                visible: host.appsOpen === "emulators"
+                leftPadding: 26
+                bottomPadding: 12
+                spacing: 12
+
+                Row {
+                    spacing: 8
+
+                    ChoiceButton {
+                        objectName: "selectAllEmulators"
+                        label: "Select All"
+                        host: page.host
+                        onClicked: host.selectAllEmulators()
+                    }
+
+                    ChoiceButton {
+                        objectName: "selectNoneEmulators"
+                        label: "Select None"
+                        host: page.host
+                        onClicked: host.selectNoneEmulators()
+                    }
+                }
+
+                Grid {
+                    width: parent.width - 26
+                    columns: 2
+                    columnSpacing: 24
+                    rowSpacing: 4
+
+                    Repeater {
+                        model: host.emulatorNames
+                        delegate: Item {
+                            required property string modelData
+                            width: (parent.width - 24) / 2
+                            height: 24
+
+                            Rectangle {
+                                id: mark
+                                width: 16
+                                height: 16
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: host.emulatorOn[modelData] ? host.brass : "transparent"
+                                border.width: 2
+                                border.color: host.emulatorOn[modelData] ? host.brass : host.muted
+                            }
+
+                            Text {
+                                anchors.left: mark.right
+                                anchors.leftMargin: 10
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData
+                                color: host.ink
+                                font.family: host.bodyFont
+                                font.pixelSize: 15
+                                elide: Text.ElideRight
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: host.toggleEmulator(modelData)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: host.line
+            }
+
+            Item {
+                width: parent.width
+                height: 48
+
+                Text {
                     id: launcherTri
                     anchors.left: parent.left
                     anchors.leftMargin: 4
