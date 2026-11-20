@@ -240,6 +240,8 @@ def qml_app(save_path, shot_dir, live):
             ("look", {"page": 1, "lookOpen": ""}),
             ("look-open", {"page": 1, "lookOpen": "loading"}),
             ("apps", {"page": 2, "appsOpen": "general"}),
+            ("games", {"page": 2, "appsOpen": "games"}),
+            ("emulators", {"page": 2, "appsOpen": "emulators"}),
             ("launchers", {"page": 2, "appsOpen": "launchers"}),
             ("agents", {"page": 2, "appsOpen": "agents"}),
             ("system", {"page": 3, "networkOpen": False}),
@@ -403,7 +405,21 @@ def qml_app(save_path, shot_dir, live):
         if data["hostname"] != "wasd" or data["user"] != "alex" or data["password"] is not False:
             raise SystemExit(f"unexpected choices {data}")
         saved_ids = [app.get("id") for app in data.get("apps") or []]
-        if "com.brave.Browser" in saved_ids or len(saved_ids) != 23:
+        expected_ids = [
+            "com.discordapp.Discord", "im.riot.Riot", "com.heroicgameslauncher.hgl",
+            "com.usebottles.bottles", "com.obsproject.Studio", "io.github.benjamimgois.goverlay",
+            "com.github.wwmm.easyeffects", "org.freedesktop.Piper", "org.openrgb.OpenRGB",
+            "io.github.ilya_zlobintsev.LACT", "org.kde.gwenview", "org.kde.okular",
+            "org.kde.kcalc", "org.kde.haruna", "io.github.DenysMb.Kontainer",
+            "com.github.tchx84.Flatseal", "com.github.Matoking.protontricks",
+            "io.github.flattool.Warehouse", "com.vysp3r.ProtonPlus", "org.gnome.Firmware",
+            "org.videolan.VLC", "org.gimp.GIMP", "com.bitwarden.desktop",
+            "io.itch.itch", "com.play0ad.zeroad", "org.openttd.OpenTTD",
+            "net.supertuxkart.SuperTuxKart", "org.luanti.luanti", "org.wesnoth.Wesnoth",
+            "org.freeciv.sdl2", "org.libretro.RetroArch", "org.DolphinEmu.dolphin-emu",
+            "net.pcsx2.PCSX2", "net.rpcs3.RPCS3",
+        ]
+        if "com.brave.Browser" in saved_ids or saved_ids != expected_ids:
             raise SystemExit(f"the app list was {saved_ids}")
         if data.get("login") != "throne.jpg":
             raise SystemExit(f"login default was {data.get('login')}")
@@ -542,6 +558,10 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if window.property("appSummary") != "0 selected":
             raise SystemExit(f"apps were not cleared: {window.property('appSummary')}")
+        if window.property("gameSummary") != "itch.io, 0 A.D., OpenTTD, SuperTuxKart, Luanti, Battle for Wesnoth, Freeciv":
+            raise SystemExit(f"clearing general cleared the games: {window.property('gameSummary')}")
+        if window.property("emulatorSummary") != "RetroArch, Dolphin, PCSX2, RPCS3":
+            raise SystemExit(f"clearing general cleared the emulators: {window.property('emulatorSummary')}")
         grab(shot / "apps-none.png")
         if not QMetaObject.invokeMethod(window, "selectAllApps"):
             raise SystemExit("selectAllApps did not run")
@@ -551,6 +571,54 @@ def qml_app(save_path, shot_dir, live):
         if window.property("launcherSummary") != "None selected":
             raise SystemExit(f"apps selected a launcher: {window.property('launcherSummary')}")
         grab(shot / "apps-all.png")
+        if window.property("gameSummary") != "itch.io, 0 A.D., OpenTTD, SuperTuxKart, Luanti, Battle for Wesnoth, Freeciv":
+            raise SystemExit(f"games were not all selected: {window.property('gameSummary')}")
+        if window.property("emulatorSummary") != "RetroArch, Dolphin, PCSX2, RPCS3":
+            raise SystemExit(f"emulators were not all selected: {window.property('emulatorSummary')}")
+        window.setProperty("appsOpen", "games")
+        pump(50)
+        if quick.findChild(QQuickItem, "selectAllGames") is None:
+            raise SystemExit("Select All is missing from Games")
+        if quick.findChild(QQuickItem, "selectNoneGames") is None:
+            raise SystemExit("Select None is missing from Games")
+        if not QMetaObject.invokeMethod(window, "selectNoneGames"):
+            raise SystemExit("selectNoneGames did not run")
+        pump(50)
+        if window.property("gameSummary") != "None selected":
+            raise SystemExit(f"games were not cleared: {window.property('gameSummary')}")
+        if window.property("appSummary") != "23 selected":
+            raise SystemExit("clearing games changed the apps")
+        if window.property("emulatorSummary") != "RetroArch, Dolphin, PCSX2, RPCS3":
+            raise SystemExit("clearing games changed the emulators")
+        grab(shot / "games-none.png")
+        if not QMetaObject.invokeMethod(window, "selectAllGames"):
+            raise SystemExit("selectAllGames did not run")
+        pump(50)
+        if window.property("gameSummary") != "itch.io, 0 A.D., OpenTTD, SuperTuxKart, Luanti, Battle for Wesnoth, Freeciv":
+            raise SystemExit(f"games were not all selected again: {window.property('gameSummary')}")
+        grab(shot / "games-all.png")
+        window.setProperty("appsOpen", "emulators")
+        pump(50)
+        if quick.findChild(QQuickItem, "selectAllEmulators") is None:
+            raise SystemExit("Select All is missing from Emulators")
+        if quick.findChild(QQuickItem, "selectNoneEmulators") is None:
+            raise SystemExit("Select None is missing from Emulators")
+        if not QMetaObject.invokeMethod(window, "selectNoneEmulators"):
+            raise SystemExit("selectNoneEmulators did not run")
+        pump(50)
+        if window.property("emulatorSummary") != "None selected":
+            raise SystemExit(f"emulators were not cleared: {window.property('emulatorSummary')}")
+        if window.property("appSummary") != "23 selected":
+            raise SystemExit("clearing emulators changed the apps")
+        if window.property("gameSummary") != "itch.io, 0 A.D., OpenTTD, SuperTuxKart, Luanti, Battle for Wesnoth, Freeciv":
+            raise SystemExit("clearing emulators changed the games")
+        grab(shot / "emulators-none.png")
+        if not QMetaObject.invokeMethod(window, "selectAllEmulators"):
+            raise SystemExit("selectAllEmulators did not run")
+        pump(50)
+        if window.property("emulatorSummary") != "RetroArch, Dolphin, PCSX2, RPCS3":
+            raise SystemExit(f"emulators were not all selected again: {window.property('emulatorSummary')}")
+        grab(shot / "emulators-all.png")
         window.setProperty("appsOpen", "launchers")
         pump(50)
         if quick.findChild(QQuickItem, "selectAllLaunchers") is None:
@@ -663,6 +731,10 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit(f"launchers were not all selected: {launcher_summary}")
         if window.property("appSummary") != "23 selected":
             raise SystemExit("selecting launchers changed the apps")
+        if window.property("gameSummary") != "itch.io, 0 A.D., OpenTTD, SuperTuxKart, Luanti, Battle for Wesnoth, Freeciv":
+            raise SystemExit("selecting launchers changed the games")
+        if window.property("emulatorSummary") != "RetroArch, Dolphin, PCSX2, RPCS3":
+            raise SystemExit("selecting launchers changed the emulators")
         grab(shot / "launchers-all.png")
         if not QMetaObject.invokeMethod(window, "selectNoneLaunchers"):
             raise SystemExit("selectNoneLaunchers did not run")
@@ -696,6 +768,16 @@ def qml_app(save_path, shot_dir, live):
         pump(20)
         if not QMetaObject.invokeMethod(window, "advanceApps"):
             raise SystemExit("Next did not leave General")
+        pump(20)
+        if window.property("appsOpen") != "games" or int(window.property("page") or 0) != 2:
+            raise SystemExit(f"Next did not open Games: {window.property('appsOpen')} page {window.property('page')}")
+        if not QMetaObject.invokeMethod(window, "advanceApps"):
+            raise SystemExit("Next did not leave Games")
+        pump(20)
+        if window.property("appsOpen") != "emulators" or int(window.property("page") or 0) != 2:
+            raise SystemExit(f"Next did not open Emulators: {window.property('appsOpen')} page {window.property('page')}")
+        if not QMetaObject.invokeMethod(window, "advanceApps"):
+            raise SystemExit("Next did not leave Emulators")
         pump(20)
         if window.property("appsOpen") != "launchers" or int(window.property("page") or 0) != 2:
             raise SystemExit(f"Next did not open Launchers: {window.property('appsOpen')} page {window.property('page')}")

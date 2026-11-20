@@ -67,6 +67,17 @@ NAMES = {
     "org.videolan.VLC": "VLC",
     "org.gimp.GIMP": "GIMP",
     "com.bitwarden.desktop": "Bitwarden",
+    "io.itch.itch": "itch.io",
+    "com.play0ad.zeroad": "0 A.D.",
+    "org.openttd.OpenTTD": "OpenTTD",
+    "net.supertuxkart.SuperTuxKart": "SuperTuxKart",
+    "org.luanti.luanti": "Luanti",
+    "org.wesnoth.Wesnoth": "Battle for Wesnoth",
+    "org.freeciv.sdl2": "Freeciv",
+    "org.libretro.RetroArch": "RetroArch",
+    "org.DolphinEmu.dolphin-emu": "Dolphin",
+    "net.pcsx2.PCSX2": "PCSX2",
+    "net.rpcs3.RPCS3": "RPCS3",
     "com.obsproject.Studio.Plugin.OBSVkCapture": "OBS VkCapture",
     "com.obsproject.Studio.Plugin.Gstreamer": "OBS GStreamer",
     "com.obsproject.Studio.Plugin.GStreamerVaapi": "OBS VA-API",
@@ -593,6 +604,48 @@ def self_check():
         raise SystemExit("a helper without pkexec was allowed")
     if not valid_id("com.discordapp.Discord"):
         raise SystemExit("a flatpak id was refused")
+    real_games = [
+        ("itch.io", "io.itch.itch"),
+        ("0 A.D.", "com.play0ad.zeroad"),
+        ("OpenTTD", "org.openttd.OpenTTD"),
+        ("SuperTuxKart", "net.supertuxkart.SuperTuxKart"),
+        ("Luanti", "org.luanti.luanti"),
+        ("Battle for Wesnoth", "org.wesnoth.Wesnoth"),
+        ("Freeciv", "org.freeciv.sdl2"),
+    ]
+    emulators = [
+        ("RetroArch", "org.libretro.RetroArch"),
+        ("Dolphin", "org.DolphinEmu.dolphin-emu"),
+        ("PCSX2", "net.pcsx2.PCSX2"),
+        ("RPCS3", "net.rpcs3.RPCS3"),
+    ]
+    for label, app_id in real_games + emulators:
+        if not valid_id(app_id) or app_label(app_id) != label:
+            raise SystemExit(f"{label} is not a suggested app")
+    main = Path(__file__).resolve().with_name("Main.qml").read_text(encoding="utf-8")
+
+    def qml_list(name):
+        match = re.search(rf"readonly property var {name}: \[(.*?)\]", main, re.S)
+        if not match:
+            raise SystemExit(f"Main.qml has no {name}")
+        return re.findall(r'"([^"]+)"', match.group(1))
+
+    if list(zip(qml_list("gameNames"), qml_list("gameIds"))) != real_games:
+        raise SystemExit("the Games section does not list the games")
+    if list(zip(qml_list("emulatorNames"), qml_list("emulatorIds"))) != emulators:
+        raise SystemExit("the Emulators section does not list the emulators")
+    general_ids = set(qml_list("appIds"))
+    for label, app_id in real_games + emulators:
+        if app_id in general_ids or label in qml_list("appNames"):
+            raise SystemExit(f"{label} is still in General")
+    if 'const order = ["general", "games", "emulators", "launchers", "agents"]' not in main:
+        raise SystemExit("Next does not walk Games and Emulators")
+    if "games[gameNames[g]] = true" not in main or "emulators[emulatorNames[emu]] = true" not in main:
+        raise SystemExit("games and emulators do not start checked")
+    if "gameOn[gameNames[g]]" not in main or "emulatorOn[emulatorNames[e]]" not in main:
+        raise SystemExit("checked games and emulators are not installed")
+    if "gameIds.indexOf(hit.id)" not in main or "emulatorIds.indexOf(hit.id)" not in main:
+        raise SystemExit("search offers a game twice")
     for bad in ("../evil", "com.brave.Browser/stable", "-hidden", "not an id", "", "app/com.discordapp.Discord"):
         if valid_id(bad):
             raise SystemExit(f"a bad id was accepted: {bad}")

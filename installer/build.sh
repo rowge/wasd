@@ -45,6 +45,17 @@ for gone in \
     app/io.github.flattool.Warehouse/ \
     app/com.vysp3r.ProtonPlus/ \
     app/org.gnome.Firmware/ \
+    app/io.itch.itch/ \
+    app/com.play0ad.zeroad/ \
+    app/org.openttd.OpenTTD/ \
+    app/net.supertuxkart.SuperTuxKart/ \
+    app/org.luanti.luanti/ \
+    app/org.wesnoth.Wesnoth/ \
+    app/org.freeciv.sdl2/ \
+    app/org.libretro.RetroArch/ \
+    app/org.DolphinEmu.dolphin-emu/ \
+    app/net.pcsx2.PCSX2/ \
+    app/net.rpcs3.RPCS3/ \
     runtime/com.obsproject.Studio.Plugin.OBSVkCapture/ \
     runtime/com.obsproject.Studio.Plugin.Gstreamer/ \
     runtime/com.obsproject.Studio.Plugin.GStreamerVaapi/ \

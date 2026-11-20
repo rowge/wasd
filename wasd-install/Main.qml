@@ -71,6 +71,8 @@ Window {
     property bool installBlocked: false
     property var files: ({})
     property var appOn: ({})
+    property var gameOn: ({})
+    property var emulatorOn: ({})
     property var agentOn: ({})
     property var launcherOn: ({})
     property bool battleNetWarn: false
@@ -120,6 +122,22 @@ Window {
         "com.vysp3r.ProtonPlus", "org.gnome.Firmware", "org.videolan.VLC",
         "org.gimp.GIMP", "com.bitwarden.desktop"
     ]
+    readonly property var gameNames: [
+        "itch.io", "0 A.D.", "OpenTTD", "SuperTuxKart", "Luanti",
+        "Battle for Wesnoth", "Freeciv"
+    ]
+    readonly property var gameIds: [
+        "io.itch.itch", "com.play0ad.zeroad", "org.openttd.OpenTTD",
+        "net.supertuxkart.SuperTuxKart", "org.luanti.luanti",
+        "org.wesnoth.Wesnoth", "org.freeciv.sdl2"
+    ]
+    readonly property var emulatorNames: [
+        "RetroArch", "Dolphin", "PCSX2", "RPCS3"
+    ]
+    readonly property var emulatorIds: [
+        "org.libretro.RetroArch", "org.DolphinEmu.dolphin-emu",
+        "net.pcsx2.PCSX2", "net.rpcs3.RPCS3"
+    ]
     readonly property var agentNames: [
         "Grok Build", "Grok Bot", "Grok", "Claude Code", "Codex", "OpenCode",
         "Antigravity", "Amp", "Command Code", "Copilot CLI", "Crush", "Cursor CLI",
@@ -131,7 +149,8 @@ Window {
         "Battle.net", "Rockstar Launcher", "Epic Games", "GOG Galaxy", "Ubisoft Connect",
         "Star Citizen", "Minecraft Java", "Minecraft Bedrock",
         "FTB (modded Minecraft)", "PolyMC (modded Minecraft)",
-        "MultiMC (modded Minecraft)", "CurseForge (modded Minecraft)"
+        "MultiMC (modded Minecraft)", "CurseForge (modded Minecraft)",
+        "Spawn"
     ]
 
     readonly property var iconFiles: files.icons || []
@@ -161,6 +180,8 @@ Window {
                 : "Erase the selected disk and install WASD"
     }
     readonly property string appSummary: appCount() + " selected"
+    readonly property string gameSummary: selectedGameNames().join(", ") || "None selected"
+    readonly property string emulatorSummary: selectedEmulatorNames().join(", ") || "None selected"
     readonly property string launcherSummary: selectedLauncherNames().join(", ") || "None selected"
     readonly property string agentSummary: selectedAgentNames().join(", ") || "None selected"
     property bool networkConnected: true
@@ -252,6 +273,14 @@ Window {
         for (let i = 0; i < appNames.length; i++)
             apps[appNames[i]] = true
         appOn = apps
+        const games = {}
+        for (let g = 0; g < gameNames.length; g++)
+            games[gameNames[g]] = true
+        gameOn = games
+        const emulators = {}
+        for (let emu = 0; emu < emulatorNames.length; emu++)
+            emulators[emulatorNames[emu]] = true
+        emulatorOn = emulators
         const agents = {}
         for (let j = 0; j < agentNames.length; j++) {
             const name = agentNames[j]
@@ -1046,7 +1075,7 @@ Window {
     }
 
     function advanceApps() {
-        const order = ["general", "launchers", "agents"]
+        const order = ["general", "games", "emulators", "launchers", "agents"]
         let index = -1
         for (let i = 0; i < order.length; i++) {
             if (appsOpen === order[i])
@@ -1107,6 +1136,46 @@ Window {
             copy[appNames[i]] = false
         appOn = copy
         pickedExtras = []
+    }
+
+    function toggleGame(name) {
+        const copy = Object.assign({}, gameOn)
+        copy[name] = !copy[name]
+        gameOn = copy
+    }
+
+    function selectAllGames() {
+        const copy = {}
+        for (let i = 0; i < gameNames.length; i++)
+            copy[gameNames[i]] = true
+        gameOn = copy
+    }
+
+    function selectNoneGames() {
+        const copy = {}
+        for (let i = 0; i < gameNames.length; i++)
+            copy[gameNames[i]] = false
+        gameOn = copy
+    }
+
+    function toggleEmulator(name) {
+        const copy = Object.assign({}, emulatorOn)
+        copy[name] = !copy[name]
+        emulatorOn = copy
+    }
+
+    function selectAllEmulators() {
+        const copy = {}
+        for (let i = 0; i < emulatorNames.length; i++)
+            copy[emulatorNames[i]] = true
+        emulatorOn = copy
+    }
+
+    function selectNoneEmulators() {
+        const copy = {}
+        for (let i = 0; i < emulatorNames.length; i++)
+            copy[emulatorNames[i]] = false
+        emulatorOn = copy
     }
 
     function selectAllAgents() {
@@ -1197,6 +1266,24 @@ Window {
         return names
     }
 
+    function selectedGameNames() {
+        const names = []
+        for (let i = 0; i < gameNames.length; i++) {
+            if (gameOn[gameNames[i]])
+                names.push(gameNames[i])
+        }
+        return names
+    }
+
+    function selectedEmulatorNames() {
+        const names = []
+        for (let i = 0; i < emulatorNames.length; i++) {
+            if (emulatorOn[emulatorNames[i]])
+                names.push(emulatorNames[i])
+        }
+        return names
+    }
+
     function appCount() {
         let count = pickedExtras.length
         for (let i = 0; i < appNames.length; i++) {
@@ -1239,6 +1326,8 @@ Window {
         for (let j = 0; j < searchHits.length; j++) {
             const hit = searchHits[j]
             if (!hit || !hit.id || seen[hit.id])
+                continue
+            if (gameIds.indexOf(hit.id) >= 0 || emulatorIds.indexOf(hit.id) >= 0)
                 continue
             const curated = appIds.indexOf(hit.id)
             seen[hit.id] = true
@@ -1293,6 +1382,14 @@ Window {
         for (let i = 0; i < appNames.length; i++) {
             if (appOn[appNames[i]])
                 apps.push({ name: appNames[i], id: appIds[i] })
+        }
+        for (let g = 0; g < gameNames.length; g++) {
+            if (gameOn[gameNames[g]])
+                apps.push({ name: gameNames[g], id: gameIds[g] })
+        }
+        for (let e = 0; e < emulatorNames.length; e++) {
+            if (emulatorOn[emulatorNames[e]])
+                apps.push({ name: emulatorNames[e], id: emulatorIds[e] })
         }
         for (let j = 0; j < pickedExtras.length; j++)
             apps.push(pickedExtras[j])

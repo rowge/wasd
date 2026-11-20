@@ -13,10 +13,13 @@ COPY wasd-install /wasd-install
 # The NVIDIA open pin is the default. The AMD/Intel pin is the other line.
 FROM ${BASE_IMAGE}
 
+# Empty on a local build and on normal. Hardcore installs the channel font.
+ARG WASD_CHANNEL=
+
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
-    /ctx/build.sh
+    WASD_CHANNEL="${WASD_CHANNEL}" /ctx/build.sh
 
 RUN bootc container lint

@@ -108,7 +108,7 @@ jobs:
           # The push step logs in as this repo. A saved login makes the next
           # job's pull of the public Bazzite image fail with 403.
           podman logout ghcr.io || true
-          just build "$IMAGE_NAME" "$DEFAULT_TAG" "$VARIANT"
+          just build "$IMAGE_NAME" "$DEFAULT_TAG" "$VARIANT" "$WASD_CHANNEL"
 
       - name: Rechunk for smaller updates
         run: just ostree-rechunk "$IMAGE_NAME" "$DEFAULT_TAG"

@@ -36,6 +36,7 @@ GAMES_DIRS = (
     "multimc",
     "curseforge",
     "ftb",
+    "spawn",
     "starcitizen",
     "custom",
     "saves",
@@ -253,6 +254,18 @@ CATALOG = {
         # is a link to the games folder. --no-sandbox lets the login handler
         # start when the browser returns.
         host_link=("Documents", "curseforge"),
+        native=True,
+        native_args=("--no-sandbox",),
+    ),
+    "Spawn": Launcher(
+        "spawn",
+        "https://spawnfile.io/desktop/releases/Spawn-latest.AppImage",
+        "Spawn-latest.AppImage",
+        (),
+        # Spawn publishes this AppImage as the Linux client. The click
+        # downloads it. The image does not carry the file. Games stay on
+        # Spawn's servers. ostree cannot mount an AppImage, so the launch
+        # extracts it, and --no-sandbox matches their desktop file.
         native=True,
         native_args=("--no-sandbox",),
     ),
@@ -3232,6 +3245,9 @@ def self_check():
                 link = home.joinpath(*launcher.host_link)
                 if "--no-sandbox" not in argv or not link.is_symlink() or link.resolve() != games.resolve():
                     raise SystemExit(f"{name} would write outside its games folder: {argv}")
+            elif marker == "appimage":
+                if "--no-sandbox" not in argv or launcher.host_link or launcher.mount_games:
+                    raise SystemExit(f"{name} would write outside its games folder: {argv}")
             else:
                 raise SystemExit(f"{name} has no games-folder check")
             if marker != "--no-sandbox" and "--no-sandbox" in argv:
@@ -3380,6 +3396,7 @@ def self_check():
         check_native("MultiMC (modded Minecraft)", "multimc", "--dir")
         check_native("CurseForge (modded Minecraft)", "curseforge", "--no-sandbox")
         check_native("FTB (modded Minecraft)", "ftb", "--no-sandbox")
+        check_native("Spawn", "spawn", "appimage")
 
         def java_tar(members):
             import io
@@ -3920,9 +3937,19 @@ def self_check():
     main = (here / "Main.qml").read_text(encoding="utf-8")
     window = (here / "Complete.qml").read_text(encoding="utf-8")
     launch = (here / "Launchers.qml").read_text(encoding="utf-8")
-    order = [page.index('text: "General"'), page.index('text: "Launchers"'), page.index('text: "Agents"')]
+    order = [
+        page.index('text: "General"'),
+        page.index('text: "Games"'),
+        page.index('text: "Emulators"'),
+        page.index('text: "Launchers"'),
+        page.index('text: "Agents"'),
+    ]
     if order != sorted(order) or 'text: "Apps"' not in page:
-        raise SystemExit("the groups are not General, Launchers, Agents under Apps")
+        raise SystemExit("the groups are not General, Games, Emulators, Launchers, Agents under Apps")
+    if "selectAllGames" not in page or "selectNoneGames" not in page:
+        raise SystemExit("Games has no select all")
+    if "selectAllEmulators" not in page or "selectNoneEmulators" not in page:
+        raise SystemExit("Emulators has no select all")
     if "selectAllLaunchers" not in page or "selectNoneLaunchers" not in page:
         raise SystemExit("Launchers has no select all")
     if "Installing the launchers." not in window or 'status === "Installing what you checked."' not in window:
@@ -4046,7 +4073,20 @@ def self_check():
         or "ftb-app-linux-1.30.1-x86_64.AppImage" not in ftb.setup_url
     ):
         raise SystemExit("the FTB App would enter a user namespace")
-    for folder in ("minecraft-bedrock", "minecraft-modded", "multimc", "curseforge", "ftb"):
+    spawn = CATALOG["Spawn"]
+    if (
+        not spawn.native
+        or spawn.native_args != ("--no-sandbox",)
+        or spawn.host_link
+        or spawn.mount_games
+        or spawn.games_link
+        or spawn.program
+        or offers_reinstall(spawn)
+        or spawn.setup_url != "https://spawnfile.io/desktop/releases/Spawn-latest.AppImage"
+        or spawn.setup_name != "Spawn-latest.AppImage"
+    ):
+        raise SystemExit("Spawn would enter a user namespace")
+    for folder in ("minecraft-bedrock", "minecraft-modded", "multimc", "curseforge", "ftb", "spawn"):
         if folder not in GAMES_DIRS:
             raise SystemExit("a new install would not make the Minecraft folders")
         if folder in _READY_DIRS:
