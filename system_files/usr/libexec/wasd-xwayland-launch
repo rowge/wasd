@@ -1,0 +1,18 @@
+#!/bin/sh
+# A Wine launcher opens a few dozen X clients for one window. The default
+# cap is 256, so several launchers fill it and the next window never appears.
+# 2048 is the highest Xwayland accepts. It can only be chosen at startup.
+real=/usr/libexec/wasd-xwayland
+prev=
+for arg in "$@"; do
+    if [ "$prev" = "-maxclients" ]; then
+        exec "$real" "$@"
+    fi
+    prev=$arg
+done
+soft=$(ulimit -Sn)
+hard=$(ulimit -Hn)
+if [ "$hard" -ge 8192 ] && [ "$soft" -lt 8192 ]; then
+    ulimit -n 8192 || true
+fi
+exec "$real" -maxclients 2048 "$@"
