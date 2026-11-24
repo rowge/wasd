@@ -14,8 +14,10 @@ cd /work || exit 1
 
 # The live system is the container itself.
 # Level 3 is the iteration default. The pipeline passes 19 for a release stick.
+# The installer reads this image as many files. A 1 MiB block brings more
+# of each file in on one read from the stick.
 squashfs_level="${SQUASHFS_COMPRESSION_LEVEL:-3}"
-mksquashfs /rootfs /work/iso-root/LiveOS/squashfs.img -all-root -noappend -e sysroot -e ostree -comp zstd -Xcompression-level "$squashfs_level"
+mksquashfs /rootfs /work/iso-root/LiveOS/squashfs.img -all-root -noappend -e sysroot -e ostree -b 1M -comp zstd -Xcompression-level "$squashfs_level"
 
 iso_config_file=/rootfs/usr/lib/bootc-image-builder/iso.yaml
 if [[ ! -f $iso_config_file ]]; then

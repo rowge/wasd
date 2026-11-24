@@ -143,6 +143,16 @@ DISK_COMMANDS = {
     "umount",
     "wipefs",
 }
+# The copy reads the live image as many files. Raise how far the stick
+# reads ahead, and when memory can hold the image, read it once first.
+READ_AHEAD_KB = 8192
+WARM_HEADROOM = 2 * 1024 * 1024 * 1024
+WARM_CHUNK = 8 * 1024 * 1024
+SOURCE_MIN_BYTES = 500_000_000
+LIVE_IMAGE_PATHS = (
+    "/run/initramfs/live/LiveOS/squashfs.img",
+    "/run/initramfs/isoscan/LiveOS/squashfs.img",
+)
 
 
 class Refuse(Exception):
@@ -469,7 +479,7 @@ wipefs -a "/dev/$dev"
 printf '%s\\n' 'label: gpt' ', type=linux, name=games' | sfdisk --wipe always "/dev/$dev"
 partprobe "/dev/$dev" || true
 udevadm settle || sleep 2
-mkfs.btrfs -f -L games "/dev/$part"
+mkfs.btrfs -f -K -L games "/dev/$part"
 uuid=$(blkid -s UUID -o value "/dev/$part")
 """
     else:
@@ -1031,6 +1041,180 @@ class CopyMeter:
         return self._disk_percent()
 
 
+def image_mounts(text):
+    """Mount point, device, and type from a mountinfo table."""
+    rows = []
+    if not isinstance(text, str):
+        return rows
+    for line in text.splitlines():
+        left, sep, right = line.partition(" - ")
+        if not sep:
+            continue
+        left_fields = left.split()
+        right_fields = right.split()
+        if len(left_fields) < 6 or len(right_fields) < 2:
+            continue
+        mountpoint = unescape_mount(left_fields[4])
+        source = unescape_mount(right_fields[1])
+        if not mountpoint.startswith("/"):
+            continue
+        rows.append((mountpoint, source, right_fields[0]))
+    return rows
+
+
+def parent_disk(device):
+    """The whole disk that holds a live partition. A bad name is refused."""
+    node = str(device or "")
+    if node.startswith("/dev/"):
+        node = node[5:]
+    if not node or "/" in node:
+        return ""
+    if node.startswith(("nvme", "mmcblk")):
+        base = re.sub(r"p[0-9]+$", "", node)
+    else:
+        base = re.sub(r"[0-9]+$", "", node)
+    if not DEVICE_NAME.fullmatch(base):
+        return ""
+    return base
+
+
+def live_image(text, exists):
+    """The squashfs on the live disc, and the partition it is read from.
+
+    exists answers whether a path is a real file. The install disk is not
+    an iso9660 disc, so it is not chosen here.
+    """
+    rows = image_mounts(text)
+    for mount, device, fstype in rows:
+        if fstype != "iso9660" or not str(device).startswith("/dev/"):
+            continue
+        path = str(Path(mount) / "LiveOS" / "squashfs.img")
+        if exists(path):
+            return device, path
+    for path in LIVE_IMAGE_PATHS:
+        if not exists(path):
+            continue
+        return _device_for(rows, path), path
+    return "", ""
+
+
+def _device_for(rows, path):
+    found = ""
+    longest = -1
+    for mount, device, _fstype in rows:
+        if not str(device).startswith("/dev/"):
+            continue
+        prefix = mount if mount == "/" else mount.rstrip("/")
+        if path == prefix or path.startswith(prefix + "/"):
+            if len(prefix) > longest:
+                longest = len(prefix)
+                found = device
+    return found
+
+
+def mem_available_bytes(text):
+    for line in text.splitlines():
+        if not line.startswith("MemAvailable:"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            return int(parts[1]) * 1024
+    return None
+
+
+def warm_fits(available, size):
+    """True when the image can stay cached and the machine still has room."""
+    if isinstance(available, bool) or not isinstance(available, int):
+        return False
+    if isinstance(size, bool) or not isinstance(size, int):
+        return False
+    if size < SOURCE_MIN_BYTES:
+        return False
+    return available > size + WARM_HEADROOM
+
+
+def read_ahead_update(disk, current, write):
+    """Raise a whole disk's read-ahead. A partition or a high value is left."""
+    if not DEVICE_NAME.fullmatch(disk or ""):
+        return None
+    if isinstance(current, bool) or not isinstance(current, int):
+        return None
+    if current >= READ_AHEAD_KB:
+        return None
+    write(disk, READ_AHEAD_KB)
+    return READ_AHEAD_KB
+
+
+def _image_exists(path):
+    try:
+        return os.path.isfile(path) and not os.path.islink(path)
+    except OSError:
+        return False
+
+
+def _raise_read_ahead(disk):
+    if not DEVICE_NAME.fullmatch(disk or ""):
+        return
+    node = Path("/sys/block") / disk / "queue" / "read_ahead_kb"
+    try:
+        current = int(node.read_text().strip())
+    except (OSError, ValueError):
+        return
+
+    def write(name, value):
+        if name == disk:
+            node.write_text(str(value))
+
+    try:
+        read_ahead_update(disk, current, write)
+    except OSError:
+        return
+
+
+def _warm_image(path):
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        try:
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+        except (OSError, AttributeError):
+            pass
+        while True:
+            blob = os.read(fd, WARM_CHUNK)
+            if not blob:
+                return
+    finally:
+        os.close(fd)
+
+
+def _prepare_install_source():
+    mounts = Path("/proc/self/mountinfo").read_text(encoding="utf-8", errors="replace")
+    device, path = live_image(mounts, _image_exists)
+    if not path:
+        return
+    disk = parent_disk(device)
+    if disk:
+        _raise_read_ahead(disk)
+    size = os.path.getsize(path)
+    memory = mem_available_bytes(Path("/proc/meminfo").read_text(errors="replace"))
+    if warm_fits(memory, size):
+        _warm_image(path)
+
+
+def prepare_install_source():
+    """Read the live image in order when this machine can hold it.
+
+    Self-check and an installed system return before a disk is touched.
+    Only the stick the live system booted from is changed. A failure
+    leaves the copy to run as it does today.
+    """
+    if os.environ.get("WASD_SELF_CHECK") == "1" or not is_live():
+        return
+    try:
+        _prepare_install_source()
+    except Exception:
+        return
+
+
 def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=None):
     """Run bootc. A failure before it wipes the disk leaves the disk alone.
 
@@ -1048,6 +1232,9 @@ def run_bootc(argv, status_id, runner, spoken, finish=None, account=None, post=N
         raise Refuse("Choose a disk again. Nothing was erased.")
     state = {"wiped": False}
     meter = CopyMeter()
+    # The stick is read as many files. Do this before the copy starts.
+    # A failure here still installs.
+    prepare_install_source()
     # The copy is the long part. bootc prints the bootloader line while
     # the copy is still running. The window ranks the account before that
     # line, so the bootloader sentence waits until the account step has run.
@@ -1528,7 +1715,7 @@ def format_commands(os_device, games_device):
     wipe = ["wipefs", "-a", f"/dev/{games_device}"]
     argv = ["sfdisk", "--wipe", "always", "--lock", f"/dev/{games_device}"]
     script = "label: gpt\ntype=linux, name=games\n"
-    mkfs = ["mkfs.btrfs", "-f", "-L", "games", f"/dev/{part}"]
+    mkfs = games_mkfs(part)
     if mkfs[-1] in {f"/dev/{os_device}", f"/dev/{games_device}"}:
         raise GamesProblem("the format command targets the whole disk")
     if mentions(wipe + argv + mkfs, os_device):
@@ -1777,13 +1964,18 @@ def reread(device):
     run_disk(["udevadm", "settle", "--timeout=20"])
 
 
+def games_mkfs(name):
+    """A new games filesystem. -K skips trimming the whole device."""
+    return ["mkfs.btrfs", "-f", "-K", "-L", "games", f"/dev/{name}"]
+
+
 def make_btrfs(name):
     stop_if_checking("format a partition")
     if not PART_NAME.fullmatch(name or ""):
         raise GamesProblem("the games partition is not a partition")
     if fs_type(name):
         raise GamesProblem("the games partition is not empty")
-    run_disk(["mkfs.btrfs", "-f", "-L", "games", f"/dev/{name}"])
+    run_disk(games_mkfs(name))
 
 
 def fresh_mount(path):
@@ -1974,7 +2166,7 @@ def add_formatted_games(os_device, plan):
     name = lone_partition(read_table(device), device)
     if fs_type(name):
         raise GamesProblem("the games partition is not empty")
-    if mkfs != ["mkfs.btrfs", "-f", "-L", "games", f"/dev/{name}"]:
+    if mkfs != games_mkfs(name):
         raise GamesProblem("the format command changed")
     make_btrfs(name)
     reread(device)
@@ -3852,7 +4044,7 @@ def check_games():
         raise SystemExit(f"format commands were {wipe} {table_argv}")
     if format_script != "label: gpt\ntype=linux, name=games\n":
         raise SystemExit(f"format script was {format_script}")
-    if mkfs != ["mkfs.btrfs", "-f", "-L", "games", "/dev/nvme1n1p1"]:
+    if mkfs != ["mkfs.btrfs", "-f", "-K", "-L", "games", "/dev/nvme1n1p1"]:
         raise SystemExit(f"mkfs command was {mkfs}")
     if mentions(wipe + table_argv + mkfs, "nvme0n1") or mkfs[-1] in {"/dev/nvme0n1", "/dev/nvme1n1"}:
         raise SystemExit("the format command targeted the WASD disk or a whole disk")
@@ -3860,7 +4052,7 @@ def check_games():
     if wide_mkfs[-1] != "/dev/nvme0n10p1" or mentions(wide, "nvme0n1"):
         raise SystemExit("nvme0n1 was confused with nvme0n10")
     sd_wipe, _, _, sd_mkfs = format_commands("sda", "sdb")
-    if sd_mkfs != ["mkfs.btrfs", "-f", "-L", "games", "/dev/sdb1"] or mentions(sd_wipe + sd_mkfs, "sda"):
+    if sd_mkfs != ["mkfs.btrfs", "-f", "-K", "-L", "games", "/dev/sdb1"] or mentions(sd_wipe + sd_mkfs, "sda"):
         raise SystemExit(f"an sd format was {sd_mkfs}")
     try:
         format_commands("nvme0n1", "nvme0n1")
@@ -5238,6 +5430,87 @@ class Started(Exception):
     """bootc wiped the selected disk and then failed."""
 
 
+def check_install_source():
+    """The live image is chosen without touching a disk."""
+    mounts = (
+        "40 1 8:1 / /run/initramfs/live rw,relatime - iso9660 /dev/sda1 ro\n"
+        "41 1 259:3 / /run/bootc/mounts/rootfs rw - btrfs /dev/nvme0n1p3 rw\n"
+        "42 1 0:33 / / rw - overlay overlay rw\n"
+    )
+    present = {"/run/initramfs/live/LiveOS/squashfs.img", "/run/bootc/mounts/rootfs/LiveOS/squashfs.img"}
+    device, path = live_image(mounts, present.__contains__)
+    if (device, path) != ("/dev/sda1", "/run/initramfs/live/LiveOS/squashfs.img"):
+        raise SystemExit(f"live image was {device} {path}")
+    if parent_disk(device) != "sda":
+        raise SystemExit("the live stick was not sda")
+    if parent_disk("/dev/nvme0n1p1") != "nvme0n1" or parent_disk("/dev/nvme0n10p2") != "nvme0n10":
+        raise SystemExit("an nvme parent was wrong")
+    if parent_disk("/dev/mmcblk0p1") != "mmcblk0" or parent_disk("/dev/sdb1") != "sdb":
+        raise SystemExit("a disk parent was wrong")
+    if parent_disk("/dev/nvme0n1") != "nvme0n1":
+        raise SystemExit("a whole nvme disk was changed")
+    for bad in ("../etc", "/dev/sda1;rm", "/dev/loop0", "", "/dev/nvme0n1p1/../../etc"):
+        if parent_disk(bad):
+            raise SystemExit(f"a bad disk name was accepted: {bad}")
+    spaced = "40 1 8:17 / /run/initramfs/live\\040usb rw - iso9660 /dev/sdb1 ro\n"
+    spaced_file = "/run/initramfs/live usb/LiveOS/squashfs.img"
+    if live_image(spaced, {spaced_file}.__contains__) != ("/dev/sdb1", spaced_file):
+        raise SystemExit("an escaped mount path was missed")
+    isoscan = "/run/initramfs/isoscan/LiveOS/squashfs.img"
+    isoscan_mounts = "40 1 8:33 / /run/initramfs/isoscan rw - iso9660 /dev/sdc1 ro\n"
+    if live_image(isoscan_mounts, {isoscan}.__contains__) != ("/dev/sdc1", isoscan):
+        raise SystemExit("the isoscan image was missed")
+    usual = "/run/initramfs/live/LiveOS/squashfs.img"
+    overlay = "42 1 0:33 / / rw - overlay overlay rw\n"
+    if live_image(overlay, {usual}.__contains__) != ("", usual):
+        raise SystemExit("an image with no disc device was dropped")
+    if live_image(mounts, set().__contains__) != ("", ""):
+        raise SystemExit("a missing image was invented")
+    size = 7_000_000_000
+    if not warm_fits(size + WARM_HEADROOM + 1, size):
+        raise SystemExit("a cached image was skipped")
+    if warm_fits(size + WARM_HEADROOM, size):
+        raise SystemExit("an image that fills memory was read twice")
+    if warm_fits(size + WARM_HEADROOM + 1, SOURCE_MIN_BYTES - 1):
+        raise SystemExit("a small file was read ahead of the copy")
+    if warm_fits(True, size) or warm_fits(None, size):
+        raise SystemExit("missing memory was treated as free")
+    info = "MemTotal: 16384000 kB\nMemAvailable: 12000000 kB\n"
+    if mem_available_bytes(info) != 12000000 * 1024:
+        raise SystemExit("MemAvailable was not read")
+    if mem_available_bytes("MemFree: 12000000 kB\n") is not None:
+        raise SystemExit("MemFree was used as available memory")
+    written = []
+
+    def write(disk, value):
+        written.append((disk, value))
+
+    if read_ahead_update("sda", 128, write) != READ_AHEAD_KB or written != [("sda", READ_AHEAD_KB)]:
+        raise SystemExit(f"read-ahead was {written}")
+    written.clear()
+    if read_ahead_update("sda", READ_AHEAD_KB, write) is not None or written:
+        raise SystemExit("read-ahead was raised when it was already enough")
+    if read_ahead_update("sda", READ_AHEAD_KB + 1, write) is not None or written:
+        raise SystemExit("a higher read-ahead was lowered")
+    if read_ahead_update("nvme0n1p1", 128, write) is not None or written:
+        raise SystemExit("a partition was given a read-ahead")
+    if read_ahead_update("../sda", 128, write) is not None or written:
+        raise SystemExit("a bad disk name was given a read-ahead")
+    if read_ahead_update("nvme0n1", 128, write) != READ_AHEAD_KB:
+        raise SystemExit("a whole nvme disk was skipped")
+    body = inspect_source(prepare_install_source)
+    guard = body.find("WASD_SELF_CHECK")
+    live = body.find("is_live")
+    work = body.find("_prepare_install_source")
+    if guard < 0 or not (guard < live < work):
+        raise SystemExit("the source prep can touch a disk during self-check")
+    os.environ["WASD_SELF_CHECK"] = "1"
+    try:
+        prepare_install_source()
+    finally:
+        os.environ.pop("WASD_SELF_CHECK", None)
+
+
 def current_lsblk():
     import subprocess
 
@@ -5448,7 +5721,7 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
     formatted["games"] = {"mode": "format", "device": "nvme3n1", "disk": "Empty Shelf"}
     format_data, format_text = load_choices(json.dumps(formatted))
     format_kick = render_kickstart(format_data, format_text, defaults)
-    if "mkfs.btrfs -f -L games" not in format_kick or "/dev/$part" not in format_kick:
+    if "mkfs.btrfs -f -K -L games" not in format_kick or "/dev/$part" not in format_kick:
         raise SystemExit("an empty games drive was not formatted")
     if "autopart --type=btrfs" not in format_kick or "part /games" in format_kick:
         raise SystemExit("formatting a games drive changed the WASD disk")
@@ -5525,7 +5798,7 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
     }
     assert_games_matches(forced, games_lsblk)
     forced_kick = render_kickstart(forced, json.dumps(forced), defaults)
-    if "dev=nvme2n1" not in forced_kick or "mkfs.btrfs -f -L games" not in forced_kick:
+    if "dev=nvme2n1" not in forced_kick or "mkfs.btrfs -f -K -L games" not in forced_kick:
         raise SystemExit("a confirmed Windows games wipe was not formatted")
     if "ignoredisk --only-use=nvme0n1" not in forced_kick:
         raise SystemExit("a games wipe moved the WASD disk")
@@ -5550,7 +5823,7 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
     }
     assert_games_matches(kept, windows_keep_blob)
     kept_kick = render_kickstart(kept, json.dumps(kept), defaults)
-    if "ntfs3" not in kept_kick or "mkfs.btrfs -f -L games" in kept_kick:
+    if "ntfs3" not in kept_kick or "mkfs.btrfs" in kept_kick:
         raise SystemExit("a confirmed Windows games drive was formatted")
     emptied = dict(choices)
     emptied["wipe"] = [{"device": "nvme3n1", "disk": "Empty Shelf", "confirmed": True}]
@@ -5612,6 +5885,7 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
     kick_path = install_kickstart_path()
     if kick_path.name != "wasd-install.ks" or kick_path.parent == Path("/run"):
         raise SystemExit(f"kickstart path {kick_path}")
+    check_install_source()
     check_writer()
     check_copy_progress()
     build = Path(__file__).resolve().parents[1] / "build_files" / "build.sh"
