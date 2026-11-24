@@ -1044,6 +1044,10 @@ CLEAR_FILES = (
     "/usr/bin/wasd-updater",
     "/usr/share/applications/io.github.rfrench3.bazzite-updater.desktop",
     "/usr/libexec/wasd-webapp",
+    # The package binary, moved aside, and the wrapper that is copied onto
+    # its name. They stay with the rest of the image.
+    "/usr/libexec/wasd-xwayland",
+    "/usr/libexec/wasd-xwayland-launch",
     "/usr/libexec/wasd-windows-boot",
     "/usr/libexec/windowsboot.py",
     "/usr/lib/systemd/system/wasd-windows-boot.service",
