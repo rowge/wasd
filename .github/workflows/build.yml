@@ -41,6 +41,7 @@ env:
 # One build at a time. A second push waits. hardcore publishes the fast
 # download. normal publishes the default download. The repo is public, so
 # this does not run on pull requests.
+# Pushing this file starts another hardcore build of the same tree.
 concurrency:
   group: wasd-hammerite
   cancel-in-progress: false

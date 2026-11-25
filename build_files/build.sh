@@ -5,6 +5,29 @@ set -ouex pipefail
 cp -avf /ctx/system_files/. /
 bash /usr/lib/dracut/modules.d/90wasd-plymouth/module-setup.sh --self-check
 
+# KWin starts the program named Xwayland. The package binary allows 256
+# clients. Keep that binary and put the higher cap on the name KWin runs.
+if [[ ! -x /usr/libexec/wasd-xwayland ]]; then
+    if [[ ! -x /usr/bin/Xwayland ]]; then
+        echo "Xwayland is not installed" >&2
+        exit 1
+    fi
+    magic=$(od -An -t x1 -N 4 /usr/bin/Xwayland | tr -d ' \n')
+    if [[ $magic != 7f454c46 ]]; then
+        echo "Xwayland is not the real binary" >&2
+        exit 1
+    fi
+    mv /usr/bin/Xwayland /usr/libexec/wasd-xwayland
+fi
+install -m 0755 /usr/libexec/wasd-xwayland-launch /usr/bin/Xwayland
+/usr/libexec/wasd-xwayland -maxclients 2048 -version >/dev/null
+/usr/bin/Xwayland -version >/dev/null
+/usr/bin/Xwayland -maxclients 64 -version >/dev/null
+if /usr/bin/Xwayland -maxclients 1000 -version >/dev/null 2>&1; then
+    echo "Xwayland accepted a client cap it should refuse" >&2
+    exit 1
+fi
+
 # /games is the mount point for a games drive. The directory has to exist
 # in the image or the installed system cannot mount over it.
 install -d /games
@@ -1021,6 +1044,10 @@ CLEAR_FILES = (
     "/usr/bin/wasd-updater",
     "/usr/share/applications/io.github.rfrench3.bazzite-updater.desktop",
     "/usr/libexec/wasd-webapp",
+    # The package binary, moved aside, and the wrapper that is copied onto
+    # its name. They stay with the rest of the image.
+    "/usr/libexec/wasd-xwayland",
+    "/usr/libexec/wasd-xwayland-launch",
     "/usr/libexec/wasd-windows-boot",
     "/usr/libexec/windowsboot.py",
     "/usr/lib/systemd/system/wasd-windows-boot.service",
