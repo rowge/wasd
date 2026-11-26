@@ -40,6 +40,18 @@ if [[ ! -x /usr/libexec/bazzite-steam ]]; then
         exit 1
     fi
     mv /usr/bin/bazzite-steam /usr/libexec/bazzite-steam
+    # Bazzite's rechunk marks this script bazzite-init. The saved copy stays
+    # with the rest of the image, so that mark has to come off with the move.
+    python3 - << 'PY'
+import errno
+import os
+path = "/usr/libexec/bazzite-steam"
+try:
+    os.removexattr(path, "user.component", follow_symlinks=False)
+except OSError as err:
+    if err.errno != errno.ENODATA:
+        raise SystemExit(f"could not clear the update layer on {path}: {err}")
+PY
 fi
 install -m 0755 /usr/libexec/wasd-steam-launch /usr/bin/bazzite-steam
 
