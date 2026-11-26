@@ -1,0 +1,4 @@
+#!/bin/sh
+# Steam reads its storage list when it starts. Add /games first.
+/usr/libexec/wasd-steam-library || true
+exec /usr/libexec/bazzite-steam "$@"

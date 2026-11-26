@@ -28,6 +28,33 @@ if /usr/bin/Xwayland -maxclients 1000 -version >/dev/null 2>&1; then
     exit 1
 fi
 
+# The menu starts Steam through this name. Add /games to Steam's storage
+# list first, then run Bazzite's script.
+if [[ ! -x /usr/libexec/bazzite-steam ]]; then
+    if [[ ! -x /usr/bin/bazzite-steam ]]; then
+        echo "bazzite-steam is not installed" >&2
+        exit 1
+    fi
+    if grep -q wasd-steam-library /usr/bin/bazzite-steam; then
+        echo "bazzite-steam is already the WASD wrapper" >&2
+        exit 1
+    fi
+    mv /usr/bin/bazzite-steam /usr/libexec/bazzite-steam
+    # Bazzite's rechunk marks this script bazzite-init. The saved copy stays
+    # with the rest of the image, so that mark has to come off with the move.
+    python3 - << 'PY'
+import errno
+import os
+path = "/usr/libexec/bazzite-steam"
+try:
+    os.removexattr(path, "user.component", follow_symlinks=False)
+except OSError as err:
+    if err.errno != errno.ENODATA:
+        raise SystemExit(f"could not clear the update layer on {path}: {err}")
+PY
+fi
+install -m 0755 /usr/libexec/wasd-steam-launch /usr/bin/bazzite-steam
+
 # /games is the mount point for a games drive. The directory has to exist
 # in the image or the installed system cannot mount over it.
 install -d /games
@@ -152,6 +179,14 @@ ln -sfn ../wasd-windows-boot.service /usr/lib/systemd/system/multi-user.target.w
 ln -sfn ../wasd-boot-title.service /usr/lib/systemd/system/multi-user.target.wants/wasd-boot-title.service
 ln -sfn ../wasd-boot-title-finalize.service /usr/lib/systemd/system/ostree-finalize-staged.service.wants/wasd-boot-title-finalize.service
 install -m 0755 /ctx/wasd-install/complete.py /usr/bin/wasd-complete
+install -m 0755 /ctx/wasd-install/steamlib.py /usr/libexec/wasd-steam-library
+/usr/libexec/wasd-steam-library --self-check
+grep -F /usr/libexec/wasd-steam-library /usr/bin/bazzite-steam >/dev/null
+test -x /usr/libexec/bazzite-steam
+if grep -q wasd-steam-library /usr/libexec/bazzite-steam; then
+    echo "the saved bazzite-steam script is the WASD wrapper" >&2
+    exit 1
+fi
 chmod 0755 /usr/bin/wasd-install
 
 # Plasma ships the Qt 6 libraries. It does not ship the qml command.
@@ -1048,6 +1083,9 @@ CLEAR_FILES = (
     # its name. They stay with the rest of the image.
     "/usr/libexec/wasd-xwayland",
     "/usr/libexec/wasd-xwayland-launch",
+    "/usr/libexec/wasd-steam-launch",
+    "/usr/libexec/wasd-steam-library",
+    "/usr/libexec/bazzite-steam",
     "/usr/libexec/wasd-windows-boot",
     "/usr/libexec/windowsboot.py",
     "/usr/lib/systemd/system/wasd-windows-boot.service",
