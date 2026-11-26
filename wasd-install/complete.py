@@ -999,6 +999,26 @@ def release_awake():
     AWAKE_PROC = None
 
 
+def steam_library_program():
+    sibling = Path(__file__).resolve().parent / "steamlib.py"
+    if sibling.is_file():
+        return [sys.executable, str(sibling)]
+    installed = Path("/usr/libexec/wasd-steam-library")
+    if installed.is_file():
+        return [sys.executable, str(installed)]
+    return []
+
+
+def ensure_steam_library():
+    argv = steam_library_program()
+    if not argv:
+        return
+    try:
+        subprocess.run(argv, check=False)
+    except OSError:
+        return
+
+
 def remove_autostart():
     if not finish_allowed():
         return False
@@ -1009,6 +1029,7 @@ def remove_autostart():
         path.unlink(missing_ok=True)
     except OSError:
         return False
+    ensure_steam_library()
     return True
 
 
@@ -1230,6 +1251,11 @@ def self_check():
     os.environ["WASD_AGENT_HOME"] = str(tmp / "agent-home")
     os.environ["WASD_LAUNCHER_HOME"] = str(tmp / "launcher-home")
     os.environ["WASD_GAMES_ROOT"] = str(tmp / "games")
+    os.environ["WASD_STEAM_HOME"] = str(tmp / "home")
+    os.environ["WASD_GAMES"] = str(tmp / "games")
+    os.environ["WASD_STEAM_MOUNTED"] = "1"
+    os.environ["WASD_STEAM_RUNNING"] = "0"
+    (tmp / "games" / "SteamLibrary" / "steamapps").mkdir(parents=True)
     os.environ["WASD_APP_LOG"] = str(tmp / "app-install.log")
     os.environ["WASD_AUTOSTART"] = str(auto)
     os.environ["WASD_DESKTOP_ICON"] = str(icon)
@@ -1407,6 +1433,8 @@ def self_check():
         raise SystemExit("the desktop icon was removed before setup finished")
     if (tmp / "Trash").exists():
         raise SystemExit("the icon was trashed before setup finished")
+    if (tmp / "home" / ".local" / "share" / "Steam" / "steamapps" / "libraryfolders.vdf").exists():
+        raise SystemExit("Steam learned /games before setup finished")
     early = urllib.request.Request(f"http://127.0.0.1:{port}/wifi", data=b"not-stored-secret", method="POST")
     try:
         urllib.request.urlopen(early, timeout=2)
@@ -1478,6 +1506,11 @@ def self_check():
     info = tmp / "Trash" / "info" / "wasd-complete.desktop.trashinfo"
     if not trashed.is_file() or trashed.read_text() != "[Desktop Entry]\nName=Completing the install\n":
         raise SystemExit("the desktop icon was not moved to the trash")
+    steam_list = tmp / "home" / ".local" / "share" / "Steam" / "steamapps" / "libraryfolders.vdf"
+    if not steam_list.is_file() or str(tmp / "games" / "SteamLibrary") not in steam_list.read_text(encoding="utf-8"):
+        raise SystemExit("Steam was not told about /games")
+    if not (tmp / "games" / "SteamLibrary" / "libraryfolder.vdf").is_file():
+        raise SystemExit("the games library marker was not written")
     info_text = info.read_text()
     if "[Trash Info]" not in info_text or "DeletionDate=" not in info_text or str(icon) not in urllib.parse.unquote(info_text):
         raise SystemExit(f"the trash note was wrong: {info_text}")
