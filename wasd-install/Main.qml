@@ -160,10 +160,8 @@ Window {
     readonly property bool hostnameOk: /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(hostname)
     readonly property bool userOk: userName.trim() === "" || (/^[a-z][a-z0-9-]{0,31}$/.test(userName.trim()) && userName.trim() !== "root")
     readonly property bool gamesChosen: gamesMode === "split" || gamesMode === "keep" || gamesMode === "format"
-    readonly property bool showEraseButton: !gamesOpen || gamesChosen
-    readonly property string gamesAltLabel: gamesOpen
-            ? "I changed my mind. Use the whole drive."
-            : "Set up /games"
+    readonly property bool showEraseButton: diskIndex >= 0
+    readonly property string gamesAltLabel: ""
     readonly property string eraseLabel: {
         const windows = diskIndex >= 0 && diskIndex < disks.count && disks.get(diskIndex).windows
         const otherGames = gamesChosen && gamesDiskIndex >= 0 && gamesDiskIndex !== diskIndex
@@ -227,8 +225,8 @@ Window {
 
     ListModel {
         id: disks
-        ListElement { name: "Samsung 990"; kind: ""; size: "2 TB"; windows: false; occupied: false; device: ""; bytes: 2000000000000.0; games: false; part: ""; fstype: ""; uuid: "" }
-        ListElement { name: "WD Black"; kind: "Windows is on this drive."; size: "1 TB"; windows: true; occupied: true; device: ""; bytes: 1000000000000.0; games: false; part: ""; fstype: ""; uuid: "" }
+        ListElement { name: "Samsung 990"; kind: ""; size: "2 TB"; windows: false; occupied: false; device: ""; bytes: 2000000000000.0; games: false; part: ""; fstype: ""; uuid: ""; free: 0; hibernated: false; steam: false; libraries: ""; rotational: false; usb: false; solid: true }
+        ListElement { name: "WD Black"; kind: "Windows is on this drive."; size: "1 TB"; windows: true; occupied: true; device: ""; bytes: 1000000000000.0; games: false; part: ""; fstype: ""; uuid: ""; free: 0; hibernated: false; steam: false; libraries: ""; rotational: false; usb: false; solid: true }
     }
     property alias diskModel: disks
 
@@ -300,6 +298,8 @@ Window {
             refreshNetwork(false)
             refreshDevices()
         }
+        if (disks.count > 0)
+            assignLayout()
     }
 
     function refreshDevices() {
@@ -634,6 +634,70 @@ Window {
         return extra ? "/games. " + extra : "/games"
     }
 
+    function libraryList(row) {
+        const text = row && row.libraries ? String(row.libraries) : ""
+        if (!text)
+            return []
+        const parts = text.split("\n")
+        const found = []
+        for (let i = 0; i < parts.length; i++) {
+            if (parts[i] !== "" && found.indexOf(parts[i]) < 0)
+                found.push(parts[i])
+        }
+        return found
+    }
+
+    function libraryText(value) {
+        if (!value)
+            return ""
+        if (typeof value === "string")
+            return value
+        if (value.length === undefined)
+            return ""
+        const parts = []
+        for (let i = 0; i < value.length; i++) {
+            if (typeof value[i] === "string" && value[i] !== "")
+                parts.push(value[i])
+        }
+        return parts.join("\n")
+    }
+
+    function freeGb(index) {
+        const free = disks.get(index).free || 0
+        return Math.floor(free / (1024 * 1024 * 1024))
+    }
+
+    function diskSolid(index) {
+        const row = disks.get(index)
+        if (row.solid === false || row.rotational || row.usb)
+            return false
+        return true
+    }
+
+    function usableOf(index) {
+        if (index < 0 || index >= disks.count)
+            return 0
+        const bytes = disks.get(index).bytes || 0
+        return Math.max(0, Math.floor(bytes / (1024 * 1024 * 1024)) - 4)
+    }
+
+    function windowsKeepable(index) {
+        if (index < 0 || index >= disks.count)
+            return false
+        const row = disks.get(index)
+        if (!row.windows || row.hibernated || !canKeep(index))
+            return false
+        if (row.steam || libraryList(row).length)
+            return true
+        return (row.free || 0) >= 64 * 1024 * 1024 * 1024
+    }
+
+    function oneDrivePlan() {
+        if (gamesMode === "off")
+            return "This drive will be one partition. The whole drive is WASD."
+        return "This drive will be split. WASD keeps the first part. The rest is /games."
+    }
+
     function gamesLine(index) {
         if (index < 0 || index >= disks.count)
             return ""
@@ -647,10 +711,16 @@ Window {
         const row = disks.get(index)
         if (gamesDiskIndex === index && gamesMode === "format")
             return "This drive will be erased and used for games."
-        if (gamesDiskIndex === index && gamesMode === "keep")
-            return "WASD will use this drive and will not erase it."
         if (row.windows && !canKeep(index))
             return "BitLocker is on. Turn it off in Windows before this drive can be used without erasing it."
+        if (row.windows && row.hibernated)
+            return "Windows is hibernated. Boot it once and turn off Fast Startup, then this drive can be /games."
+        if (row.windows && (row.steam || libraryList(row).length))
+            return "Windows, with a Steam library. WASD will use this drive and will not erase it. " + freeGb(index) + " GB free."
+        if (row.windows && canKeep(index) && !windowsKeepable(index))
+            return "Windows is on this drive, with " + freeGb(index) + " GB free. Wipe it to use it for games."
+        if (gamesDiskIndex === index && gamesMode === "keep")
+            return "WASD will use this drive and will not erase it."
         if (row.windows)
             return "Windows is on this drive."
         if (row.games)
@@ -770,23 +840,170 @@ Window {
             return
         }
         const row = disks.get(index)
+        if (row.windows && (row.hibernated || !canKeep(index)))
+            return
+        if (row.windows && !windowsKeepable(index)) {
+            beginConfirm("gamesWipe", index, false)
+            return
+        }
         if (canKeep(index))
             beginConfirm("gamesKeep", index, false)
         else if (!row.occupied && !row.windows)
             beginConfirm("gamesWipe", index, false)
     }
 
-    function useWholeDrive() {
+    function pickSystemDrive(index) {
+        if (index < 0 || index >= disks.count || index === diskIndex)
+            return
+        actionIndex = index
+        if (index === gamesDiskIndex && (gamesMode === "keep" || gamesMode === "format")) {
+            const oldSystem = diskIndex
+            const old = oldSystem >= 0 && oldSystem < disks.count ? disks.get(oldSystem) : null
+            if (old && !old.occupied && !old.windows) {
+                gamesMode = "format"
+                gamesDiskIndex = oldSystem
+                gamesConfirmed = false
+                gamesOpen = false
+                diskIndex = index
+                return
+            }
+            if (old && canKeep(oldSystem)) {
+                gamesMode = "keep"
+                gamesDiskIndex = oldSystem
+                gamesConfirmed = false
+                gamesOpen = false
+                diskIndex = index
+                return
+            }
+            clearGames()
+            diskIndex = index
+            return
+        }
+        diskIndex = index
+    }
+
+    function useOnePartition() {
         clearGames()
         gamesOpen = false
     }
 
+    function useWholeDrive() {
+        useOnePartition()
+    }
+
+    function configureGames() {
+        if (disks.count !== 1 || !splitFits())
+            return
+        if (gamesMode !== "split")
+            chooseSplit()
+        gamesOpen = true
+    }
+
     function openGamesSection() {
-        if (diskIndex < 0 || disks.count < 1 || gamesOpen)
+        if (disks.count === 1) {
+            configureGames()
+            return
+        }
+        if (diskIndex < 0 || disks.count < 1)
             return
         gamesOpen = true
-        if (disks.count === 1 && splitFits())
-            chooseSplit()
+    }
+
+    function assignLayout() {
+        const blanks = []
+        for (let i = 0; i < disks.count; i++) {
+            const row = disks.get(i)
+            if (!row.occupied && !row.windows)
+                blanks.push(i)
+        }
+        const solid = []
+        for (let b = 0; b < blanks.length; b++) {
+            if (diskSolid(blanks[b]))
+                solid.push(blanks[b])
+        }
+        const pool = solid.length ? solid : blanks
+        if (pool.length >= 2) {
+            let games = pool[0]
+            for (let i = 1; i < pool.length; i++) {
+                const candidate = pool[i]
+                const bytes = disks.get(candidate).bytes || 0
+                const best = disks.get(games).bytes || 0
+                if (bytes > best || (bytes === best && candidate > games))
+                    games = candidate
+            }
+            let system = -1
+            for (let j = 0; j < pool.length; j++) {
+                const candidate = pool[j]
+                if (candidate === games)
+                    continue
+                if (system < 0) {
+                    system = candidate
+                    continue
+                }
+                const bytes = disks.get(candidate).bytes || 0
+                const best = disks.get(system).bytes || 0
+                if (bytes > best || (bytes === best && candidate < system))
+                    system = candidate
+            }
+            gamesMode = "format"
+            gamesDiskIndex = games
+            gamesConfirmed = false
+            gamesOpen = false
+            diskIndex = system
+            actionIndex = system
+            return
+        }
+        if (pool.length === 1) {
+            const system = pool[0]
+            for (let i = 0; i < disks.count; i++) {
+                if (i === system)
+                    continue
+                const row = disks.get(i)
+                if (row.games && !row.windows && canKeep(i)) {
+                    gamesMode = "keep"
+                    gamesDiskIndex = i
+                    gamesConfirmed = false
+                    gamesOpen = false
+                    diskIndex = system
+                    actionIndex = system
+                    return
+                }
+            }
+            for (let k = 0; k < disks.count; k++) {
+                if (k !== system && windowsKeepable(k)) {
+                    gamesMode = "keep"
+                    gamesDiskIndex = k
+                    gamesConfirmed = true
+                    gamesOpen = false
+                    diskIndex = system
+                    actionIndex = system
+                    return
+                }
+            }
+            diskIndex = system
+            actionIndex = system
+            if (usableOf(system) >= 96)
+                chooseSplit()
+            else
+                clearGames()
+            diskIndex = system
+            gamesOpen = false
+            return
+        }
+        if (disks.count === 1) {
+            diskIndex = 0
+            actionIndex = 0
+            if (usableOf(0) >= 96)
+                chooseSplit()
+            else
+                clearGames()
+            diskIndex = 0
+            gamesOpen = false
+            return
+        }
+        diskIndex = -1
+        actionIndex = -1
+        clearGames()
     }
 
     function toggleGamesOpen() {
@@ -1435,6 +1652,9 @@ Window {
                 games.part = grow.part || ""
                 games.fstype = grow.fstype || ""
                 games.uuid = grow.uuid || ""
+                const libs = libraryList(grow)
+                if (libs.length)
+                    games.libraries = libs
             }
             if (gamesConfirmed)
                 games.confirmed = true
@@ -1503,9 +1723,9 @@ Window {
         diskIndex = -1
         disks.clear()
         const rows = data.disks || []
-        let pick = -1
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i]
+            const libraries = libraryText(row.libraries)
             disks.append({
                 name: row.name,
                 kind: row.kind || "",
@@ -1517,13 +1737,18 @@ Window {
                 games: !!row.games,
                 part: row.part || "",
                 fstype: row.fstype || "",
-                uuid: row.uuid || ""
+                uuid: row.uuid || "",
+                free: row.free || 0,
+                hibernated: !!row.hibernated,
+                steam: !!row.steam || libraries !== "",
+                libraries: libraries,
+                rotational: !!row.rotational,
+                usb: !!row.usb,
+                solid: row.solid === false || row.rotational || row.usb ? false : true
             })
-            if (pick < 0 && !row.occupied)
-                pick = i
         }
-        diskIndex = pick
-        actionIndex = pick
+        if (disks.count > 0)
+            assignLayout()
     }
 
     function diskSnapshot() {

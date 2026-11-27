@@ -1009,12 +1009,68 @@ def steam_library_program():
     return []
 
 
+def public_choices(data):
+    """The copy that can sit next to the games. The password and Wi-Fi stay off it."""
+    return {key: value for key, value in data.items() if key not in {"password", "wifi"}}
+
+
+def games_root():
+    return Path(os.environ.get("WASD_GAMES", "/games"))
+
+
+def save_games_choices():
+    root = games_root()
+    try:
+        if not root.is_dir() or root.is_symlink() or not root.is_mount():
+            return
+    except OSError:
+        return
+    try:
+        data = json.loads(CHOICES.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+    path = root / "wasd-choices.json"
+    try:
+        if path.is_symlink():
+            return
+        path.write_text(json.dumps(public_choices(data), indent=2) + "\n", encoding="utf-8")
+        os.chmod(path, 0o644)
+    except OSError:
+        return
+
+
+def recorded_libraries():
+    try:
+        data = json.loads(CHOICES.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    games = data.get("games")
+    if not isinstance(games, dict) or "libraries" not in games:
+        return None
+    raw = games.get("libraries")
+    if not isinstance(raw, list):
+        return None
+    lines = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            lines.append(item.strip())
+    return "\n".join(lines)
+
+
 def ensure_steam_library():
     argv = steam_library_program()
     if not argv:
         return
+    env = os.environ.copy()
+    recorded = recorded_libraries()
+    if recorded is not None:
+        env["WASD_STEAM_LIBRARIES"] = recorded
     try:
-        subprocess.run(argv, check=False)
+        subprocess.run(argv, check=False, env=env)
     except OSError:
         return
 
@@ -1029,6 +1085,7 @@ def remove_autostart():
         path.unlink(missing_ok=True)
     except OSError:
         return False
+    save_games_choices()
     ensure_steam_library()
     return True
 
@@ -1511,6 +1568,48 @@ def self_check():
         raise SystemExit("Steam was not told about /games")
     if not (tmp / "games" / "SteamLibrary" / "libraryfolder.vdf").is_file():
         raise SystemExit("the games library marker was not written")
+    if (tmp / "games" / "wasd-choices.json").exists():
+        raise SystemExit("choices were copied onto a folder that is not /games")
+    public = public_choices({
+        "password": True,
+        "user": "alex",
+        "wifi": {"ssid": "Home", "security": "WPA2"},
+        "launchers": ["Battle.net"],
+    })
+    if "password" in public or "wifi" in public or public.get("user") != "alex":
+        raise SystemExit(f"the games copy kept a secret {public}")
+    if public.get("launchers") != ["Battle.net"]:
+        raise SystemExit(f"the games copy dropped a choice {public}")
+    windows = tmp / "windows-games"
+    (windows / "Program Files (x86)" / "Steam" / "steamapps").mkdir(parents=True)
+    saved_games = os.environ.get("WASD_GAMES")
+    saved_home = os.environ.get("WASD_STEAM_HOME")
+    os.environ["WASD_GAMES"] = str(windows)
+    os.environ["WASD_STEAM_HOME"] = str(tmp / "windows-home")
+    choices.write_text(json.dumps({
+        "password": True,
+        "user": "alex",
+        "wifi": {"ssid": "Home", "security": "WPA2", "hidden": False},
+        "launchers": ["Battle.net"],
+        "games": {"mode": "keep", "libraries": ["Program Files (x86)/Steam"]},
+    }))
+    ensure_steam_library()
+    windows_list = tmp / "windows-home" / ".local" / "share" / "Steam" / "steamapps" / "libraryfolders.vdf"
+    if not windows_list.is_file() or "Program Files (x86)/Steam" not in windows_list.read_text(encoding="utf-8"):
+        raise SystemExit("the recorded Windows library was not added")
+    if (windows / "SteamLibrary").exists():
+        raise SystemExit("SteamLibrary was created on the Windows drive")
+    save_games_choices()
+    if (windows / "wasd-choices.json").exists():
+        raise SystemExit("choices were copied onto a folder that is not /games")
+    if saved_games is None:
+        os.environ.pop("WASD_GAMES", None)
+    else:
+        os.environ["WASD_GAMES"] = saved_games
+    if saved_home is None:
+        os.environ.pop("WASD_STEAM_HOME", None)
+    else:
+        os.environ["WASD_STEAM_HOME"] = saved_home
     info_text = info.read_text()
     if "[Trash Info]" not in info_text or "DeletionDate=" not in info_text or str(icon) not in urllib.parse.unquote(info_text):
         raise SystemExit(f"the trash note was wrong: {info_text}")

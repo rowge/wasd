@@ -36,7 +36,7 @@ Item {
                 width: parent.width
                 topPadding: 8
                 wrapMode: Text.WordWrap
-                text: "The recommended install is one drive. The selected drive will be wiped."
+                text: "The selected drive will be wiped. /games is set up with it."
                 color: host.muted
                 font.family: host.bodyFont
                 font.pixelSize: 17
@@ -142,10 +142,7 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                host.diskIndex = index
-                                host.actionIndex = index
-                            }
+                            onClicked: host.pickSystemDrive(index)
                         }
                     }
                 }
@@ -159,6 +156,79 @@ Item {
                 color: host.ink
                 font.family: host.bodyFont
                 font.pixelSize: 16
+            }
+
+            Column {
+                width: parent.width
+                visible: host.diskModel.count === 1 && host.splitFits()
+                spacing: 10
+                topPadding: 8
+
+                Text {
+                    objectName: "gamesPlan"
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: host.oneDrivePlan()
+                    color: host.ink
+                    font.family: host.bodyFont
+                    font.pixelSize: 16
+                }
+
+                Row {
+                    spacing: 12
+
+                    Rectangle {
+                        width: configureLabel.implicitWidth + 36
+                        height: 44
+                        radius: 9
+                        color: Qt.rgba(0, 0, 0, 0.18)
+                        border.width: 1
+                        border.color: host.gamesMode === "split" ? host.brass : host.line
+
+                        Text {
+                            id: configureLabel
+                            objectName: "configureGamesLabel"
+                            anchors.centerIn: parent
+                            text: "Configure /games"
+                            color: host.ink
+                            font.family: host.bodyFont
+                            font.pixelSize: 16
+                        }
+
+                        MouseArea {
+                            objectName: "configureGamesButton"
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: host.configureGames()
+                        }
+                    }
+
+                    Rectangle {
+                        width: oneLabel.implicitWidth + 36
+                        height: 44
+                        radius: 9
+                        color: Qt.rgba(0, 0, 0, 0.18)
+                        border.width: 1
+                        border.color: host.gamesMode === "off" ? host.brass : host.line
+
+                        Text {
+                            id: oneLabel
+                            objectName: "onePartitionLabel"
+                            anchors.centerIn: parent
+                            text: "Use one partition"
+                            color: host.ink
+                            font.family: host.bodyFont
+                            font.pixelSize: 16
+                        }
+
+                        MouseArea {
+                            objectName: "onePartitionButton"
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: host.useOnePartition()
+                        }
+                    }
+                }
             }
 
             Text {
@@ -183,7 +253,7 @@ Item {
 
             Column {
                 width: parent.width
-                visible: host.gamesOpen
+                visible: host.diskModel.count > 1 || host.gamesOpen || (host.diskModel.count === 1 && host.diskIndex >= 0 && !host.splitFits())
                 spacing: 10
                 topPadding: 10
 

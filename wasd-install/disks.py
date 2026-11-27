@@ -5,12 +5,23 @@ partitions, formats, or erases a disk.
 """
 
 import json
+import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 OS_FS = {"ext4", "btrfs", "xfs", "ntfs", "bitlocker", "crypto_luks"}
 DEVICE_NAME = re.compile(r"^(nvme[0-9]+n[0-9]+|sd[a-z]+|vd[a-z]+|mmcblk[0-9]+|hd[a-z]+)$")
+PART_NAME = re.compile(
+    r"^(nvme[0-9]+n[0-9]+p[0-9]+|sd[a-z]+[0-9]+|vd[a-z]+[0-9]+|mmcblk[0-9]+p[0-9]+|hd[a-z]+[0-9]+)$"
+)
+GIB = 1024 ** 3
+LIBRARY_ROOTS = (
+    "Program Files (x86)/Steam",
+    "Program Files/Steam",
+    "SteamLibrary",
+)
 
 
 def walk(node):
@@ -46,6 +57,33 @@ def human_size(value):
     return f"{number // 1_000_000} MB"
 
 
+def _library_list(value):
+    if isinstance(value, str):
+        value = value.split("\n")
+    if not isinstance(value, list):
+        return []
+    found = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if text and text not in found:
+            found.append(text)
+    return found
+
+
+def _ntfs_row(node, size):
+    return {
+        "part": str(node.get("name") or ""),
+        "fs": (node.get("fstype") or "").lower(),
+        "uuid": str(node.get("uuid") or ""),
+        "size": size,
+        "free": disk_bytes(node.get("fsavail")),
+        "hibernated": bool(node.get("hibernated")),
+        "libraries": _library_list(node.get("libraries")),
+    }
+
+
 def parse_disks(payload):
     data = json.loads(payload) if isinstance(payload, str) else payload
     disks = []
@@ -61,14 +99,13 @@ def parse_disks(payload):
         games_fs = ""
         games_uuid = ""
         games_bytes = -1
+        games_free = 0
         data_part = ""
         data_fs = ""
         data_uuid = ""
         data_bytes = -1
-        ntfs_part = ""
-        ntfs_fs = ""
-        ntfs_uuid = ""
-        ntfs_bytes = -1
+        ntfs_info = None
+        library_info = None
         for node in walk(dev):
             if node is dev:
                 continue
@@ -80,43 +117,76 @@ def parse_disks(payload):
             elif fs in OS_FS or fs == "exfat":
                 occupied = True
             marked = label.casefold() == "games"
-            steam = False
+            mounted_libraries = []
             for mount in _mounts(node):
                 root = Path(mount)
                 try:
-                    steam = (root / "SteamLibrary" / "steamapps").is_dir() or (root / "steamapps").is_dir()
+                    if (root / "SteamLibrary" / "steamapps").is_dir():
+                        mounted_libraries = ["SteamLibrary"]
+                        break
+                    if (root / "steamapps").is_dir():
+                        mounted_libraries = ["."]
+                        break
                 except OSError:
-                    steam = False
-                if steam:
-                    break
+                    continue
+            steam = bool(mounted_libraries)
             size = disk_bytes(node.get("size"))
+            if fs == "ntfs" and node.get("uuid"):
+                info = _ntfs_row(node, size)
+                if mounted_libraries and not info["libraries"]:
+                    info["libraries"] = mounted_libraries
+                if ntfs_info is None or size >= ntfs_info["size"]:
+                    ntfs_info = info
+                if info["libraries"] and (library_info is None or size >= library_info["size"]):
+                    library_info = info
             if (marked or steam) and size >= games_bytes:
                 games = True
                 games_part = str(node.get("name") or "")
                 games_fs = fs
                 games_uuid = str(node.get("uuid") or "")
                 games_bytes = size
+                games_free = disk_bytes(node.get("fsavail"))
             elif fs in {"btrfs", "ext4", "xfs", "ntfs", "exfat"} and size > data_bytes:
                 data_part = str(node.get("name") or "")
                 data_fs = fs
                 data_uuid = str(node.get("uuid") or "")
                 data_bytes = size
-            if fs == "ntfs" and node.get("uuid") and size >= ntfs_bytes:
-                ntfs_part = str(node.get("name") or "")
-                ntfs_fs = fs
-                ntfs_uuid = str(node.get("uuid") or "")
-                ntfs_bytes = size
+        libraries = []
+        free = 0
+        hibernated = False
         if windows:
             kind = "Windows is on this drive."
             games = False
-            part = ntfs_part
-            fstype = ntfs_fs
-            uuid = ntfs_uuid
+            chosen = library_info or ntfs_info
+            if chosen:
+                part = chosen["part"]
+                fstype = chosen["fs"]
+                uuid = chosen["uuid"]
+                libraries = chosen["libraries"]
+                free = chosen["free"]
+                hibernated = chosen["hibernated"]
+            else:
+                part = ""
+                fstype = ""
+                uuid = ""
         else:
-            part = games_part or data_part
-            fstype = games_fs if games else data_fs
-            uuid = games_uuid if games else data_uuid
+            if library_info and (not games or library_info["size"] >= games_bytes):
+                games = True
+                part = library_info["part"]
+                fstype = library_info["fs"]
+                uuid = library_info["uuid"]
+                libraries = library_info["libraries"]
+                free = library_info["free"]
+                hibernated = library_info["hibernated"]
+            else:
+                part = games_part or data_part
+                fstype = games_fs if games else data_fs
+                uuid = games_uuid if games else data_uuid
+                free = games_free
             kind = "Another system is on this drive." if occupied else ""
+        rota = dev.get("rota")
+        rotational = bool(rota) if "rota" in dev and rota is not None else False
+        usb = str(dev.get("tran") or "").lower() == "usb"
         raw_size = dev.get("size")
         disks.append(
             {
@@ -131,6 +201,13 @@ def parse_disks(payload):
                 "part": part,
                 "fstype": fstype,
                 "uuid": uuid,
+                "free": free,
+                "hibernated": hibernated,
+                "libraries": libraries,
+                "steam": bool(libraries),
+                "rotational": rotational,
+                "usb": usb,
+                "solid": not rotational and not usb,
             }
         )
     return disks
@@ -249,6 +326,179 @@ def live_usb_from_os():
     return found
 
 
+def _solid(disk):
+    if "solid" in disk:
+        return bool(disk["solid"])
+    return not disk.get("rotational") and not disk.get("usb")
+
+
+def _keepable(disk):
+    fstype = str(disk.get("fstype") or "").lower()
+    return bool(disk.get("part")) and bool(disk.get("uuid")) and fstype != "bitlocker"
+
+
+def windows_library(disk):
+    """A Windows drive that can be mounted at /games without formatting it."""
+    if not disk.get("windows") or disk.get("hibernated") or not _keepable(disk):
+        return False
+    if disk.get("steam") or disk.get("libraries"):
+        return True
+    return int(disk.get("free") or 0) >= 64 * GIB
+
+
+def _usable_gb(disk):
+    return max(0, int(disk.get("bytes") or 0) // GIB - 4)
+
+
+def choose_layout(disks):
+    """The install the page starts with.
+
+    system and games are indexes. games is -1 when the system drive is split
+    or when there is no /games. mode is split, format, keep, or off.
+    """
+    blanks = [
+        index
+        for index, disk in enumerate(disks)
+        if not disk.get("occupied") and not disk.get("windows")
+    ]
+    solid = [index for index in blanks if _solid(disks[index])]
+    pool = solid or blanks
+    if len(pool) >= 2:
+        games = max(pool, key=lambda index: (int(disks[index].get("bytes") or 0), index))
+        rest = [index for index in pool if index != games]
+        system = max(rest, key=lambda index: (int(disks[index].get("bytes") or 0), -index))
+        return {"system": system, "games": games, "mode": "format"}
+    if len(pool) == 1:
+        system = pool[0]
+        for index, disk in enumerate(disks):
+            if index != system and disk.get("games") and not disk.get("windows") and _keepable(disk):
+                return {"system": system, "games": index, "mode": "keep"}
+        for index, disk in enumerate(disks):
+            if index != system and windows_library(disk):
+                return {"system": system, "games": index, "mode": "keep"}
+        if _usable_gb(disks[system]) >= 96:
+            return {"system": system, "games": -1, "mode": "split"}
+        return {"system": system, "games": -1, "mode": "off"}
+    if len(disks) == 1:
+        mode = "split" if _usable_gb(disks[0]) >= 96 else "off"
+        return {"system": 0, "games": -1, "mode": mode}
+    return {"system": -1, "games": -1, "mode": "off"}
+
+
+def _add_library(found, relative):
+    if relative and relative not in found:
+        found.append(relative)
+
+
+def libraries_in_vdf(root, vdf):
+    try:
+        text = vdf.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    found = []
+    root_real = root.resolve()
+    for raw in re.findall(r'"path"\s+"([^"]*)"', text):
+        relative = raw.replace("\\", "/").strip()
+        if len(relative) >= 2 and relative[1] == ":":
+            relative = relative[2:]
+        parts = [part for part in relative.split("/") if part not in {"", "."}]
+        if not parts or any(part == ".." for part in parts):
+            continue
+        relative = "/".join(parts)
+        folder = root_real.joinpath(*parts)
+        try:
+            folder.relative_to(root_real)
+        except ValueError:
+            continue
+        apps = folder / "steamapps"
+        try:
+            if apps.is_dir() and not apps.is_symlink():
+                _add_library(found, relative)
+        except OSError:
+            continue
+    return found
+
+
+def libraries_at(root):
+    """Steam libraries at the known Windows paths. This does not walk the disk."""
+    found = []
+    try:
+        apps = root / "steamapps"
+        if apps.is_dir() and not apps.is_symlink():
+            _add_library(found, ".")
+    except OSError:
+        pass
+    for relative in LIBRARY_ROOTS:
+        folder = root.joinpath(*relative.split("/"))
+        try:
+            apps = folder / "steamapps"
+            if apps.is_dir() and not apps.is_symlink():
+                _add_library(found, relative)
+        except OSError:
+            continue
+    for relative in LIBRARY_ROOTS[:2]:
+        vdf = root.joinpath(*relative.split("/")) / "steamapps" / "libraryfolders.vdf"
+        for extra in libraries_in_vdf(root, vdf):
+            _add_library(found, extra)
+    return found
+
+
+def probe_ntfs(name):
+    """Read free space, Fast Startup, and Steam libraries. Nothing is written."""
+    device = Path("/dev") / name
+    try:
+        if not device.exists():
+            return None
+    except OSError:
+        return None
+    mountpoint = Path(tempfile.mkdtemp(prefix="wasd-ntfs-"))
+    try:
+        result = subprocess.run(
+            ["mount", "-t", "ntfs3", "-o", "ro", str(device), str(mountpoint)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            text = f"{result.stderr}\n{result.stdout}".lower()
+            return {"hibernated": "hibernat" in text, "libraries": [], "free": 0}
+        free = 0
+        try:
+            usage = os.statvfs(mountpoint)
+            free = usage.f_bavail * usage.f_frsize
+        except OSError:
+            free = 0
+        return {"hibernated": False, "libraries": libraries_at(mountpoint), "free": free}
+    except OSError:
+        return None
+    finally:
+        subprocess.run(["umount", str(mountpoint)], capture_output=True)
+        try:
+            mountpoint.rmdir()
+        except OSError:
+            pass
+
+
+def annotate_ntfs(data):
+    if os.environ.get("WASD_DISK_PROBE") == "0":
+        return
+    for dev in data.get("blockdevices") or []:
+        for node in walk(dev):
+            if node is dev:
+                continue
+            name = str(node.get("name") or "")
+            if (node.get("fstype") or "").lower() != "ntfs" or not PART_NAME.fullmatch(name):
+                continue
+            if node.get("libraries") or node.get("hibernated"):
+                continue
+            found = probe_ntfs(name)
+            if not found:
+                continue
+            node["hibernated"] = found["hibernated"]
+            node["libraries"] = found["libraries"]
+            if found["free"]:
+                node["fsavail"] = found["free"]
+
+
 def shown_disks(payload, extra_banned=()):
     """Disks a person can install onto. The live USB and zram stay off the list."""
     banned = set(live_disk_names(payload)) | set(extra_banned)
@@ -263,12 +513,17 @@ def shown_disks(payload, extra_banned=()):
 
 def live_disks():
     result = subprocess.run(
-        ["lsblk", "-J", "-b", "-o", "NAME,SIZE,MODEL,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS"],
+        [
+            "lsblk", "-J", "-b", "-o",
+            "NAME,SIZE,MODEL,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS,ROTA,TRAN,FSAVAIL",
+        ],
         check=True,
         capture_output=True,
         text=True,
     )
-    return shown_disks(result.stdout, live_usb_from_os())
+    payload = json.loads(result.stdout)
+    annotate_ntfs(payload)
+    return shown_disks(payload, live_usb_from_os())
 
 
 def live_payload():
@@ -382,3 +637,128 @@ def self_check():
         raise SystemExit(f"live usb or zram stayed on the list {visible}")
     if parent_disk("nvme0n1p1") != "nvme0n1" or parent_disk("sda1") != "sda":
         raise SystemExit("parent disk names were wrong")
+    windows_games = parse_disks({
+        "blockdevices": [
+            {
+                "name": "nvme0n1",
+                "type": "disk",
+                "size": 1_000_000_000_000,
+                "rota": False,
+                "tran": "nvme",
+                "children": [],
+            },
+            {
+                "name": "nvme1n1",
+                "type": "disk",
+                "size": 2_000_000_000_000,
+                "rota": False,
+                "tran": "nvme",
+                "children": [{
+                    "name": "nvme1n1p3",
+                    "type": "part",
+                    "fstype": "ntfs",
+                    "label": "Windows",
+                    "uuid": "abcdefab-1234-1234-1234-123456789abc",
+                    "size": 1_900_000_000_000,
+                    "fsavail": 400 * GIB,
+                    "libraries": ["Program Files (x86)/Steam"],
+                }],
+            },
+        ]
+    })
+    if windows_games[1]["games"] or not windows_games[1]["steam"]:
+        raise SystemExit(f"windows library was misread {windows_games[1]}")
+    if windows_games[1]["libraries"] != ["Program Files (x86)/Steam"] or windows_games[1]["free"] != 400 * GIB:
+        raise SystemExit(f"windows library details {windows_games[1]}")
+    slow = {
+        "occupied": False,
+        "windows": False,
+        "bytes": 4_000_000_000_000,
+        "rotational": True,
+        "solid": False,
+    }
+    fast = {
+        "occupied": False,
+        "windows": False,
+        "bytes": 1_000_000_000_000,
+        "solid": True,
+    }
+    picked = choose_layout([slow, fast])
+    if picked != {"system": 1, "games": -1, "mode": "split"}:
+        raise SystemExit(f"a spinning disk was chosen for games {picked}")
+    big = {"occupied": False, "windows": False, "bytes": 4_000_000_000_000, "solid": True}
+    small = {"occupied": False, "windows": False, "bytes": 1_000_000_000_000, "solid": True}
+    sized = choose_layout([small, big])
+    if sized != {"system": 0, "games": 1, "mode": "format"}:
+        raise SystemExit(f"the larger blank disk was not /games {sized}")
+    library = {
+        "occupied": True,
+        "windows": True,
+        "bytes": 2_000_000_000_000,
+        "part": "nvme1n1p3",
+        "fstype": "ntfs",
+        "uuid": "abcdefab-1234-1234-1234-123456789abc",
+        "steam": True,
+        "free": 20 * GIB,
+        "hibernated": False,
+    }
+    blank = {"occupied": False, "windows": False, "bytes": 1_000_000_000_000, "solid": True}
+    kept = choose_layout([blank, library])
+    if kept != {"system": 0, "games": 1, "mode": "keep"}:
+        raise SystemExit(f"a Windows Steam library was skipped {kept}")
+    asleep = dict(library)
+    asleep["hibernated"] = True
+    if choose_layout([blank, asleep])["games"] != -1:
+        raise SystemExit("a hibernated Windows drive was mounted")
+    crowded = dict(library)
+    crowded["steam"] = False
+    crowded["libraries"] = []
+    crowded["free"] = 10 * GIB
+    if choose_layout([blank, crowded])["mode"] != "split":
+        raise SystemExit("a full Windows drive without Steam was used")
+    same = {"occupied": False, "windows": False, "bytes": 2_000_000_000_000, "solid": True}
+    tied = choose_layout([dict(same), dict(same)])
+    if tied != {"system": 0, "games": 1, "mode": "format"}:
+        raise SystemExit(f"equal disks broke the tie wrong {tied}")
+    both = choose_layout([
+        {"occupied": False, "windows": False, "bytes": 1_000_000_000_000, "solid": True},
+        {"occupied": False, "windows": False, "bytes": 2_000_000_000_000, "solid": True},
+        library,
+    ])
+    if both != {"system": 0, "games": 1, "mode": "format"}:
+        raise SystemExit(f"Windows was used beside two blank drives {both}")
+    usb = choose_layout([
+        {"occupied": False, "windows": False, "bytes": 4_000_000_000_000, "usb": True, "solid": False},
+        {"occupied": False, "windows": False, "bytes": 500_000_000_000, "solid": True},
+    ])
+    if usb != {"system": 1, "games": -1, "mode": "split"}:
+        raise SystemExit(f"a USB disk was chosen over an internal drive {usb}")
+    with tempfile.TemporaryDirectory(prefix="wasd-libraries-") as raw:
+        root = Path(raw)
+        steam = root / "Program Files (x86)" / "Steam" / "steamapps"
+        steam.mkdir(parents=True)
+        (steam / "libraryfolders.vdf").write_text(
+            '"libraryfolders"\n{\n'
+            '\t"0"\n\t{\n\t\t"path"\t\t"C:\\\\Program Files (x86)\\\\Steam"\n\t}\n'
+            '\t"1"\n\t{\n\t\t"path"\t\t"D:\\\\SteamLibrary"\n\t}\n'
+            '\t"2"\n\t{\n\t\t"path"\t\t"C:\\\\..\\\\etc"\n\t}\n'
+            '\t"3"\n\t{\n\t\t"path"\t\t"C:\\\\MissingLibrary"\n\t}\n'
+            "}\n",
+            encoding="utf-8",
+        )
+        (root / "SteamLibrary" / "steamapps").mkdir(parents=True)
+        found = libraries_at(root)
+        if found != ["Program Files (x86)/Steam", "SteamLibrary"]:
+            raise SystemExit(f"known libraries were missed {found}")
+        outside = root / "outside"
+        outside.mkdir()
+        escaped = libraries_in_vdf(root, steam / "libraryfolders.vdf")
+        if any(item.startswith("/") or ".." in item.split("/") for item in escaped):
+            raise SystemExit(f"a library escaped the drive {escaped}")
+        if "MissingLibrary" in escaped:
+            raise SystemExit("a missing library was recorded")
+    with tempfile.TemporaryDirectory(prefix="wasd-root-library-") as raw:
+        root = Path(raw)
+        (root / "steamapps").mkdir()
+        if libraries_at(root) != ["."]:
+            raise SystemExit(f"a library at the root was missed {libraries_at(root)}")

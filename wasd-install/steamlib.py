@@ -174,20 +174,41 @@ def lists_for(steam_root):
     return names
 
 
-def ensure(home, games, *, mounted, running):
-    if running:
-        return "busy"
-    previous = os.environ.get("WASD_STEAM_MOUNTED")
-    os.environ["WASD_STEAM_MOUNTED"] = "1" if mounted else "0"
+def recorded_folders(games):
+    """Libraries named by the installer. None means that list was not set."""
+    raw = os.environ.get("WASD_STEAM_LIBRARIES")
+    if raw is None:
+        return None
+    found = []
     try:
-        library = choose_library(games)
-    finally:
-        if previous is None:
-            os.environ.pop("WASD_STEAM_MOUNTED", None)
+        root = games.resolve()
+    except OSError:
+        return []
+    for line in raw.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if text == ".":
+            folder = games
         else:
-            os.environ["WASD_STEAM_MOUNTED"] = previous
-    if library is None:
-        return "skipped"
+            if text.startswith(("/", "\\")) or ":" in text or "\\" in text:
+                continue
+            parts = text.split("/")
+            if any(part in {"", ".", ".."} for part in parts):
+                continue
+            folder = games.joinpath(*parts)
+        try:
+            if not folder.resolve().is_relative_to(root):
+                continue
+        except OSError:
+            continue
+        library = real_library(folder)
+        if library is not None and library not in found:
+            found.append(library)
+    return found
+
+
+def add_library(home, library):
     steam_root = home / ".local" / "share" / "Steam"
     ident = content_id()
     changed = False
@@ -212,6 +233,32 @@ def ensure(home, games, *, mounted, running):
     return "present"
 
 
+def ensure(home, games, *, mounted, running):
+    if running:
+        return "busy"
+    recorded = recorded_folders(games)
+    if recorded is not None:
+        if not recorded:
+            return "skipped"
+        status = "present"
+        for library in recorded:
+            if add_library(home, library) == "added":
+                status = "added"
+        return status
+    previous = os.environ.get("WASD_STEAM_MOUNTED")
+    os.environ["WASD_STEAM_MOUNTED"] = "1" if mounted else "0"
+    try:
+        library = choose_library(games)
+    finally:
+        if previous is None:
+            os.environ.pop("WASD_STEAM_MOUNTED", None)
+        else:
+            os.environ["WASD_STEAM_MOUNTED"] = previous
+    if library is None:
+        return "skipped"
+    return add_library(home, library)
+
+
 def main():
     if "--self-check" in sys.argv:
         self_check()
@@ -226,6 +273,7 @@ def main():
 def self_check():
     import tempfile
 
+    os.environ.pop("WASD_STEAM_LIBRARIES", None)
     with tempfile.TemporaryDirectory(prefix="wasd-steam-library-") as raw:
         root = Path(raw)
         home = root / "home"
@@ -291,6 +339,30 @@ def self_check():
             raise SystemExit("a broken library list was rewritten")
         if broken_vdf.read_text(encoding="utf-8") != "not a library list\n":
             raise SystemExit("a broken library list was changed")
+
+        windows = root / "windows-games"
+        windows_apps = windows / "Program Files (x86)" / "Steam" / "steamapps"
+        windows_apps.mkdir(parents=True)
+        windows_home = root / "windows-home"
+        os.environ["WASD_STEAM_LIBRARIES"] = "Program Files (x86)/Steam\n../etc"
+        try:
+            if ensure(windows_home, windows, mounted=True, running=False) != "added":
+                raise SystemExit("a Windows Steam library was not added")
+            windows_text = (
+                windows_home / ".local" / "share" / "Steam" / "steamapps" / "libraryfolders.vdf"
+            ).read_text(encoding="utf-8")
+            if str(windows_apps.parent) not in windows_text:
+                raise SystemExit(f"the Windows library path is wrong: {windows_text}")
+            if (windows / "SteamLibrary").exists():
+                raise SystemExit("SteamLibrary was created beside a Windows library")
+            os.environ["WASD_STEAM_LIBRARIES"] = "Not/There"
+            missing_home = root / "missing-home"
+            if ensure(missing_home, windows, mounted=True, running=False) != "skipped":
+                raise SystemExit("a missing recorded library created a folder")
+            if (windows / "SteamLibrary").exists():
+                raise SystemExit("SteamLibrary was created for a missing library")
+        finally:
+            os.environ.pop("WASD_STEAM_LIBRARIES", None)
     print("steam library self-check ok")
 
 
