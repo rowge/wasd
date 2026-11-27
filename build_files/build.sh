@@ -720,10 +720,31 @@ test -s /usr/libexec/launchers.py
 test -s /usr/share/polkit-1/actions/org.wasd.look.policy
 test -s /usr/share/wasd/install/Main.qml
 grep -q 'title: "WASD Install"' /usr/share/wasd/install/Main.qml
-if grep -q 'Install WASD' /usr/share/wasd/install/Main.qml /usr/libexec/wasd-awake /usr/share/polkit-1/actions/org.wasd.erase.policy; then
-    echo "the installer is still named Install WASD" >&2
-    exit 1
-fi
+# The window stays WASD Install. The erase button and the order dialog
+# say Install WASD. Those two lines are the only ones allowed.
+python3 - << 'PY'
+from pathlib import Path
+found = [
+    line.strip()
+    for line in Path("/usr/share/wasd/install/Main.qml").read_text().splitlines()
+    if "Install WASD" in line
+]
+allowed = [
+    'readonly property string eraseLabel: "Install WASD"',
+    'return "Install WASD"',
+]
+if found != allowed:
+    raise SystemExit(
+        "Install WASD belongs only on the erase button and the order dialog: "
+        + repr(found)
+    )
+for path in (
+    "/usr/libexec/wasd-awake",
+    "/usr/share/polkit-1/actions/org.wasd.erase.policy",
+):
+    if "Install WASD" in Path(path).read_text():
+        raise SystemExit(f"{path} still names the installer Install WASD")
+PY
 test -s /usr/share/wasd/install/Complete.qml
 test -s /usr/share/wasd/install/UserPage.qml
 test -s /usr/share/wasd/install/LiveHost.qml
