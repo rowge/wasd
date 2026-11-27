@@ -516,15 +516,13 @@ Item {
         note: host.savedLine
         onBack: host.page = 3
         onGo: host.installOrConfirm()
-        onAlt: {
-            if (host.gamesOpen) {
-                host.useWholeDrive()
-                return
-            }
-            host.openGamesSection()
-            Qt.callLater(function() {
-                scroller.contentY = Math.max(0, gamesHead.y - 12)
-            })
+        onAlt: host.chooseDrives()
+    }
+
+    Connections {
+        target: host
+        function onDriveListTokenChanged() {
+            scroller.contentY = 0
         }
     }
 
@@ -579,6 +577,51 @@ Item {
                     font.pixelSize: 16
                 }
 
+                Item {
+                    visible: host.confirmStartsInstall
+                    width: parent.width
+                    height: Math.max(18, orderReadLabel.implicitHeight)
+
+                    Rectangle {
+                        id: orderReadMark
+                        objectName: "orderReadBox"
+                        width: 18
+                        height: 18
+                        radius: 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: "transparent"
+                        border.width: 2
+                        border.color: host.orderRead ? host.brass : host.muted
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 10
+                            height: 10
+                            radius: 2
+                            color: host.brass
+                            visible: host.orderRead
+                        }
+                    }
+
+                    Text {
+                        id: orderReadLabel
+                        objectName: "orderReadLabel"
+                        anchors.left: orderReadMark.right
+                        anchors.leftMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "I read the order"
+                        color: host.ink
+                        font.family: host.bodyFont
+                        font.pixelSize: 16
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: host.orderRead = !host.orderRead
+                    }
+                }
+
                 Row {
                     spacing: 18
 
@@ -598,17 +641,19 @@ Item {
                     }
 
                     Rectangle {
+                        id: yesButton
+                        readonly property bool yesReady: !host.confirmStartsInstall || host.orderRead
                         width: yesLabel.implicitWidth + 28
                         height: 36
                         radius: 9
-                        color: host.button
+                        color: yesReady ? host.button : Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35)
                         antialiasing: true
 
                         Text {
                             id: yesLabel
                             anchors.centerIn: parent
                             text: "Yes"
-                            color: host.buttonInk
+                            color: yesButton.yesReady ? host.buttonInk : host.muted
                             font.family: host.bodyFont
                             font.pixelSize: 16
                             font.bold: true
@@ -617,7 +662,8 @@ Item {
                         MouseArea {
                             objectName: "confirmYes"
                             anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
+                            enabled: yesButton.yesReady
+                            cursorShape: yesButton.yesReady ? Qt.PointingHandCursor : Qt.ArrowCursor
                             onClicked: host.confirmYes()
                         }
                     }

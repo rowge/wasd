@@ -67,6 +67,8 @@ Window {
     property int confirmIndex: -1
     property string confirmAction: ""
     property bool confirmStartsInstall: false
+    property bool orderRead: false
+    property int driveListToken: 0
     property var wipeDrives: []
     property bool installBlocked: false
     property var files: ({})
@@ -150,7 +152,7 @@ Window {
         "Star Citizen", "Minecraft Java", "Minecraft Bedrock",
         "FTB (modded Minecraft)", "PolyMC (modded Minecraft)",
         "MultiMC (modded Minecraft)", "CurseForge (modded Minecraft)",
-        "Spawn"
+        "Spawn", "Game Jolt"
     ]
 
     readonly property var iconFiles: files.icons || []
@@ -161,22 +163,8 @@ Window {
     readonly property bool userOk: userName.trim() === "" || (/^[a-z][a-z0-9-]{0,31}$/.test(userName.trim()) && userName.trim() !== "root")
     readonly property bool gamesChosen: gamesMode === "split" || gamesMode === "keep" || gamesMode === "format"
     readonly property bool showEraseButton: diskIndex >= 0
-    readonly property string gamesAltLabel: ""
-    readonly property string eraseLabel: {
-        const windows = diskIndex >= 0 && diskIndex < disks.count && disks.get(diskIndex).windows
-        const otherGames = gamesChosen && gamesDiskIndex >= 0 && gamesDiskIndex !== diskIndex
-        if (otherGames && gamesMode === "keep")
-            return "Erase " + driveLabel(diskIndex) + " and use " + driveLabel(gamesDiskIndex) + " for /games"
-        if (otherGames && gamesMode === "format")
-            return "Erase " + driveLabel(diskIndex) + " and wipe " + driveLabel(gamesDiskIndex) + " for /games"
-        if (gamesChosen)
-            return windows
-                    ? "Erase Windows and install with the games partition"
-                    : "Erase the disk and install with the games partition"
-        return windows
-                ? "Erase Windows and install WASD"
-                : "Erase the selected disk and install WASD"
-    }
+    readonly property string gamesAltLabel: "Choose drives"
+    readonly property string eraseLabel: "Install WASD"
     readonly property string appSummary: appCount() + " selected"
     readonly property string gameSummary: selectedGameNames().join(", ") || "None selected"
     readonly property string emulatorSummary: selectedEmulatorNames().join(", ") || "None selected"
@@ -286,8 +274,10 @@ Window {
         }
         agentOn = agents
         const launchers = {}
-        for (let k = 0; k < launcherNames.length; k++)
-            launchers[launcherNames[k]] = false
+        for (let k = 0; k < launcherNames.length; k++) {
+            const name = launcherNames[k]
+            launchers[name] = name === "Game Jolt" || name === "Spawn"
+        }
         launcherOn = launchers
         refreshShown()
         if (liveSession) {
@@ -1031,6 +1021,7 @@ Window {
             return
         if (action === "gamesKeep" && !canKeep(picked))
             return
+        orderRead = false
         confirmAction = action
         confirmIndex = picked
         confirmStartsInstall = !!startInstall
@@ -1041,6 +1032,34 @@ Window {
         confirmStep = 0
         confirmAction = ""
         confirmStartsInstall = false
+        orderRead = false
+    }
+
+    function chooseDrives() {
+        driveListToken += 1
+    }
+
+    function installOrder() {
+        if (diskIndex < 0 || diskIndex >= disks.count)
+            return ""
+        let text
+        if (gamesMode === "split")
+            text = driveLabel(diskIndex) + " will be wiped. WASD uses the first " + osGb + " GB. The rest, " + gamesGb + " GB, is wiped and used for /games."
+        else
+            text = driveLabel(diskIndex) + " will be wiped and used for WASD."
+        if (disks.get(diskIndex).windows)
+            text += " Windows is on it."
+        if (gamesMode !== "format" && gamesMode !== "keep")
+            return text
+        if (gamesDiskIndex < 0 || gamesDiskIndex >= disks.count || gamesDiskIndex === diskIndex)
+            return text
+        if (gamesMode === "format")
+            text += " " + driveLabel(gamesDiskIndex) + " will be wiped and used for /games."
+        else
+            text += " " + driveLabel(gamesDiskIndex) + " will be used for /games. It will not be wiped, and the files stay."
+        if (disks.get(gamesDiskIndex).windows)
+            text += " Windows is on it."
+        return text
     }
 
     function showPage(next) {
@@ -1203,10 +1222,13 @@ Window {
         if (confirmStep < 1)
             return
         const start = confirmStartsInstall && confirmAction === "system"
+        if (start && !orderRead)
+            return
         applyConfirm()
         confirmStep = 0
         confirmAction = ""
         confirmStartsInstall = false
+        orderRead = false
         if (start)
             saveChoices()
     }
@@ -1245,6 +1267,8 @@ Window {
     }
 
     function confirmTitle() {
+        if (confirmStartsInstall)
+            return "Install WASD"
         if (confirmIndex < 0 || confirmIndex >= disks.count)
             return ""
         const row = disks.get(confirmIndex)
@@ -1262,6 +1286,8 @@ Window {
     }
 
     function confirmBody() {
+        if (confirmStartsInstall)
+            return installOrder()
         if (confirmIndex < 0 || confirmIndex >= disks.count)
             return ""
         if (confirmAction === "gamesKeep")
@@ -1276,11 +1302,7 @@ Window {
     function installOrConfirm() {
         if (installBlocked || diskIndex < 0 || erasing)
             return
-        if (!systemConfirmed) {
-            beginConfirm("system", diskIndex, true)
-            return
-        }
-        saveChoices()
+        beginConfirm("system", diskIndex, true)
     }
 
     function openLook(which) {

@@ -57,7 +57,8 @@ Window {
             ["PolyMC (modded Minecraft)", "minecraft-modded"],
             ["MultiMC (modded Minecraft)", "multimc"],
             ["CurseForge (modded Minecraft)", "curseforge"],
-            ["Spawn", "spawn"]
+            ["Spawn", "spawn"],
+            ["Game Jolt", "gamejolt"]
         ]
         for (let i = 0; i < rows.length; i++) {
             launcherModel.append({
