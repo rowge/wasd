@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Testing and known issues — WASD</title>
-  <meta name="description" content="What the hardcore image is testing, and known issues in the current WASD download.">
+  <meta name="description" content="Known issues in the current WASD download, and the fixes being tested on hardcore.">
   <meta name="theme-color" content="#14161a">
   <link rel="icon" href="favicon.png" type="image/png">
   <link rel="stylesheet" href="styles.css?v=20261031-4">
@@ -27,14 +27,9 @@
   <main>
     <p class="back"><a href="/">WASD</a></p>
     <h1>Testing and known issues</h1>
-    <p>No known issues.</p>
-    <h2>Being tested on hardcore</h2>
-    <p>These changes are on the hardcore download. They are being tested there. The normal download does not have them yet.</p>
-    <p>The big change is emulators. WASD Install has an Emulators section above Launchers. RetroArch, Dolphin, PCSX2, and RPCS3 start checked. They download on the first boot. They are not on the disc. The Games menu puts them in Emulators. Dolphin's name there is Dolphin Emulator. The games and the console firmware are files you already have. Each emulator can read /games, Documents, Downloads, and a drive plugged into the computer. Saves stay with that emulator. RetroArch downloads its own emulator cores. There is no store for the console games. PCSX2 and RPCS3 are large downloads.</p>
-    <p>WASD Install has a Games section above that. itch.io, 0 A.D., OpenTTD, SuperTuxKart, Luanti, Battle for Wesnoth, and Freeciv start checked. They download on the first boot. They are not on the disc. Luanti is the current name of Minetest. Freeciv's menu name is Freeciv SDL2 client. The Games menu puts them in Real Games.</p>
-    <p>Browser games is a folder in the Games menu. Kitten Cannon, Line Rider, QWOP, and Starship are in it. Each one opens in the browser.</p>
-    <p>WASD Launchers has Spawn. The hardcore image includes it, and a click opens it. Games stay on Spawn's servers.</p>
-    <p>Hardcore installs the font Anton. A page that asks for Impact or Impact Condensed gets Anton. The font's own name stays Anton.</p>
+    <h2>Wi-Fi on the first boot</h2>
+    <p>Completing the install can say "Could not connect." The password was not sent to the network. The network never saw it.</p>
+    <p>The copies on the download page still do this. The fix is in the hardcore image being tested now. The normal download gets it after that test.</p>
   </main>
   </div>
 </body>
