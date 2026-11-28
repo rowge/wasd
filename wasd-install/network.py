@@ -34,6 +34,17 @@ except ImportError:
 PORT = 8765
 WIFI_ID = "WASD Wi-Fi"
 ETHERNET_ID = "WASD Ethernet"
+# NetworkManager only loads a keyfile from a system-connections directory.
+# /etc keeps the profile after reboot. Deleting the file drops the profile.
+NM_RUN = Path("/run/NetworkManager")
+NM_ETC = Path("/etc/NetworkManager")
+KEY_DIR = NM_ETC / "system-connections"
+SYSTEM_KEY_DIRS = (
+    KEY_DIR,
+    NM_RUN / "system-connections",
+    Path("/usr/lib/NetworkManager/system-connections"),
+)
+NM_TYPES = {"NetworkManager_var_run_t", "NetworkManager_etc_t", "NetworkManager_etc_rw_t"}
 WIFI_KEYS = {"ssid", "security", "hidden"}
 TCP_KEYS = {"mode", "interface", "kind", "address", "netmask", "gateway", "dns"}
 IFACE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,15}$")
@@ -108,7 +119,73 @@ def read_saved_wifi(path):
 
 
 def _key_value(value):
-    return value.replace("\\", "\\\\")
+    """Escape a value the way GKeyFile reads it back.
+
+    A leading space is removed unless it is written as \\s. A semicolon is
+    kept as itself: \\; is rejected when the field is read as one string.
+    """
+    value = value.replace("\\", "\\\\")
+    spaces = len(value) - len(value.lstrip(" "))
+    if spaces:
+        value = "\\s" * spaces + value[spaces:]
+    return value
+
+
+def _same_path(path, other):
+    try:
+        return Path(path).resolve() == Path(other).resolve()
+    except OSError:
+        return Path(path) == Path(other)
+
+
+def _is_system_key_dir(path):
+    return any(_same_path(path, system) for system in SYSTEM_KEY_DIRS)
+
+
+def _prepare_key_dir(key_dir):
+    key_dir = Path(key_dir)
+    key_dir.mkdir(parents=True, exist_ok=True)
+    # NetworkManager's own directories stay as the daemon created them.
+    if not _is_system_key_dir(key_dir):
+        os.chmod(key_dir, 0o700)
+    return key_dir
+
+
+def _fallback_type(path):
+    try:
+        resolved = Path(path).resolve()
+    except OSError:
+        return ""
+    for root, label in ((NM_ETC, "NetworkManager_etc_rw_t"), (NM_RUN, "NetworkManager_var_run_t")):
+        try:
+            root_resolved = root.resolve()
+        except OSError:
+            continue
+        if resolved == root_resolved or resolved.is_relative_to(root_resolved):
+            return label
+    return ""
+
+
+def _write_keyfile(path, text):
+    """Write a root-only keyfile, then publish it under the name NetworkManager loads.
+
+    A name that starts with '.' is ignored, so the daemon never reads a
+    half-written file. The finished file is mode 0600 before it is visible.
+    """
+    path = Path(path)
+    temporary = path.with_name("." + path.name + ".part")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, text.encode())
+    except Exception:
+        os.close(fd)
+        temporary.unlink(missing_ok=True)
+        raise
+    os.close(fd)
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+    os.chmod(path, 0o600)
 
 
 def ipv4_ok(value):
@@ -142,6 +219,42 @@ def _manual_ipv4(tcp):
         f"dns={';'.join(servers)};",
         "",
     ]
+
+
+def selinux_type(path):
+    try:
+        raw = os.getxattr(path, "security.selinux")
+    except OSError:
+        return ""
+    parts = raw.decode("utf-8", "replace").rstrip("\x00").split(":")
+    return parts[2] if len(parts) > 2 else ""
+
+
+def label_for_network_manager(path):
+    """Give the connection file a type NetworkManager is allowed to read."""
+    targets = []
+    if path.parent != path:
+        targets.append(path.parent)
+    targets.append(path)
+    for target in targets:
+        if not target.exists() or selinux_type(target) in NM_TYPES:
+            continue
+        try:
+            subprocess.run(["restorecon", "-F", str(target)], capture_output=True)
+        except FileNotFoundError:
+            pass
+        if selinux_type(target) in NM_TYPES:
+            continue
+        fallback = _fallback_type(target)
+        if not fallback:
+            continue
+        try:
+            subprocess.run(
+                ["chcon", "-t", fallback, str(target)],
+                capture_output=True,
+            )
+        except FileNotFoundError:
+            pass
 
 
 def render_keyfile(ssid, passphrase, hidden, secured, tcp=None):
@@ -199,18 +312,18 @@ def connect_saved(ssid, passphrase, security, hidden, runner, key_dir, tcp=None)
     if problem:
         raise Refuse(problem)
     secured = bool(passphrase)
-    key_dir = Path(key_dir)
-    key_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(key_dir, 0o700)
+    key_dir = _prepare_key_dir(key_dir)
     path = key_dir / "wasd.nmconnection"
+    connected = False
     try:
-        path.write_text(render_keyfile(ssid, passphrase if secured else "", hidden, secured, tcp))
-        os.chmod(path, 0o600)
-        passphrase = ""
         radio = runner(["radio", "wifi", "on"])
         if radio.returncode != 0:
             raise Refuse("Could not connect.")
+        # Remove an older profile before writing. Delete removes that profile's file.
         runner(["connection", "delete", "id", WIFI_ID])
+        _write_keyfile(path, render_keyfile(ssid, passphrase if secured else "", hidden, secured, tcp))
+        label_for_network_manager(path)
+        passphrase = ""
         loaded = runner(["connection", "load", str(path)])
         if loaded.returncode != 0:
             runner(["connection", "delete", "id", WIFI_ID])
@@ -219,12 +332,14 @@ def connect_saved(ssid, passphrase, security, hidden, runner, key_dir, tcp=None)
         if up.returncode != 0:
             runner(["connection", "delete", "id", WIFI_ID])
             raise Refuse(wifi_error(up))
+        connected = True
     finally:
         passphrase = ""
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if not connected:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def validate_tcp(data):
@@ -496,7 +611,7 @@ def connect_saved_main():
         return 1
     ssid, security, hidden = saved
     tcp = read_saved_tcp(os.environ.get("WASD_CHOICES", "/etc/wasd/choices.json"))
-    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", "/run/wasd-wifi"))
+    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", str(KEY_DIR)))
     try:
         connect_saved(ssid, passphrase, security, hidden, _nmcli, key_dir, tcp)
     except Refuse as exc:
@@ -554,27 +669,28 @@ def apply_ethernet(tcp, runner, key_dir):
     problem = validate_tcp(tcp)
     if problem:
         raise Refuse("Choose an adapter." if problem == "Choose an adapter." else problem)
-    key_dir = Path(key_dir)
-    key_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(key_dir, 0o700)
+    key_dir = _prepare_key_dir(key_dir)
     path = key_dir / "wasd-ethernet.nmconnection"
+    loaded_ok = False
     try:
-        path.write_text(render_ethernet_keyfile(tcp))
-        os.chmod(path, 0o600)
         runner(["connection", "delete", "id", ETHERNET_ID])
+        _write_keyfile(path, render_ethernet_keyfile(tcp))
+        label_for_network_manager(path)
         loaded = runner(["connection", "load", str(path)])
         if loaded.returncode != 0:
             runner(["connection", "delete", "id", ETHERNET_ID])
             raise Refuse("Those settings were not used.")
+        loaded_ok = True
         up = runner(["-w", "15", "connection", "up", "id", ETHERNET_ID])
         if up.returncode != 0:
             return "Saved for this adapter. It is not connected yet."
         return ""
     finally:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if not loaded_ok:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def apply_ethernet_main():
@@ -589,7 +705,7 @@ def apply_ethernet_main():
     if tcp is None or tcp.get("kind") != "ethernet":
         print("No address was saved.", file=sys.stderr)
         return 1
-    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", "/run/wasd-wifi"))
+    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", str(KEY_DIR)))
     try:
         note = apply_ethernet(tcp, _nmcli, key_dir)
     except Refuse as exc:
@@ -839,6 +955,19 @@ def self_check():
     tmp.mkdir(mode=0o700)
     choices = tmp / "choices.json"
     key_dir = tmp / "key"
+    if KEY_DIR != Path("/etc/NetworkManager/system-connections"):
+        raise SystemExit(f"the connection directory is {KEY_DIR}")
+    if not _is_system_key_dir(KEY_DIR) or _is_system_key_dir(key_dir):
+        raise SystemExit("the connection directory mode check is wrong")
+    spaced = render_keyfile("Home", " horse battery", False, True)
+    if "psk=\\shorse battery\n" not in spaced:
+        raise SystemExit("a leading space was not escaped")
+    marked = render_keyfile("Home", "abc;defg", False, True)
+    if "psk=abc;defg\n" not in marked or "\\;" in marked:
+        raise SystemExit("a semicolon was escaped")
+    slashed = render_keyfile("Home", "a\\bcdefg", False, True)
+    if "psk=a\\\\bcdefg\n" not in slashed:
+        raise SystemExit("a backslash was not escaped")
     secret = "correct horse"
     choices.write_text(json.dumps({"wifi": {"ssid": "Home", "security": "WPA2", "hidden": False}}))
     saved = read_saved_wifi(choices)
@@ -937,8 +1066,15 @@ def self_check():
         raise SystemExit("the saved network was not started")
     if ["radio", "wifi", "on"] not in seen or ["-w", "25", "connection", "up", "id", WIFI_ID] not in seen:
         raise SystemExit(f"network commands were wrong: {seen}")
-    if any(path.is_file() for path in key_dir.glob("*")):
-        raise SystemExit("the connection file was left behind")
+    kept = key_dir / "wasd.nmconnection"
+    if not kept.is_file() or (kept.stat().st_mode & 0o777) != 0o600:
+        raise SystemExit("the connection file was removed")
+    if b"psk=correct horse\n" not in kept.read_bytes():
+        raise SystemExit("the connection file lost the passphrase")
+    if (key_dir.stat().st_mode & 0o777) != 0o700:
+        raise SystemExit("the test directory was left readable")
+    if list(key_dir.glob(".*")):
+        raise SystemExit("a partial connection file was left behind")
     failed = []
 
     def fail_up(args):
@@ -1002,8 +1138,9 @@ def self_check():
         or "dns=1.1.1.1;1.0.0.1;" not in ether_ipv4
     ):
         raise SystemExit(f"the ethernet file was wrong: {ether_text}")
-    if any(path.is_file() for path in key_dir.glob("*")):
-        raise SystemExit("the ethernet file was left behind")
+    names = sorted(path.name for path in key_dir.iterdir() if path.is_file())
+    if names != ["wasd-ethernet.nmconnection", "wasd.nmconnection"]:
+        raise SystemExit(f"a saved connection file was removed: {names}")
     down_seen = []
 
     def ether_down(args):
@@ -1016,6 +1153,8 @@ def self_check():
         raise SystemExit("a down adapter did not keep the address")
     if len([args for args in down_seen if args[:3] == ["connection", "delete", "id"]]) != 1:
         raise SystemExit(f"a down adapter removed the saved address: {down_seen}")
+    if not (key_dir / "wasd-ethernet.nmconnection").is_file():
+        raise SystemExit("a saved ethernet address was removed")
     failed_load = []
 
     def ether_fail(args):
@@ -1033,6 +1172,8 @@ def self_check():
         raise SystemExit("a failed ethernet load was kept")
     if len([args for args in failed_load if args[:3] == ["connection", "delete", "id"]]) < 2:
         raise SystemExit("a failed ethernet load left the connection")
+    if (key_dir / "wasd-ethernet.nmconnection").exists():
+        raise SystemExit("a failed ethernet load left the file")
     try:
         apply_ethernet(dict(ether, interface="enp4s0;rm"), ether_runner, key_dir)
     except Refuse:

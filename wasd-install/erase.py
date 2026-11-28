@@ -325,6 +325,30 @@ def first_partition(device):
     return device + "1"
 
 
+def library_paths(raw):
+    """Relative Steam libraries on a drive that is kept. Nothing is created."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or len(raw) > 8:
+        raise Refuse("Choose the games drive again. Nothing was erased.")
+    found = []
+    for item in raw:
+        if not isinstance(item, str) or not item or len(item) > 160 or "\x00" in item:
+            raise Refuse("Choose the games drive again. Nothing was erased.")
+        if item == ".":
+            if item not in found:
+                found.append(item)
+            continue
+        if item.startswith("/") or "\\" in item or ":" in item:
+            raise Refuse("Choose the games drive again. Nothing was erased.")
+        parts = item.split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            raise Refuse("Choose the games drive again. Nothing was erased.")
+        if item not in found:
+            found.append(item)
+    return found
+
+
 def games_plan(data, os_device):
     raw = data.get("games")
     if not raw:
@@ -366,7 +390,7 @@ def games_plan(data, os_device):
     if not PART_NAME.fullmatch(part) or not part.startswith(device) or fstype not in KEEP_FS or not UUID_NAME.fullmatch(uuid):
         raise Refuse("Choose the games drive again. Nothing was erased.")
     mount_fs = "ntfs3" if fstype == "ntfs" else fstype
-    return {
+    plan = {
         "mode": "keep",
         "device": device,
         "disk": disk_name,
@@ -375,6 +399,11 @@ def games_plan(data, os_device):
         "uuid": uuid,
         "confirmed": confirmed,
     }
+    if "libraries" in raw:
+        paths = library_paths(raw.get("libraries"))
+        if paths:
+            plan["libraries"] = paths
+    return plan
 
 
 def wipe_plan(data, os_device, games_device):
@@ -470,6 +499,29 @@ fi
 """
     mount_fs = "btrfs" if plan["mode"] == "format" else plan["fstype"]
     uuid = plan.get("uuid") or ""
+    if plan["mode"] == "keep" and plan.get("libraries"):
+        return f"""
+%post --nochroot --erroronfail --log=/tmp/anacoda_custom_logs/wasd-games.log
+set -eu
+part={plan["part"]}
+uuid=$(blkid -s UUID -o value "/dev/$part")
+if [ "$uuid" != "{uuid}" ]; then
+    echo "The games drive changed." >&2
+    exit 1
+fi
+{DEPLOYMENT_SHELL}
+fstab=/mnt/sysimage/etc/fstab
+if [ -n "$deployment" ]; then
+    alt="/mnt/sysimage/ostree/deploy/default/deploy/${{deployment}}.0/etc/fstab"
+    if [ -f "$alt" ]; then
+        fstab=$alt
+    fi
+fi
+if ! grep -q ' /games ' "$fstab"; then
+    printf '%s\\n' "UUID=$uuid /games {mount_fs} defaults,nofail 0 0" >> "$fstab"
+fi
+%end
+"""
     prepare = ""
     if plan["mode"] == "format":
         prepare = f"""
@@ -531,15 +583,18 @@ def render_kickstart(data, choices_text, defaults_text):
     wiped = wipe_plan(data, device, games_device)
     storage = storage_lines(device, plan)
     games = games_post(plan, user)
-    games_chown = "\n".join(
-        [
-            '    chown "$target_user:$target_user" /games',
-            *(
-                '    install -d -m 0755 -o "$target_user" -g "$target_user" "/games/' + name + '"'
-                for name in ("SteamLibrary", "SteamLibrary/steamapps", *GAMES_DIRS)
-            ),
-        ]
-    )
+    if plan.get("libraries"):
+        games_chown = "    true"
+    else:
+        games_chown = "\n".join(
+            [
+                '    chown "$target_user:$target_user" /games',
+                *(
+                    '    install -d -m 0755 -o "$target_user" -g "$target_user" "/games/' + name + '"'
+                    for name in ("SteamLibrary", "SteamLibrary/steamapps", *GAMES_DIRS)
+                ),
+            ]
+        )
     emptied = wipe_post(wiped)
     windows = windows_post(device, plan, wiped)
     # The account is locked here. The post script clears that lock so the
@@ -2084,7 +2139,7 @@ def give_library(mount, uid, gid):
             games_log(str(exc))
 
 
-def attach_games(root_name, uuid, fstype):
+def attach_games(root_name, uuid, fstype, make_library=True):
     """Mount the remembered WASD filesystem and add /games to it.
 
     root_name is the btrfs partition from before the games volume exists.
@@ -2095,7 +2150,8 @@ def attach_games(root_name, uuid, fstype):
         raise GamesProblem("the WASD filesystem is not a partition")
     line = fstab_line(uuid, fstype)
     fresh_mount(SYSROOT)
-    fresh_mount(GAMES_MOUNT)
+    if make_library:
+        fresh_mount(GAMES_MOUNT)
     mounted_sys = False
     mounted_games = False
     finished = False
@@ -2112,12 +2168,13 @@ def attach_games(root_name, uuid, fstype):
             raise GamesProblem("the games path is a link")
         games_dir.mkdir(mode=0o755, exist_ok=True)
         append_fstab(fstab, line, SYSROOT)
-        run_disk(["mount", "-t", fstype, f"UUID={uuid}", str(GAMES_MOUNT)])
-        mounted_games = True
-        mount_library(GAMES_MOUNT)
-        owner = read_owner(deploy, SYSROOT)
-        if owner:
-            give_library(GAMES_MOUNT, owner[0], owner[1])
+        if make_library:
+            run_disk(["mount", "-t", fstype, f"UUID={uuid}", str(GAMES_MOUNT)])
+            mounted_games = True
+            mount_library(GAMES_MOUNT)
+            owner = read_owner(deploy, SYSROOT)
+            if owner:
+                give_library(GAMES_MOUNT, owner[0], owner[1])
         finished = True
     finally:
         games_ok = quiet_umount(GAMES_MOUNT) if mounted_games else True
@@ -2193,7 +2250,7 @@ def add_kept_games(os_device, plan):
     if mount_fs != plan.get("fstype") or mount_fs not in MOUNT_FS:
         raise GamesProblem("the games filesystem changed")
     root = only_root(typed_rows(os_device, read_table(os_device)))
-    attach_games(root, uuid, mount_fs)
+    attach_games(root, uuid, mount_fs, make_library=not plan.get("libraries"))
 
 
 def unescape_mount(text):
@@ -5717,6 +5774,40 @@ user --name=bazzite --password=bazzite --plaintext --groups=wheel
         raise SystemExit("keeping a games drive changed the WASD disk")
     if "part /games" in keep_kick or "clearpart" not in keep_kick.split("ignoredisk --only-use=nvme0n1", 1)[-1]:
         raise SystemExit("keeping a games drive partitioned the wrong disk")
+    if "SteamLibrary" not in keep_kick:
+        raise SystemExit("a kept drive without a library did not prepare Steam")
+    try:
+        games_plan(
+            {
+                "games": {
+                    "mode": "keep",
+                    "device": "nvme1n1",
+                    "disk": "WD BLACK SN850X",
+                    "part": "nvme1n1p1",
+                    "fstype": "ntfs",
+                    "uuid": "12345678-1234-1234-1234-123456789abc",
+                    "libraries": ["../etc"],
+                }
+            },
+            "nvme0n1",
+        )
+    except Refuse:
+        pass
+    else:
+        raise SystemExit("a library path left the drive")
+    library_keep = dict(keep)
+    library_keep["games"] = dict(keep["games"])
+    library_keep["games"]["libraries"] = ["Program Files (x86)/Steam", "."]
+    library_data, library_text = load_choices(json.dumps(library_keep))
+    if library_data["games"]["libraries"] != ["Program Files (x86)/Steam", "."]:
+        raise SystemExit(f"library paths were changed {library_data['games']}")
+    library_kick = render_kickstart(library_data, library_text, defaults)
+    if "12345678-1234-1234-1234-123456789abc" not in library_kick or "ntfs3" not in library_kick:
+        raise SystemExit("a Windows library was not mounted")
+    if "SteamLibrary" in library_kick or "mkfs" in library_kick:
+        raise SystemExit("a Windows library was given a new Steam folder")
+    if 'chown "$target_user:$target_user" /games' in library_kick:
+        raise SystemExit("a Windows library was given to the new account")
     formatted = dict(choices)
     formatted["games"] = {"mode": "format", "device": "nvme3n1", "disk": "Empty Shelf"}
     format_data, format_text = load_choices(json.dumps(formatted))

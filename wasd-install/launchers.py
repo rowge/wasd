@@ -37,6 +37,7 @@ GAMES_DIRS = (
     "curseforge",
     "ftb",
     "spawn",
+    "gamejolt",
     "starcitizen",
     "custom",
     "saves",
@@ -268,6 +269,20 @@ CATALOG = {
         # extracts it, and --no-sandbox matches their desktop file.
         native=True,
         native_args=("--no-sandbox",),
+    ),
+    "Game Jolt": Launcher(
+        "gamejolt",
+        "https://gamejolt.com/site-api/web/landing/app",
+        "gamejoltclient.tar.gz",
+        (),
+        # The Linux button on gamejolt.com/app. The click asks Game Jolt
+        # for the current linux 64 archive and downloads that file. The
+        # image does not carry it. The program is game-jolt-client. Games
+        # go in the client's own Games folder, linked to /games/gamejolt.
+        host_link=(".config", "game-jolt-client", "Games"),
+        native=True,
+        archive_root=".",
+        native_program=("game-jolt-client",),
     ),
 }
 
@@ -1692,6 +1707,9 @@ def _launch_argv(user_name, launcher, prefix, games, args, home=None):
     else:
         command = umu_argv(list(args))
     workdir = games if launcher.launcher_id in JAVA_CONFIG else None
+    # Joltron looks for its data folder beside the program. Start there.
+    if workdir is None and launcher.launcher_id == "gamejolt" and home is not None:
+        workdir = _archived_program(Path(home), launcher).parent.resolve()
     if mounts:
         command = _mounted_argv(command, mounts, home, workdir)
     elif workdir is not None:
@@ -2175,7 +2193,11 @@ def _cache(home, launcher):
 
 
 def _archive_root(home, launcher):
-    return _cache(home, launcher).parent / "app" / launcher.archive_root
+    base = _cache(home, launcher).parent / "app"
+    # "." means the archive's files sit in app itself, beside no extra folder.
+    if launcher.archive_root == ".":
+        return base
+    return base / launcher.archive_root
 
 
 def _archived_program(home, launcher):
@@ -2191,12 +2213,16 @@ def _safe_extract(archive, dest):
                 name = member.name
                 if not name or name.startswith("/") or ".." in Path(name).parts:
                     raise LauncherError("Could not open that launcher.")
-                if member.issym() or member.islnk():
+                if member.islnk():
+                    target = member.linkname
+                    if not target or target.startswith("/") or ".." in Path(target).parts:
+                        raise LauncherError("Could not open that launcher.")
+                elif member.issym() and not _link_stays_inside(name, member.linkname):
                     raise LauncherError("Could not open that launcher.")
             tar.extractall(dest, filter="data")
     except LauncherError:
         raise
-    except (tarfile.TarError, OSError) as exc:
+    except (tarfile.TarError, tarfile.FilterError, OSError) as exc:
         raise LauncherError("Could not open that launcher.") from exc
     return dest
 
@@ -2211,7 +2237,10 @@ def _unpack_archive(home, launcher):
     archive = _cache(home, launcher)
     if archive.is_symlink() or not archive.is_file() or archive.stat().st_size == 0:
         raise LauncherError("Could not open that launcher.")
-    root_parent = _archive_root(home, launcher).parent
+    if launcher.archive_root == ".":
+        root_parent = _archive_root(home, launcher)
+    else:
+        root_parent = _archive_root(home, launcher).parent
     if root_parent.exists():
         if root_parent.is_symlink():
             raise LauncherError("Could not open that launcher.")
@@ -2304,6 +2333,128 @@ def rsi_setup_url(text):
     if not _RSI_SETUP.fullmatch(name):
         raise LauncherError("Could not open that launcher.")
     return "https://install.robertsspaceindustries.com/rel/2/" + urllib.parse.quote(name)
+
+
+# The Download for Linux button reads this page, then asks for that build.
+GAMEJOLT_LISTING = "https://gamejolt.com/site-api/web/landing/app"
+GAMEJOLT_DOWNLOAD = "https://gamejolt.com/site-api/web/discover/games/builds/get-download-url/"
+
+
+def _link_stays_inside(name, linkname):
+    """A symlink target that cannot leave the archive."""
+    if not isinstance(linkname, str) or not linkname or "\x00" in linkname:
+        return False
+    if Path(linkname).is_absolute():
+        return False
+    joined = os.path.normpath(str(Path(name).parent / linkname))
+    if joined == ".." or joined.startswith("../") or joined.startswith("/"):
+        return False
+    return ".." not in Path(joined).parts
+
+
+def gamejolt_linux_build(text):
+    """The linux 64 archive named for Game Jolt's Download for Linux button."""
+    try:
+        data = json.loads(text)
+        package = data["payload"]["packageData"]
+        releases = {item["id"]: item for item in package["releases"]}
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as exc:
+        raise LauncherError("Could not open that launcher.") from exc
+    chosen = None
+    chosen_sort = None
+    for build in package.get("builds") or []:
+        if not isinstance(build, dict):
+            continue
+        if build.get("type") != "downloadable" or build.get("archive_type") != "tar.gz":
+            continue
+        if build.get("os_linux_64") is not True:
+            continue
+        build_id = build.get("id")
+        if not isinstance(build_id, int) or build_id < 1:
+            continue
+        release = releases.get(build.get("game_release_id")) or {}
+        sort = release.get("sort", 10**9)
+        if not isinstance(sort, int):
+            continue
+        if chosen is None or sort < chosen_sort:
+            chosen = build_id
+            chosen_sort = sort
+    if chosen is None:
+        raise LauncherError("Could not open that launcher.")
+    return chosen
+
+
+def gamejolt_file_url(text):
+    """The archive address in Game Jolt's download answer."""
+    try:
+        data = json.loads(text)
+        url = data["payload"]["url"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise LauncherError("Could not open that launcher.") from exc
+    if not isinstance(url, str) or len(url) > 2048:
+        raise LauncherError("Could not open that launcher.")
+    parsed = urllib.parse.urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "download.gamejolt.net"
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
+        raise LauncherError("Could not open that launcher.")
+    name = Path(urllib.parse.unquote(parsed.path)).name
+    if name != "gamejoltclient.tar.gz":
+        raise LauncherError("Could not open that launcher.")
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ""))
+
+
+def _gamejolt_post(url, dest):
+    """Ask Game Jolt for the current archive. The address is their build API."""
+    if os.environ.get("WASD_SELF_CHECK") == "1":
+        raise SystemExit("self-check tried to download a launcher")
+    if not url.startswith(GAMEJOLT_DOWNLOAD):
+        raise LauncherError("Could not open that launcher.")
+    build_id = url[len(GAMEJOLT_DOWNLOAD):]
+    if not build_id.isdigit() or build_id.startswith("0"):
+        raise LauncherError("Could not open that launcher.")
+    dest = Path(dest)
+    if dest.is_symlink():
+        raise LauncherError("Could not open that launcher.")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    code = _stream(
+        [
+            "curl", "-fsS", "--output", str(dest),
+            "-X", "POST",
+            "-H", "Content-Type: application/json",
+            "-H", "Accept: application/json",
+            "--data", "{}",
+            url,
+        ],
+        os.environ.copy(),
+    )
+    if code != 0 or not dest.is_file() or dest.stat().st_size == 0:
+        dest.unlink(missing_ok=True)
+        raise LauncherError("Could not open that launcher.")
+
+
+def _gamejolt_archive_url(fetch, setup):
+    """The tar.gz behind the current Download for Linux button."""
+    listing = Path(setup).with_name("landing.json")
+    answer = Path(setup).with_name("download.json")
+    try:
+        fetch(GAMEJOLT_LISTING, listing)
+        build_id = gamejolt_linux_build(listing.read_text(encoding="utf-8"))
+        _gamejolt_post(GAMEJOLT_DOWNLOAD + str(build_id), answer)
+        return gamejolt_file_url(answer.read_text(encoding="utf-8"))
+    finally:
+        if listing.is_symlink():
+            listing.unlink()
+        else:
+            listing.unlink(missing_ok=True)
+        if answer.is_symlink():
+            answer.unlink()
+        else:
+            answer.unlink(missing_ok=True)
 
 
 def log_path():
@@ -2447,8 +2598,16 @@ def install_launcher(home, name, runner, fetch, root=None, force_setup=False):
         ):
             if not launcher.setup_url:
                 raise LauncherError("Choose the program you downloaded.")
+            setup_url = launcher.setup_url
+            if launcher.launcher_id == "gamejolt" and os.environ.get("WASD_SELF_CHECK") != "1":
+                try:
+                    setup_url = _gamejolt_archive_url(fetch, setup)
+                except LauncherError:
+                    raise
+                except Exception as exc:
+                    raise LauncherError("Could not open that launcher.") from exc
             try:
-                fetch(launcher.setup_url, setup)
+                fetch(setup_url, setup)
             except LauncherError:
                 raise
             except Exception as exc:
@@ -2852,6 +3011,15 @@ def self_check():
             with tarfile.open(fileobj=buf, mode="w:gz") as tar:
                 tar.addfile(info, __import__("io").BytesIO(payload))
             dest.write_bytes(buf.getvalue())
+        elif dest.name == "gamejoltclient.tar.gz":
+            payload = b"#!/bin/sh\nexit 0\n"
+            info = tarfile.TarInfo("game-jolt-client")
+            info.size = len(payload)
+            info.mode = 0o755
+            buf = __import__("io").BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+                tar.addfile(info, __import__("io").BytesIO(payload))
+            dest.write_bytes(buf.getvalue())
         elif dest.name.endswith(".tar.gz"):
             payload = b"#!/bin/sh\nexit 0\n"
             info = tarfile.TarInfo("MultiMC/bin/MultiMC")
@@ -3248,9 +3416,18 @@ def self_check():
             elif marker == "appimage":
                 if "--no-sandbox" not in argv or launcher.host_link or launcher.mount_games:
                     raise SystemExit(f"{name} would write outside its games folder: {argv}")
+            elif marker == "folder":
+                link = home.joinpath(*launcher.host_link)
+                if (
+                    launcher.native_args
+                    or "--no-sandbox" in argv
+                    or not link.is_symlink()
+                    or link.resolve() != games.resolve()
+                ):
+                    raise SystemExit(f"{name} would write outside its games folder: {argv}")
             else:
                 raise SystemExit(f"{name} has no games-folder check")
-            if marker != "--no-sandbox" and "--no-sandbox" in argv:
+            if marker not in ("--no-sandbox", "appimage") and "--no-sandbox" in argv:
                 raise SystemExit(f"{name} was given a sandbox flag it does not need")
             library = str(_noroot_library(home))
             if env.get("WASD_SPOOF_UID") != "1":
@@ -3285,7 +3462,10 @@ def self_check():
                     raise SystemExit(f"{name} was given PolyMC's Java list")
             else:
                 if "\ncd " in mounted:
-                    raise SystemExit(f"{name} was started in its games folder")
+                    app_dir = _archived_program(home, launcher).parent.resolve()
+                    quoted = f"\ncd {shlex.quote(str(app_dir))}"
+                    if launcher.launcher_id != "gamejolt" or quoted not in mounted:
+                        raise SystemExit(f"{name} was started in its games folder")
                 if (games / "java").exists():
                     raise SystemExit(f"{name} downloaded Java it does not need")
                 if env.get("POLYMC_JAVA_PATHS"):
@@ -3397,6 +3577,7 @@ def self_check():
         check_native("CurseForge (modded Minecraft)", "curseforge", "--no-sandbox")
         check_native("FTB (modded Minecraft)", "ftb", "--no-sandbox")
         check_native("Spawn", "spawn", "appimage")
+        check_native("Game Jolt", "gamejolt", "folder")
 
         def java_tar(members):
             import io
@@ -3954,8 +4135,14 @@ def self_check():
         raise SystemExit("Launchers has no select all")
     if "Installing the launchers." not in window or 'status === "Installing what you checked."' not in window:
         raise SystemExit("first boot lost the launcher line or the app output")
-    if "launcherNames" not in main or 'launchers[launcherNames[k]] = false' not in main:
-        raise SystemExit("launchers do not start unchecked")
+    launch_block = main[main.index("const launchers = {}"):main.index("launcherOn = launchers")]
+    if 'name === "Game Jolt" || name === "Spawn"' not in launch_block:
+        raise SystemExit("the indie launchers do not start checked")
+    for kept_off in CATALOG:
+        if kept_off in ("Game Jolt", "Spawn"):
+            continue
+        if f'name === "{kept_off}"' in launch_block:
+            raise SystemExit(f"{kept_off} starts checked")
     if "Do not log in at the end of the Battle.net installation. Just close the window." not in main:
         raise SystemExit("Battle.net has no login warning")
     if "dismissBattleNetWarn" not in main:
@@ -4086,7 +4273,22 @@ def self_check():
         or spawn.setup_name != "Spawn-latest.AppImage"
     ):
         raise SystemExit("Spawn would enter a user namespace")
-    for folder in ("minecraft-bedrock", "minecraft-modded", "multimc", "curseforge", "ftb", "spawn"):
+    gamejolt = CATALOG["Game Jolt"]
+    if (
+        not gamejolt.native
+        or gamejolt.native_args
+        or gamejolt.host_link != (".config", "game-jolt-client", "Games")
+        or gamejolt.mount_games
+        or gamejolt.games_link
+        or gamejolt.program
+        or offers_reinstall(gamejolt)
+        or gamejolt.archive_root != "."
+        or gamejolt.native_program != ("game-jolt-client",)
+        or gamejolt.setup_url != GAMEJOLT_LISTING
+        or gamejolt.setup_name != "gamejoltclient.tar.gz"
+    ):
+        raise SystemExit("Game Jolt would enter a user namespace")
+    for folder in ("minecraft-bedrock", "minecraft-modded", "multimc", "curseforge", "ftb", "spawn", "gamejolt"):
         if folder not in GAMES_DIRS:
             raise SystemExit("a new install would not make the Minecraft folders")
         if folder in _READY_DIRS:
@@ -4136,6 +4338,68 @@ def self_check():
             pass
         else:
             raise SystemExit("Star Citizen accepted a setup that was not theirs")
+    listing = json.dumps({
+        "payload": {"packageData": {
+            "releases": [{"id": 1, "sort": 4}, {"id": 2, "sort": 0}],
+            "builds": [
+                {"id": 9, "type": "downloadable", "archive_type": "tar.gz", "os_linux_64": True, "game_release_id": 1},
+                {"id": 10, "type": "downloadable", "archive_type": "tar.gz", "os_linux_64": True, "game_release_id": 2},
+                {"id": 11, "type": "downloadable", "archive_type": "tar.gz", "os_windows": True, "game_release_id": 2},
+            ],
+        }}
+    })
+    if gamejolt_linux_build(listing) != 10:
+        raise SystemExit("Game Jolt did not use the current Linux build")
+    good_url = "https://download.gamejolt.net/token/data/games/5/162/362412/files/abc/gamejoltclient.tar.gz"
+    if gamejolt_file_url(json.dumps({"payload": {"url": good_url}})) != good_url:
+        raise SystemExit("Game Jolt did not use its archive")
+    for bad_url in (
+        "https://example.com/gamejoltclient.tar.gz",
+        "http://download.gamejolt.net/a/gamejoltclient.tar.gz",
+        "https://download.gamejolt.net/a/gamejoltclient.tar.gz.evil",
+        "https://user:pass@download.gamejolt.net/a/gamejoltclient.tar.gz",
+    ):
+        try:
+            gamejolt_file_url(json.dumps({"payload": {"url": bad_url}}))
+        except LauncherError:
+            pass
+        else:
+            raise SystemExit("Game Jolt accepted an archive that was not theirs")
+    link_dir = Path(tempfile.mkdtemp(prefix="wasd-gj-"))
+    try:
+        payload = b"#!/bin/sh\nexit 0\n"
+        buf = __import__("io").BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as packed:
+            program = tarfile.TarInfo("game-jolt-client")
+            program.size = len(payload)
+            program.mode = 0o755
+            packed.addfile(program, __import__("io").BytesIO(payload))
+            link = tarfile.TarInfo("node_modules/.bin/tool")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "../../game-jolt-client"
+            packed.addfile(link)
+        archive = link_dir / "good.tar.gz"
+        archive.write_bytes(buf.getvalue())
+        _safe_extract(archive, link_dir / "out")
+        got = link_dir / "out/node_modules/.bin/tool"
+        if not got.is_symlink() or os.readlink(got) != "../../game-jolt-client":
+            raise SystemExit("Game Jolt dropped a link inside its archive")
+        buf = __import__("io").BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as packed:
+            link = tarfile.TarInfo("escape")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "../outside"
+            packed.addfile(link)
+        bad = link_dir / "bad.tar.gz"
+        bad.write_bytes(buf.getvalue())
+        try:
+            _safe_extract(bad, link_dir / "bad")
+        except LauncherError:
+            pass
+        else:
+            raise SystemExit("a launcher archive could leave its folder")
+    finally:
+        shutil.rmtree(link_dir)
     if window_args(True, 9) != ["--preview"]:
         raise SystemExit("preview would install a launcher")
     script = here.parent / "system_files/usr/bin/wasd-launchers"

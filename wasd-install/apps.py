@@ -17,11 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, "/usr/libexec")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from disks import is_live  # noqa: E402
 from network import (  # noqa: E402
+    KEY_DIR,
     Refuse,
     apply_ethernet,
     connect_saved,
@@ -561,7 +562,7 @@ def connect_main():
     passphrase = _read_passphrase()
     if passphrase is None:
         return 1
-    key_dir = Path("/run/wasd-apps")
+    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", str(KEY_DIR)))
     try:
         note = connect_picked(pick, passphrase, _nmcli, key_dir)
     except Refuse as exc:
@@ -586,7 +587,7 @@ def address_main():
     if not tcp or tcp.get("kind") != "ethernet":
         print("No address was saved.", file=sys.stderr)
         return 1
-    key_dir = Path("/run/wasd-apps")
+    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", str(KEY_DIR)))
     try:
         note = apply_ethernet(tcp, _nmcli, key_dir)
     except Refuse as exc:
@@ -737,9 +738,16 @@ def self_check():
         raise SystemExit("the passphrase was placed on a command")
     if any(arg == "--rescan" for args in seen for arg in args):
         raise SystemExit("connecting rescanned")
+    kept = key_dir / "wasd.nmconnection"
+    if not kept.is_file() or (kept.stat().st_mode & 0o777) != 0o600:
+        raise SystemExit("the connection file was removed")
+    if b"not-stored-secret" not in kept.read_bytes():
+        raise SystemExit("the connection file lost the passphrase")
+    if ("/run/" + "wasd-apps") in Path(__file__).read_text(encoding="utf-8"):
+        raise SystemExit("the app helper still writes outside NetworkManager")
     for path in key_dir.rglob("*"):
-        if path.is_file() and b"not-stored-secret" in path.read_bytes():
-            raise SystemExit(f"the passphrase was left in {path}")
+        if path.is_file() and path.resolve() != kept.resolve() and b"not-stored-secret" in path.read_bytes():
+            raise SystemExit(f"the passphrase was written to {path}")
     shutil.rmtree(key_dir, ignore_errors=True)
     installed = []
 

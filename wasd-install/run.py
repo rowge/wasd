@@ -278,56 +278,87 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit(f"/games is missing from Disk: {None if games_head is None else games_head.property('text')}")
         if quick.findChild(QQuickItem, "gamesPartition") is not None:
             raise SystemExit("the /games checkbox is still on the page")
-        fork = quick.findChild(QQuickItem, "chooseGamesButton")
-        label = quick.findChild(QQuickItem, "chooseGamesLabel")
-        if fork is None or not _shown(fork) or label is None or label.property("text") != "Set up /games":
-            raise SystemExit("the /games button is missing")
-        slider = quick.findChild(QQuickItem, "osGbBox")
-        if slider is not None and _shown(slider):
-            raise SystemExit("the slider showed before Set up /games")
-        if not QMetaObject.invokeMethod(window, "openGamesSection"):
-            raise SystemExit("openGamesSection did not run")
-        pump(50)
-        if window.property("gamesOpen") is not True:
-            raise SystemExit("/games stayed closed")
-        if window.property("gamesMode") != "off":
-            raise SystemExit("Set up /games split a second drive before a drive was chosen")
-        if window.property("showEraseButton") is not False:
-            raise SystemExit("the whole-disk button stayed up before a games choice")
-        early_erase = quick.findChild(QQuickItem, "eraseButtonLabel")
-        if early_erase is not None and _shown(early_erase):
-            raise SystemExit("the whole-disk button was still visible")
-        if label.property("text") != "I changed my mind. Use the whole drive.":
-            raise SystemExit(f"the games button was {label.property('text')}")
-        if not QMetaObject.invokeMethod(window, "pickGamesDrive", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 0)):
-            raise SystemExit("pickGamesDrive did not run for the install drive")
-        pump(50)
         if window.property("gamesMode") != "split" or int(window.property("gamesDiskIndex")) != -1:
-            raise SystemExit(f"the install drive did not open the slider: {window.property('gamesMode')}")
+            raise SystemExit(f"the sample drive was not split: {window.property('gamesMode')}")
+        if window.property("showEraseButton") is not True:
+            raise SystemExit("the install button was hidden")
+        if window.property("eraseLabel") != "Install WASD":
+            raise SystemExit(f"the install button was {window.property('eraseLabel')}")
+        choose = quick.findChild(QQuickItem, "chooseGamesButton")
+        choose_label = quick.findChild(QQuickItem, "chooseGamesLabel")
+        if not _shown(choose) or choose_label is None or choose_label.property("text") != "Choose drives":
+            actual = None if choose_label is None else choose_label.property("text")
+            raise SystemExit(f"Choose drives was {actual}")
+        if not QMetaObject.invokeMethod(window, "chooseDrives"):
+            raise SystemExit("chooseDrives did not run")
+        pump(50)
+        if window.property("gamesMode") != "split" or int(window.property("diskIndex")) != 0:
+            raise SystemExit("Choose drives changed the suggested drives")
+
+        def open_order():
+            if not QMetaObject.invokeMethod(window, "installOrConfirm"):
+                raise SystemExit("installOrConfirm did not run")
+            pump(50)
+            if int(window.property("confirmStep") or 0) != 1:
+                raise SystemExit("the install order did not open")
+            if window.confirmTitle() != "Install WASD":
+                raise SystemExit(f"the install title was {window.confirmTitle()}")
+            return str(window.confirmBody())
+
+        def close_order():
+            if not QMetaObject.invokeMethod(window, "confirmNo"):
+                raise SystemExit("confirmNo did not close the order")
+            pump(50)
+            if int(window.property("confirmStep") or 0) != 0 or window.property("orderRead") is not False:
+                raise SystemExit("the install order stayed open")
+
+        split_order = open_order()
+        os_gb = int(window.property("osGb") or 0)
+        games_gb = int(window.property("gamesGb") or 0)
+        expected_split = (
+            f"Samsung 990 2TB will be wiped. WASD uses the first {os_gb} GB. "
+            f"The rest, {games_gb} GB, is wiped and used for /games."
+        )
+        if split_order != expected_split:
+            raise SystemExit(f"the split order was {split_order}")
+        order_box = quick.findChild(QQuickItem, "orderReadBox")
+        order_label = quick.findChild(QQuickItem, "orderReadLabel")
+        order_yes = quick.findChild(QQuickItem, "confirmYes")
+        if not _shown(order_box) or order_label is None or order_label.property("text") != "I read the order":
+            raise SystemExit("I read the order is missing")
+        if window.property("orderRead") is not False or order_yes is None or order_yes.property("enabled") is not False:
+            raise SystemExit("Yes was available before the order was read")
+        if not QMetaObject.invokeMethod(window, "confirmYes"):
+            raise SystemExit("confirmYes did not run")
+        pump(50)
+        if int(window.property("confirmStep") or 0) != 1:
+            raise SystemExit("Yes continued before the order was read")
+        window.setProperty("orderRead", True)
+        pump(50)
+        if order_yes.property("enabled") is not True:
+            raise SystemExit("Yes stayed off after the order was read")
+        grab(shot / "disk-order.png")
+        close_order()
+        slider = quick.findChild(QQuickItem, "osGbBox")
         if slider is None or not _shown(slider):
-            raise SystemExit("the slider stayed hidden on the install drive")
+            raise SystemExit("the slider stayed hidden on the split drive")
         disk_scroll = quick.findChild(QQuickItem, "diskScroll")
         if disk_scroll is None:
             raise SystemExit("the disk page does not scroll")
         disk_scroll.setProperty("contentY", max(0, games_head.property("y") - 12))
         grab(shot / "disk-games-split.png")
-        if not QMetaObject.invokeMethod(window, "clearGames"):
-            raise SystemExit("clearGames did not run before the other drive")
-        pump(50)
-        if window.property("gamesMode") != "off":
-            raise SystemExit("the install-drive split stayed on")
-        disk_scroll.setProperty("contentY", max(0, games_head.property("y") - 12))
-        grab(shot / "disk-games.png")
         if not QMetaObject.invokeMethod(window, "pickGamesDrive", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 1)):
             raise SystemExit("pickGamesDrive did not run")
         pump(50)
-        if int(window.property("confirmStep") or 0) != 0 or window.property("gamesMode") != "off":
+        if int(window.property("confirmStep") or 0) != 0 or window.property("gamesMode") != "split":
             raise SystemExit("a locked Windows drive opened a choice")
         if not QMetaObject.invokeMethod(window, "clearGames"):
             raise SystemExit("clearGames did not run")
         pump(50)
         if window.property("gamesMode") != "off":
             raise SystemExit("games choice stayed on")
+        disk_scroll.setProperty("contentY", max(0, games_head.property("y") - 12))
+        grab(shot / "disk-games.png")
         if not QMetaObject.invokeMethod(
             window,
             "beginConfirm",
@@ -342,16 +373,13 @@ def qml_app(save_path, shot_dir, live):
             raise SystemExit("the wipe question did not open")
         if "Windows is on this drive." not in str(window.confirmTitle()):
             raise SystemExit(f"windows question was {window.confirmTitle()}")
+        if _shown(quick.findChild(QQuickItem, "orderReadBox")):
+            raise SystemExit("the games question asked for the install order")
         if not QMetaObject.invokeMethod(window, "confirmNo"):
             raise SystemExit("confirmNo did not run")
         pump(50)
         if int(window.property("confirmStep") or 0) != 0 or window.property("gamesMode") != "off":
             raise SystemExit("no did not cancel the wipe")
-        if not QMetaObject.invokeMethod(window, "pickGamesDrive", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 0)):
-            raise SystemExit("pickGamesDrive did not split the install drive again")
-        pump(50)
-        if window.property("gamesMode") != "split":
-            raise SystemExit("the install drive did not split before the other drive was chosen")
         if not QMetaObject.invokeMethod(
             window,
             "beginConfirm",
@@ -369,13 +397,30 @@ def qml_app(save_path, shot_dir, live):
         if window.property("gamesConfirmed") is not True:
             raise SystemExit("the games wipe was not confirmed")
         two_drive = quick.findChild(QQuickItem, "eraseButtonLabel")
-        if two_drive is None or two_drive.property("text") != "Erase Samsung 990 2TB and wipe WD Black 1TB for /games":
+        if two_drive is None or two_drive.property("text") != "Install WASD":
             actual = None if two_drive is None else two_drive.property("text")
             raise SystemExit(f"the two-drive wipe button was {actual}")
+        format_order = open_order()
+        expected_format = (
+            "Samsung 990 2TB will be wiped and used for WASD. "
+            "WD Black 1TB will be wiped and used for /games. Windows is on it."
+        )
+        if format_order != expected_format:
+            raise SystemExit(f"the format order was {format_order}")
+        close_order()
         window.setProperty("gamesMode", "keep")
         pump(50)
-        if two_drive.property("text") != "Erase Samsung 990 2TB and use WD Black 1TB for /games":
+        if two_drive.property("text") != "Install WASD":
             raise SystemExit(f"the two-drive keep button was {two_drive.property('text')}")
+        keep_order = open_order()
+        expected_keep = (
+            "Samsung 990 2TB will be wiped and used for WASD. "
+            "WD Black 1TB will be used for /games. It will not be wiped, and the files stay. "
+            "Windows is on it."
+        )
+        if keep_order != expected_keep:
+            raise SystemExit(f"the keep order was {keep_order}")
+        close_order()
         window.setProperty("confirmAction", "gamesKeep")
         window.setProperty("confirmIndex", 1)
         if window.confirmBody() != "WASD will use this drive and will NOT wipe it. Are you sure?":
@@ -480,13 +525,25 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if quick.findChild(QQuickItem, "gamesPartition") is not None:
             raise SystemExit("the /games checkbox showed on the only drive")
-        if not _shown(quick.findChild(QQuickItem, "chooseGamesButton")):
-            raise SystemExit("the /games button was missing on the only drive")
+        configure = quick.findChild(QQuickItem, "configureGamesButton")
+        one_part = quick.findChild(QQuickItem, "onePartitionButton")
+        configure_label = quick.findChild(QQuickItem, "configureGamesLabel")
+        one_label = quick.findChild(QQuickItem, "onePartitionLabel")
+        if not _shown(configure) or configure_label is None or configure_label.property("text") != "Configure /games":
+            raise SystemExit("Configure /games is missing")
+        if not _shown(one_part) or one_label is None or one_label.property("text") != "Use one partition":
+            raise SystemExit("Use one partition is missing")
+        plan = quick.findChild(QQuickItem, "gamesPlan")
+        if plan is None or not _shown(plan) or "will be split" not in str(plan.property("text")):
+            actual = None if plan is None else plan.property("text")
+            raise SystemExit(f"the plan was {actual}")
+        if window.property("gamesMode") != "split" or window.property("gamesOpen") is not False:
+            raise SystemExit(f"the only drive did not start split: {window.property('gamesMode')}")
         one_slider = quick.findChild(QQuickItem, "osGbBox")
         if one_slider is not None and _shown(one_slider):
-            raise SystemExit("the slider showed before Set up /games on the only drive")
-        if not QMetaObject.invokeMethod(window, "openGamesSection"):
-            raise SystemExit("openGamesSection did not run for the only drive")
+            raise SystemExit("the slider showed before Configure /games")
+        if not QMetaObject.invokeMethod(window, "configureGames"):
+            raise SystemExit("configureGames did not run")
         pump(50)
         if window.property("gamesMode") != "split" or window.property("gamesOpen") is not True:
             raise SystemExit(f"the only drive did not open the slider: {window.property('gamesMode')}")
@@ -513,30 +570,148 @@ def qml_app(save_path, shot_dir, live):
         if b"passphrase" in games_raw or b"wpakey" in games_raw:
             raise SystemExit("the games choice kept a secret")
         erase_label = quick.findChild(QQuickItem, "eraseButtonLabel")
-        whole_drive = quick.findChild(QQuickItem, "chooseGamesLabel")
-        if erase_label is None or not _shown(erase_label) or erase_label.property("text") != "Erase the disk and install with the games partition":
+        if erase_label is None or not _shown(erase_label) or erase_label.property("text") != "Install WASD":
             actual = None if erase_label is None else erase_label.property("text")
             raise SystemExit(f"the games install button was {actual}")
-        if whole_drive is None or not _shown(whole_drive) or whole_drive.property("text") != "I changed my mind. Use the whole drive.":
-            actual = None if whole_drive is None else whole_drive.property("text")
-            raise SystemExit(f"the whole-drive button was {actual}")
+        one_order = open_order()
+        one_games = int(window.property("gamesGb") or 0)
+        expected_one = (
+            "Samsung 990 2TB will be wiped. WASD uses the first 200 GB. "
+            f"The rest, {one_games} GB, is wiped and used for /games."
+        )
+        if one_order != expected_one:
+            raise SystemExit(f"the one-drive order was {one_order}")
+        close_order()
         grab(shot / "disk-one.png")
-        if not QMetaObject.invokeMethod(window, "openGamesSection"):
-            raise SystemExit("the second Set up /games did not run")
+        if not QMetaObject.invokeMethod(window, "configureGames"):
+            raise SystemExit("Configure /games did not run again")
         pump(50)
         if window.property("gamesMode") != "split" or window.property("gamesOpen") is not True:
-            raise SystemExit("Set up /games cleared the games partition")
-        if not QMetaObject.invokeMethod(window, "useWholeDrive"):
-            raise SystemExit("useWholeDrive did not run")
+            raise SystemExit("Configure /games cleared the games partition")
+        if not QMetaObject.invokeMethod(window, "useOnePartition"):
+            raise SystemExit("useOnePartition did not run")
         pump(50)
         if window.property("gamesMode") != "off" or window.property("gamesOpen") is not False:
-            raise SystemExit("the whole-drive button did not clear games")
-        if window.property("eraseLabel") != "Erase the selected disk and install WASD":
+            raise SystemExit("Use one partition did not clear games")
+        if window.property("eraseLabel") != "Install WASD":
             raise SystemExit(f"the whole-disk button was {window.property('eraseLabel')}")
-        if not _shown(erase_label) or erase_label.property("text") != "Erase the selected disk and install WASD":
+        if not _shown(erase_label) or erase_label.property("text") != "Install WASD":
             raise SystemExit(f"the whole-disk button text was {erase_label.property('text')}")
-        if whole_drive.property("text") != "Set up /games":
-            raise SystemExit(f"Set up /games did not return: {whole_drive.property('text')}")
+        whole_order = open_order()
+        if whole_order != "Samsung 990 2TB will be wiped and used for WASD.":
+            raise SystemExit(f"the one-partition order was {whole_order}")
+        close_order()
+        if "one partition" not in str(plan.property("text")):
+            raise SystemExit(f"the one-partition plan was {plan.property('text')}")
+        if not QMetaObject.invokeMethod(window, "configureGames"):
+            raise SystemExit("Configure /games did not restore the split")
+        pump(50)
+        if window.property("gamesMode") != "split" or window.property("gamesOpen") is not True:
+            raise SystemExit("Configure /games did not restore the split")
+
+        def live_rows(rows):
+            window.applyLive(json.dumps({"warnings": [], "blocked": False, "disks": rows}))
+            pump(50)
+
+        live_rows([
+            {"name": "Small", "device": "nvme0n1", "bytes": 1_000_000_000_000, "occupied": False, "solid": True},
+            {"name": "Big", "device": "nvme1n1", "bytes": 4_000_000_000_000, "occupied": False, "solid": True},
+        ])
+        if int(window.property("diskIndex")) != 0 or int(window.property("gamesDiskIndex")) != 1 or window.property("gamesMode") != "format":
+            raise SystemExit(
+                f"the larger blank disk was not /games: {window.property('diskIndex')} {window.property('gamesDiskIndex')} {window.property('gamesMode')}"
+            )
+        if window.property("gamesConfirmed") is not False:
+            raise SystemExit("an empty games drive asked for confirmation")
+        live_rows([
+            {"name": "HDD", "device": "sda", "bytes": 4_000_000_000_000, "occupied": False, "rotational": True, "solid": False},
+            {"name": "NVMe", "device": "nvme0n1", "bytes": 1_000_000_000_000, "occupied": False, "solid": True},
+        ])
+        if int(window.property("diskIndex")) != 1 or window.property("gamesMode") != "split" or int(window.property("gamesDiskIndex")) != -1:
+            raise SystemExit(
+                f"a spinning disk was used for games: {window.property('diskIndex')} {window.property('gamesMode')}"
+            )
+        live_rows([
+            {"name": "Blank", "device": "nvme0n1", "bytes": 1_000_000_000_000, "occupied": False, "solid": True},
+            {
+                "name": "Windows",
+                "device": "nvme1n1",
+                "bytes": 2_000_000_000_000,
+                "windows": True,
+                "occupied": True,
+                "steam": True,
+                "part": "nvme1n1p3",
+                "fstype": "ntfs",
+                "uuid": "abcdefab-1234-1234-1234-123456789abc",
+                "libraries": ["Program Files (x86)/Steam"],
+                "free": 20 * 1024 ** 3,
+                "solid": True,
+            },
+        ])
+        if window.property("gamesMode") != "keep" or int(window.property("diskIndex")) != 0 or int(window.property("gamesDiskIndex")) != 1:
+            raise SystemExit(
+                f"a Windows Steam library was not kept: {window.property('gamesMode')} {window.property('diskIndex')}"
+            )
+        if window.property("gamesConfirmed") is not True:
+            raise SystemExit("the Windows library was not already confirmed")
+        if not QMetaObject.invokeMethod(window, "encodeChoices"):
+            raise SystemExit("encodeChoices did not run for the Windows library")
+        pump(50)
+        library_raw = base64.b64decode(window.property("encodedChoices") or "", validate=True)
+        library_data = json.loads(library_raw)
+        if library_data.get("games", {}).get("libraries") != ["Program Files (x86)/Steam"]:
+            raise SystemExit(f"the Windows library was not saved {library_data.get('games')}")
+        library_order = open_order()
+        expected_library = (
+            "Blank will be wiped and used for WASD. "
+            "Windows will be used for /games. It will not be wiped, and the files stay. "
+            "Windows is on it."
+        )
+        if library_order != expected_library:
+            raise SystemExit(f"the Windows library order was {library_order}")
+        close_order()
+        live_rows([
+            {"name": "Blank", "device": "nvme0n1", "bytes": 1_000_000_000_000, "occupied": False, "solid": True},
+            {
+                "name": "Windows",
+                "device": "nvme1n1",
+                "bytes": 2_000_000_000_000,
+                "windows": True,
+                "occupied": True,
+                "steam": True,
+                "hibernated": True,
+                "part": "nvme1n1p3",
+                "fstype": "ntfs",
+                "uuid": "abcdefab-1234-1234-1234-123456789abc",
+                "libraries": ["Program Files (x86)/Steam"],
+                "free": 400 * 1024 ** 3,
+                "solid": True,
+            },
+        ])
+        if window.property("gamesMode") != "split" or int(window.property("gamesDiskIndex")) != -1 or int(window.property("diskIndex")) != 0:
+            raise SystemExit("a hibernated Windows drive was mounted")
+        if not QMetaObject.invokeMethod(window, "pickGamesDrive", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 1)):
+            raise SystemExit("pickGamesDrive did not run for the hibernated drive")
+        pump(50)
+        if int(window.property("confirmStep") or 0) != 0:
+            raise SystemExit("a hibernated Windows drive opened a choice")
+        live_rows([
+            {"name": "Blank", "device": "nvme0n1", "bytes": 1_000_000_000_000, "occupied": False, "solid": True},
+            {
+                "name": "Windows",
+                "device": "nvme1n1",
+                "bytes": 2_000_000_000_000,
+                "windows": True,
+                "occupied": True,
+                "part": "nvme1n1p3",
+                "fstype": "ntfs",
+                "uuid": "abcdefab-1234-1234-1234-123456789abc",
+                "free": 10 * 1024 ** 3,
+                "solid": True,
+            },
+        ])
+        if window.property("gamesMode") != "split" or int(window.property("diskIndex")) != 0 or int(window.property("gamesDiskIndex")) != -1:
+            raise SystemExit("a full Windows drive without Steam was used")
         window.applyLive(json.dumps({"warnings": [], "blocked": False, "disks": parse_disks(FIXTURE)}))
         pump(50)
         snap = json.loads(window.diskSnapshot())
@@ -568,8 +743,8 @@ def qml_app(save_path, shot_dir, live):
         pump(50)
         if window.property("appSummary") != "23 selected":
             raise SystemExit(f"apps were not all selected: {window.property('appSummary')}")
-        if window.property("launcherSummary") != "None selected":
-            raise SystemExit(f"apps selected a launcher: {window.property('launcherSummary')}")
+        if window.property("launcherSummary") != "Spawn, Game Jolt":
+            raise SystemExit(f"apps changed the launchers: {window.property('launcherSummary')}")
         grab(shot / "apps-all.png")
         if window.property("gameSummary") != "itch.io, 0 A.D., OpenTTD, SuperTuxKart, Luanti, Battle for Wesnoth, Freeciv":
             raise SystemExit(f"games were not all selected: {window.property('gameSummary')}")
