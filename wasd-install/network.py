@@ -34,6 +34,11 @@ except ImportError:
 PORT = 8765
 WIFI_ID = "WASD Wi-Fi"
 ETHERNET_ID = "WASD Ethernet"
+# NetworkManager can read this tree. A file in /run/wasd-wifi stays
+# var_run_t, and the daemon refuses it before it tries the passphrase.
+NM_RUN = Path("/run/NetworkManager")
+KEY_DIR = NM_RUN / "wasd"
+NM_TYPES = {"NetworkManager_var_run_t", "NetworkManager_etc_t", "NetworkManager_etc_rw_t"}
 WIFI_KEYS = {"ssid", "security", "hidden"}
 TCP_KEYS = {"mode", "interface", "kind", "address", "netmask", "gateway", "dns"}
 IFACE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,15}$")
@@ -144,6 +149,44 @@ def _manual_ipv4(tcp):
     ]
 
 
+def selinux_type(path):
+    try:
+        raw = os.getxattr(path, "security.selinux")
+    except OSError:
+        return ""
+    parts = raw.decode("utf-8", "replace").rstrip("\x00").split(":")
+    return parts[2] if len(parts) > 2 else ""
+
+
+def label_for_network_manager(path):
+    """Give the connection file a type NetworkManager is allowed to read."""
+    targets = []
+    if path.parent != path:
+        targets.append(path.parent)
+    targets.append(path)
+    for target in targets:
+        if not target.exists() or selinux_type(target) in NM_TYPES:
+            continue
+        try:
+            subprocess.run(["restorecon", "-F", str(target)], capture_output=True)
+        except FileNotFoundError:
+            pass
+        if selinux_type(target) in NM_TYPES:
+            continue
+        try:
+            if not target.resolve().is_relative_to(NM_RUN.resolve()):
+                continue
+        except OSError:
+            continue
+        try:
+            subprocess.run(
+                ["chcon", "-t", "NetworkManager_var_run_t", str(target)],
+                capture_output=True,
+            )
+        except FileNotFoundError:
+            pass
+
+
 def render_keyfile(ssid, passphrase, hidden, secured, tcp=None):
     manual = tcp if tcp and tcp.get("kind") == "wifi" else None
     lines = [
@@ -206,6 +249,7 @@ def connect_saved(ssid, passphrase, security, hidden, runner, key_dir, tcp=None)
     try:
         path.write_text(render_keyfile(ssid, passphrase if secured else "", hidden, secured, tcp))
         os.chmod(path, 0o600)
+        label_for_network_manager(path)
         passphrase = ""
         radio = runner(["radio", "wifi", "on"])
         if radio.returncode != 0:
@@ -496,7 +540,7 @@ def connect_saved_main():
         return 1
     ssid, security, hidden = saved
     tcp = read_saved_tcp(os.environ.get("WASD_CHOICES", "/etc/wasd/choices.json"))
-    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", "/run/wasd-wifi"))
+    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", str(KEY_DIR)))
     try:
         connect_saved(ssid, passphrase, security, hidden, _nmcli, key_dir, tcp)
     except Refuse as exc:
@@ -561,6 +605,7 @@ def apply_ethernet(tcp, runner, key_dir):
     try:
         path.write_text(render_ethernet_keyfile(tcp))
         os.chmod(path, 0o600)
+        label_for_network_manager(path)
         runner(["connection", "delete", "id", ETHERNET_ID])
         loaded = runner(["connection", "load", str(path)])
         if loaded.returncode != 0:
@@ -589,7 +634,7 @@ def apply_ethernet_main():
     if tcp is None or tcp.get("kind") != "ethernet":
         print("No address was saved.", file=sys.stderr)
         return 1
-    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", "/run/wasd-wifi"))
+    key_dir = Path(os.environ.get("WASD_WIFI_KEYDIR", str(KEY_DIR)))
     try:
         note = apply_ethernet(tcp, _nmcli, key_dir)
     except Refuse as exc:
