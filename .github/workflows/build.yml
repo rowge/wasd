@@ -42,6 +42,7 @@ env:
 # download. normal publishes the default download. The repo is public, so
 # this does not run on pull requests.
 # Pushing this file starts another hardcore build of the same tree.
+# A cancelled run is started again by pushing this file.
 concurrency:
   group: wasd-hammerite
   cancel-in-progress: false
