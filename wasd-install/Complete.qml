@@ -1510,12 +1510,14 @@ Window {
         }
 
         Flickable {
+            id: netPage
             visible: win.phase === "net"
             anchors.top: titlebar.bottom
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.margins: 28
+            anchors.rightMargin: 36
             clip: true
             contentWidth: width
             contentHeight: netColumn.implicitHeight
@@ -1544,116 +1546,254 @@ Window {
                     font.pixelSize: 15
                 }
 
-                Text {
+                Row {
+                    id: netSplit
                     width: parent.width
-                    visible: win.netNetworks.length === 0
-                    wrapMode: Text.WordWrap
-                    text: "No networks were found. Type a network name."
-                    color: win.muted
-                    font.family: win.bodyFont
-                    font.pixelSize: 14
-                }
+                    spacing: 16
 
-                Repeater {
-                    model: win.netNetworks
-                    delegate: Rectangle {
-                        required property var modelData
-                        width: netColumn.width
-                        height: 44
+                    Column {
+                        id: netForm
+                        width: Math.round((parent.width - netSplit.spacing) * 0.46)
+                        spacing: 12
+
+                        Rectangle {
+                            width: parent.width
+                            height: 44
+                            color: Qt.rgba(0, 0, 0, 0.28)
+                            radius: 8
+                            border.width: 1
+                            border.color: win.line
+
+                            TextInput {
+                                id: netField
+                                anchors.fill: parent
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 14
+                                verticalAlignment: TextInput.AlignVCenter
+                                color: win.ink
+                                font.pixelSize: 16
+                                font.family: win.bodyFont
+                                selectByMouse: true
+                                clip: true
+                                selectionColor: win.brass
+                                selectedTextColor: win.buttonInk
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: parent.text.length === 0
+                                    text: "Network name"
+                                    color: win.muted
+                                    font.family: win.bodyFont
+                                    font.pixelSize: 16
+                                }
+                                onTextEdited: {
+                                    win.netSsid = text
+                                    win.netSecurity = ""
+                                    win.netHidden = false
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: parent.width
+                            height: 44
+                            color: Qt.rgba(0, 0, 0, 0.28)
+                            radius: 8
+                            border.width: 1
+                            border.color: win.line
+
+                            TextInput {
+                                id: netPassField
+                                anchors.fill: parent
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 14
+                                verticalAlignment: TextInput.AlignVCenter
+                                echoMode: TextInput.Password
+                                color: win.ink
+                                font.pixelSize: 16
+                                font.family: win.bodyFont
+                                selectByMouse: true
+                                clip: true
+                                selectionColor: win.brass
+                                selectedTextColor: win.buttonInk
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: parent.text.length === 0 && parent.echoMode === TextInput.Password
+                                    text: "Passphrase"
+                                    color: win.muted
+                                    font.family: win.bodyFont
+                                    font.pixelSize: 16
+                                }
+                                onTextEdited: win.netPass = text
+                            }
+                        }
+
+                        Text {
+                            width: parent.width
+                            visible: win.netError.length > 0
+                            wrapMode: Text.WordWrap
+                            text: win.netError
+                            color: win.danger
+                            font.family: win.bodyFont
+                            font.pixelSize: 15
+                        }
+
+                        Row {
+                            spacing: 12
+
+                            Rectangle {
+                                width: netConnectLabel.implicitWidth + 28
+                                height: 40
+                                radius: 9
+                                color: win.netBusy ? Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35) : win.button
+                                antialiasing: true
+
+                                Text {
+                                    id: netConnectLabel
+                                    anchors.centerIn: parent
+                                    text: "Connect"
+                                    color: win.buttonInk
+                                    font.family: win.bodyFont
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !win.netBusy
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: win.connectNet()
+                                }
+                            }
+
+                            Rectangle {
+                                objectName: "skipAppsButton"
+                                width: netSkipLabel.implicitWidth + 28
+                                height: 40
+                                radius: 9
+                                color: "transparent"
+                                border.width: 1
+                                border.color: Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.55)
+                                antialiasing: true
+
+                                Text {
+                                    id: netSkipLabel
+                                    anchors.centerIn: parent
+                                    text: "Skip for now"
+                                    color: win.ink
+                                    font.family: win.bodyFont
+                                    font.pixelSize: 16
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !win.netBusy
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: win.skipApps()
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width - netForm.width - netSplit.spacing
+                        height: 292
+                        radius: 8
                         color: Qt.rgba(0, 0, 0, 0.18)
                         border.width: 1
-                        border.color: win.netSsid === modelData.ssid ? win.brass : win.line
+                        border.color: win.line
+                        clip: true
 
-                        Text {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.margins: 14
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.ssid
-                            color: win.ink
-                            font.family: win.bodyFont
-                            font.pixelSize: 16
-                            elide: Text.ElideRight
-                        }
-
-                        MouseArea {
+                        Flickable {
+                            id: netListFlick
                             anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: win.chooseNet(modelData.ssid, modelData.security)
-                        }
-                    }
-                }
+                            anchors.margins: 8
+                            anchors.rightMargin: 22
+                            contentWidth: width
+                            contentHeight: netListColumn.implicitHeight
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            flickableDirection: Flickable.VerticalFlick
 
-                Rectangle {
-                    width: Math.min(420, parent.width)
-                    height: 44
-                    color: Qt.rgba(0, 0, 0, 0.28)
-                    radius: 8
-                    border.width: 1
-                    border.color: win.line
+                            Column {
+                                id: netListColumn
+                                width: netListFlick.width
+                                spacing: 8
 
-                    TextInput {
-                        id: netField
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        verticalAlignment: TextInput.AlignVCenter
-                        color: win.ink
-                        font.pixelSize: 16
-                        font.family: win.bodyFont
-                        selectByMouse: true
-                        clip: true
-                        selectionColor: win.brass
-                        selectedTextColor: win.buttonInk
-                        Text {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: parent.text.length === 0
-                            text: "Network name"
-                            color: win.muted
-                            font.family: win.bodyFont
-                            font.pixelSize: 16
-                        }
-                        onTextEdited: {
-                            win.netSsid = text
-                            win.netSecurity = ""
-                            win.netHidden = false
-                        }
-                    }
-                }
+                                Text {
+                                    width: parent.width
+                                    visible: win.netNetworks.length === 0
+                                    wrapMode: Text.WordWrap
+                                    text: "No networks were found. Type a network name."
+                                    color: win.muted
+                                    font.family: win.bodyFont
+                                    font.pixelSize: 14
+                                }
 
-                Rectangle {
-                    width: Math.min(420, parent.width)
-                    height: 44
-                    color: Qt.rgba(0, 0, 0, 0.28)
-                    radius: 8
-                    border.width: 1
-                    border.color: win.line
+                                Repeater {
+                                    model: win.netNetworks
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: netListColumn.width
+                                        height: 44
+                                        color: Qt.rgba(0, 0, 0, 0.18)
+                                        border.width: 1
+                                        border.color: win.netSsid === modelData.ssid ? win.brass : win.line
 
-                    TextInput {
-                        id: netPassField
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        verticalAlignment: TextInput.AlignVCenter
-                        echoMode: TextInput.Password
-                        color: win.ink
-                        font.pixelSize: 16
-                        font.family: win.bodyFont
-                        selectByMouse: true
-                        clip: true
-                        selectionColor: win.brass
-                        selectedTextColor: win.buttonInk
-                        Text {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: parent.text.length === 0 && parent.echoMode === TextInput.Password
-                            text: "Passphrase"
-                            color: win.muted
-                            font.family: win.bodyFont
-                            font.pixelSize: 16
+                                        Text {
+                                            anchors.left: parent.left
+                                            anchors.right: netSecurityText.left
+                                            anchors.leftMargin: 14
+                                            anchors.rightMargin: 8
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: modelData.ssid
+                                            color: win.ink
+                                            font.family: win.bodyFont
+                                            font.pixelSize: 16
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            id: netSecurityText
+                                            anchors.right: parent.right
+                                            anchors.rightMargin: 14
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: modelData.security || "Open"
+                                            color: win.muted
+                                            font.family: win.bodyFont
+                                            font.pixelSize: 14
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: win.chooseNet(modelData.ssid, modelData.security)
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        onTextEdited: win.netPass = text
+
+                        Rectangle {
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 6
+                            width: 10
+                            radius: 5
+                            color: Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.16)
+
+                            Rectangle {
+                                width: parent.width
+                                radius: 5
+                                color: win.brass
+                                readonly property real viewH: Math.max(netListFlick.height, 1)
+                                readonly property real fullH: Math.max(netListFlick.contentHeight, viewH)
+                                height: Math.max(36, Math.min(parent.height, viewH * viewH / fullH))
+                                y: fullH <= viewH ? 0 : (parent.height - height) * netListFlick.contentY / (fullH - viewH)
+                            }
+                        }
                     }
                 }
 
@@ -1814,71 +1954,29 @@ Window {
                     }
                 }
 
-                Text {
-                    width: parent.width
-                    visible: win.netError.length > 0
-                    wrapMode: Text.WordWrap
-                    text: win.netError
-                    color: win.danger
-                    font.family: win.bodyFont
-                    font.pixelSize: 15
-                }
+            }
+        }
 
-                Row {
-                    spacing: 12
+        Rectangle {
+            visible: win.phase === "net"
+            anchors.right: parent.right
+            anchors.top: titlebar.bottom
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: 10
+            anchors.topMargin: 28
+            anchors.bottomMargin: 28
+            width: 10
+            radius: 5
+            color: Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.16)
 
-                    Rectangle {
-                        width: netConnectLabel.implicitWidth + 28
-                        height: 40
-                        radius: 9
-                        color: win.netBusy ? Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.35) : win.button
-                        antialiasing: true
-
-                        Text {
-                            id: netConnectLabel
-                            anchors.centerIn: parent
-                            text: "Connect"
-                            color: win.buttonInk
-                            font.family: win.bodyFont
-                            font.pixelSize: 16
-                            font.bold: true
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: !win.netBusy
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: win.connectNet()
-                        }
-                    }
-
-                    Rectangle {
-                        objectName: "skipAppsButton"
-                        width: netSkipLabel.implicitWidth + 28
-                        height: 40
-                        radius: 9
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Qt.rgba(244 / 255, 242 / 255, 238 / 255, 0.55)
-                        antialiasing: true
-
-                        Text {
-                            id: netSkipLabel
-                            anchors.centerIn: parent
-                            text: "Skip for now"
-                            color: win.ink
-                            font.family: win.bodyFont
-                            font.pixelSize: 16
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: !win.netBusy
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: win.skipApps()
-                        }
-                    }
-                }
+            Rectangle {
+                width: parent.width
+                radius: 5
+                color: win.brass
+                readonly property real viewH: Math.max(netPage.height, 1)
+                readonly property real fullH: Math.max(netPage.contentHeight, viewH)
+                height: Math.max(36, Math.min(parent.height, viewH * viewH / fullH))
+                y: fullH <= viewH ? 0 : (parent.height - height) * netPage.contentY / (fullH - viewH)
             }
         }
 
